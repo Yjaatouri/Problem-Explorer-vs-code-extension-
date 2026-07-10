@@ -47,13 +47,13 @@
 
 ### Task 1.1 — Implement the CacheLayer
 
-- [ ] Create `src/cache/lruCache.ts` with generic LRU eviction
-- [ ] Create `src/cache/cacheLayer.ts` with `ProblemCache` class
-- [ ] Implement `get(uri): ProblemStatus | undefined` — O(1)
-- [ ] Implement `set(uri, status): boolean` — returns true if changed
-- [ ] Implement `delete(uri)` and `clear()`
-- [ ] Implement workspace-folder-aware isolation
-- [ ] Write unit tests for cache (hit, miss, eviction, overwrite)
+- [x] Create `src/cache/lruCache.ts` with generic LRU eviction
+- [x] Create `src/cache/cacheLayer.ts` with `ProblemCache` class
+- [x] Implement `get(uri): ProblemStatus | undefined` — O(1)
+- [x] Implement `set(uri, status): boolean` — returns true if changed
+- [x] Implement `delete(uri)` and `clear()`
+- [x] Implement workspace-folder-aware isolation
+- [x] Write unit tests for cache (hit, miss, eviction, overwrite)
 
 ### Task 1.2 — Implement the SeverityMapper
 
