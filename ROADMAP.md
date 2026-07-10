@@ -250,10 +250,10 @@
 
 ### Task 5.4 — Documentation
 
-- [ ] Write complete README with screenshots and animated GIF
-- [ ] Write CHANGELOG.md
-- [ ] Document all settings in README
-- [ ] Add inline code comments for public API surfaces
+- [x] Write complete README with features, settings, installation, contributing
+- [x] Write CHANGELOG.md
+- [x] Document all settings in README (table with type/default/description)
+- [x] Add inline JSDoc comments for all public API surfaces
 
 ### Task 5.5 — Packaging & Marketplace
 

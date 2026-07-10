@@ -1,3 +1,4 @@
+/** Create a debounced version of `fn` that delays invocation until `delay` ms after the last call. Returns `cancel()` and `flush()` controls. */
 export function debounce<Args extends unknown[]>(
   fn: (...args: Args) => void,
   delay: number,

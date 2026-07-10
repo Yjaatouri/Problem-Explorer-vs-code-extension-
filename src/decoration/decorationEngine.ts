@@ -15,6 +15,7 @@ import { ProblemSeverity, ProblemStatus } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { toProblemStatus } from '../diagnostics/severityMapper';
 
+/** Abstraction over `workspace.getWorkspaceFolder` for testability */
 export interface WorkspaceFolderDelegate {
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
 }
@@ -23,6 +24,12 @@ const defaultDelegate: WorkspaceFolderDelegate = {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 };
 
+/**
+ * `FileDecorationProvider` that translates cached `ProblemStatus` values into visual
+ * decorations (badge, color, tooltip) for files and folders in the Explorer.
+ *
+ * Must be registered via `window.registerFileDecorationProvider()`.
+ */
 export class DecorationEngine implements FileDecorationProvider {
   private readonly _onDidChangeFileDecorations = new EventEmitter<Uri | Uri[] | undefined>();
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
@@ -36,6 +43,7 @@ export class DecorationEngine implements FileDecorationProvider {
     this.wf = wf ?? defaultDelegate;
   }
 
+  /** Synchronous lookup — never perform I/O or async work here. Returns `undefined` for clean files. */
   provideFileDecoration(
     uri: Uri,
     _token: CancellationToken,
@@ -62,10 +70,12 @@ export class DecorationEngine implements FileDecorationProvider {
     return this.toDecoration(status);
   }
 
+  /** Signal that the decoration for the given URIs may have changed */
   fireDidChange(uris: Uri | Uri[] | undefined): void {
     this._onDidChangeFileDecorations.fire(uris);
   }
 
+  /** Force VS Code to re-query all visible file decorations */
   refresh(): void {
     this._onDidChangeFileDecorations.fire(undefined);
   }

@@ -3,6 +3,7 @@ import { ProblemCache } from '../cache/cacheLayer';
 import { ProblemStatus } from '../core/types';
 import { aggregateStatuses } from './propagationStrategy';
 
+/** Abstraction over VS Code workspace API for folder propagation logic */
 export interface FolderWorkspace {
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
   readonly workspaceFolders: readonly WorkspaceFolder[];
@@ -13,6 +14,10 @@ const defaultWorkspace: FolderWorkspace = {
   workspaceFolders: workspace.workspaceFolders ?? [],
 };
 
+/**
+ * Manages folder-level diagnostic status by walking ancestor paths and
+ * aggregating child statuses using worst-severity-wins logic.
+ */
 export class FolderStatusManager {
   private readonly wf: FolderWorkspace;
 
@@ -23,6 +28,11 @@ export class FolderStatusManager {
     this.wf = wf ?? defaultWorkspace;
   }
 
+  /**
+   * Walk from a changed file up to the workspace root, recomputing each
+   * ancestor's aggregate status. Returns the set of ancestor URIs whose
+   * status actually changed.
+   */
   updateAncestors(fileUri: Uri): Uri[] {
     const folder = this.wf.getWorkspaceFolder(fileUri);
     if (!folder) {
@@ -60,6 +70,7 @@ export class FolderStatusManager {
     return changed;
   }
 
+  /** Compute the aggregate status of all children directly under a given folder */
   recomputeFolderStatus(folderUri: Uri, workspaceFolderUri: Uri): ProblemStatus {
     const folderStr = folderUri.toString();
     const prefix = folderStr.endsWith('/') ? folderStr : folderStr + '/';
@@ -75,6 +86,7 @@ export class FolderStatusManager {
     return aggregateStatuses(children);
   }
 
+  /** Walk all cached entries and recompute every folder's aggregate status from scratch */
   rebuildAll(): Uri[] {
     const changed: Uri[] = [];
 

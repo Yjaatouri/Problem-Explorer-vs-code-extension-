@@ -1,33 +1,26 @@
-# Problem-Explorer-vs-code-extension-
 # Problem Explorer
 
-> **Stop hunting for broken files.**
->
-> Problem Explorer automatically highlights files and folders containing **errors** or **warnings** directly in the VS Code Explorer, making project-wide issues visible at a glance.
+**Stop hunting for broken files.**
 
-## ✨ Features
+Problem Explorer automatically highlights files and folders containing **errors** or **warnings** directly in the VS Code Explorer, making project-wide issues visible at a glance.
 
-* 🔴 Highlight files with errors.
-* 🟡 Highlight files with warnings.
-* 📁 Propagate problem status to parent folders.
-* ⚡ Real-time updates as diagnostics change.
-* 🌍 Works with **any language** that publishes VS Code diagnostics.
-* 🎨 Configurable colors, badges, and behavior.
-* 🚀 Lightweight with minimal performance impact.
+![Problem Explorer showing files and folders with error/warning badges in the Explorer](https://github.com/Yjaatouri/Problem-Explorer-vs-code-extension-/raw/main/docs/screenshot.png)
 
----
+## Features
 
-## Why?
+- **File decorations** — files with errors/warnings show a colored badge (E, W, I) in the Explorer
+- **Folder propagation** — folders inherit the worst severity of their children, so you can see at a glance where issues are
+- **Real-time updates** — decorations update as you type, with zero perceptible lag
+- **Language-agnostic** — works with TypeScript, JavaScript, Python, Rust, Go, C++, Java, C#, and any extension that publishes diagnostics
+- **Multi-root workspaces** — supports multiple workspace folders simultaneously
+- **Configurable** — customize colors, badges, ignore patterns, and which severities to show
+- **Lightweight** — LRU-cached, debounced, and optimized for workspaces with 20,000+ files
 
-When working on large projects, it's easy to lose track of which files contain problems.
-
-The VS Code **Problems** panel lists diagnostics, but the Explorer doesn't provide an immediate overview of where issues are located within your project structure.
-
-Problem Explorer solves this by making diagnostics visible directly in the Explorer.
+## How It Works
 
 Instead of this:
 
-```text
+```
 packages/
 ├── core/
 ├── cli/
@@ -36,106 +29,109 @@ packages/
 
 You'll see something like:
 
-```text
+```
 packages/
-├── core 🔴
-│   ├── parser.ts 🔴
-│   ├── lexer.ts 🟡
+├── core E
+│   ├── parser.ts E
+│   ├── lexer.ts W
 │   └── utils.ts
 ├── cli
-└── sdk 🔴
-    └── index.ts 🔴
+└── sdk E
+    └── index.ts E
 ```
 
-You instantly know where to focus.
-
----
-
-## Supported Languages
-
-Problem Explorer is language-agnostic.
-
-It works with any extension that publishes diagnostics through the VS Code API, including:
-
-* TypeScript
-* JavaScript
-* Python
-* C/C++
-* Rust
-* Go
-* Java
-* C#
-* PHP
-* Lua
-* And many more...
-
-If a language server reports diagnostics, Problem Explorer can display them.
-
----
-
-## Planned Features
-
-* [ ] File decorations for errors and warnings
-* [ ] Folder decorations based on child diagnostics
-* [ ] Configurable severity colors
-* [ ] Problem count badges
-* [ ] Ignore configurable folders (e.g. `node_modules`, `dist`, `build`)
-* [ ] Refresh command
-* [ ] Performance optimizations for large workspaces
-* [ ] Multi-root workspace support
-
----
+Instantly know where to focus.
 
 ## Installation
 
-Coming soon on the Visual Studio Marketplace.
+### From VS Code Marketplace
 
-For development:
+1. Open VS Code
+2. Go to the Extensions view (Ctrl+Shift+X)
+3. Search for "Problem Explorer"
+4. Click Install
+
+### From VSIX
+
+1. Download the `.vsix` file from the [Releases page](https://github.com/Yjaatouri/Problem-Explorer-vs-code-extension-/releases)
+2. In VS Code, go to Extensions → `...` → Install from VSIX...
+
+### Development
 
 ```bash
-git clone https://github.com/<your-username>/problem-explorer.git
-cd problem-explorer
+git clone https://github.com/Yjaatouri/Problem-Explorer-vs-code-extension-.git
+cd problem-explorer-vs-code-extension
 npm install
+npm run build
 ```
 
 Launch the extension using **Run Extension** (`F5`) inside VS Code.
 
----
+## Commands
 
+| Command | Title | Keybinding |
+|---|---|---|
+| `problemExplorer.refresh` | Refresh Problem Decorations | Ctrl+Shift+Alt+P (Cmd+Shift+Alt+P on Mac) |
+| `problemExplorer.toggle` | Toggle Problem Decorations | — |
 
-### Version 0.1
+## Settings
 
-* Basic file decorations
-* Automatic refresh
-* Error & warning support
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `problemExplorer.enabled` | `boolean` | `true` | Enable or disable problem decorations |
+| `problemExplorer.showWarnings` | `boolean` | `true` | Show warning decorations alongside errors |
+| `problemExplorer.badgeStyle` | `string` | `letter` | Badge style: `letter` (E/W/I), `count` (problem count), `dot` (colored circle), `none` (color only) |
+| `problemExplorer.ignorePatterns` | `string[]` | `["**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**", "**/.next/**", "**/target/**", "**/__pycache__/**", "**/vendor/**", "**/.tox/**"]` | Glob patterns for files/folders to ignore |
+| `problemExplorer.errorColor` | `string` \| `null` | `null` | Custom CSS color override for errors (e.g. `"#ff0000"`) |
+| `problemExplorer.warningColor` | `string` \| `null` | `null` | Custom CSS color override for warnings |
+| `problemExplorer.infoColor` | `string` \| `null` | `null` | Custom CSS color override for info diagnostics |
 
-### Version 0.2
+### Theme Colors
 
-* Folder decorations
-* Custom settings
-* Improved performance
+You can also customize colors via `workbench.colorCustomizations` in `settings.json`:
 
-### Version 1.0
+```jsonc
+"workbench.colorCustomizations": {
+  "problemExplorer.errorForeground": "#ff0000",
+  "problemExplorer.warningForeground": "#ffaa00",
+  "problemExplorer.infoForeground": "#00aaff"
+}
+```
 
-* Stable API
-* Multi-root workspaces
-* Extensive testing
-* Marketplace release
+## Requirements
 
----
+- VS Code 1.90.0 or higher
+
+## Known Limitations
+
+- Badges are text-only (E, W, I, count, or dot). VS Code's `FileDecorationProvider` API does not support custom icons or background colors.
+- Folder color propagation requires an explicit `onDidChangeFileDecorations` event per ancestor — handled automatically by the extension.
+
+## Architecture
+
+See [docs/phase-0-task-0-architecture.md](docs/phase-0-task-0-architecture.md) for the full architecture document, including:
+
+- Module overview diagram
+- Data flow (activation, runtime changes, folder expansion, configuration)
+- Performance strategy (LRU cache, debouncing, synchronous `provideFileDecoration`)
+- Risk analysis and edge case handling
 
 ## Contributing
 
 Contributions, bug reports, and feature requests are welcome.
 
-If you discover a limitation in the VS Code API or have ideas for improving diagnostics visualization, feel free to open an issue or submit a pull request.
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -m 'Add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
 
----
+Before submitting, ensure:
+
+- `npm run lint` passes
+- `npm run build` succeeds
+- Tests pass (`npm test`)
 
 ## License
 
 MIT
-
----
-
-Made for developers who'd rather fix problems than spend five minutes figuring out which file contains them.

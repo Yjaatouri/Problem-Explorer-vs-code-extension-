@@ -2,6 +2,7 @@ import { Uri } from 'vscode';
 import { minimatch } from 'minimatch';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
+/** Check whether a URI matches any of the given ignore glob patterns (defaults to `DEFAULT_IGNORE_PATTERNS`). Non-`file` URIs are never ignored. */
 export function isIgnored(uri: Uri, patterns?: string[]): boolean {
   if (uri.scheme !== 'file') {
     return false;

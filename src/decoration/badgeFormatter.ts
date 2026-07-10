@@ -1,6 +1,7 @@
 import { ProblemSeverity, SeverityCounts } from '../core/types';
 import { BADGE_DOT } from '../core/constants';
 
+/** Supported badge display styles */
 export type BadgeStyle = 'letter' | 'count' | 'dot' | 'none';
 
 const LETTERS: Record<ProblemSeverity, string> = {
@@ -10,6 +11,7 @@ const LETTERS: Record<ProblemSeverity, string> = {
   [ProblemSeverity.Error]: 'E',
 };
 
+/** Produce the badge string for a given severity, counts, and style */
 export function getBadge(
   severity: ProblemSeverity,
   counts: SeverityCounts,

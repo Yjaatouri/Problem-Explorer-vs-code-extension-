@@ -8,11 +8,13 @@ import { DiagnosticsManager } from '../diagnostics/diagnosticsManager';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { DecorationEngine } from '../decoration/decorationEngine';
 
+/** Abstraction over `workspace.workspaceFolders` and folder change events for testability */
 export interface WorkspaceDelegate {
   readonly workspaceFolders: readonly WorkspaceFolder[];
   onDidChangeWorkspaceFolders: Event<WorkspaceFoldersChangeEvent>;
 }
 
+/** Shape of the VS Code workspace folder change event */
 export interface WorkspaceFoldersChangeEvent {
   readonly added: readonly WorkspaceFolder[];
   readonly removed: readonly WorkspaceFolder[];
@@ -26,6 +28,7 @@ const defaultDelegate: WorkspaceDelegate = {
     workspace.onDidChangeWorkspaceFolders(listener),
 };
 
+/** Tracks multi-root workspace folder changes and re-seeds cache/decoration state */
 export class WorkspaceManager {
   private readonly delegate: WorkspaceDelegate;
 
@@ -42,6 +45,7 @@ export class WorkspaceManager {
     });
   }
 
+  /** Return the current list of workspace folders */
   getWorkspaceFolders(): readonly WorkspaceFolder[] {
     return this.delegate.workspaceFolders;
   }

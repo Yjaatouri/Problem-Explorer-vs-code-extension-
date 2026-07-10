@@ -14,6 +14,7 @@ import { ProblemStatus } from '../core/types';
 import { isIgnored } from '../performance/ignoreFilter';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
+/** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
 export interface DiagnosticsDelegate {
   getAllDiagnostics(): [Uri, Diagnostic[]][];
   getUriDiagnostics(uri: Uri): Diagnostic[];
@@ -26,12 +27,15 @@ const defaultDelegate: DiagnosticsDelegate = {
   getWorkspaceFolder: (uri: Uri) => workspace.getWorkspaceFolder(uri),
 };
 
+/** Ingests VS Code diagnostic events, converts them to `ProblemStatus`, and writes to the cache */
 export class DiagnosticsManager {
   private readonly cache: ProblemCache;
   private readonly delegate: DiagnosticsDelegate;
   private readonly _onDidChangeDiagnostics = new EventEmitter<Uri[]>();
 
+  /** Fired with the set of URIs whose cached status changed after processing */
   readonly onDidChangeDiagnostics: Event<Uri[]> = this._onDidChangeDiagnostics.event;
+  /** Direct passthrough to `languages.onDidChangeDiagnostics` */
   readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
 
   constructor(cache: ProblemCache, delegate?: DiagnosticsDelegate) {
@@ -41,6 +45,7 @@ export class DiagnosticsManager {
     this.cache.setIgnorePredicate((uri) => isIgnored(uri, [...DEFAULT_IGNORE_PATTERNS]));
   }
 
+  /** Scan all diagnostics in the workspace and seed the cache. Returns URIs whose status changed. */
   fullScan(): Uri[] {
     const allDiagnostics = this.delegate.getAllDiagnostics();
     const changed: Uri[] = [];
@@ -53,6 +58,7 @@ export class DiagnosticsManager {
     return changed;
   }
 
+  /** Incrementally update the cache from a diagnostic change event. Returns URIs whose status changed. */
   processChanges(event: DiagnosticChangeEvent): Uri[] {
     const uris = event.uris;
     const changed: Uri[] = [];
@@ -66,6 +72,7 @@ export class DiagnosticsManager {
     return changed;
   }
 
+  /** Read the cached status for a URI. Returns `undefined` if not cached or not in a workspace folder. */
   getStatus(uri: Uri): ProblemStatus | undefined {
     const folder = this.delegate.getWorkspaceFolder(uri);
     if (!folder) {

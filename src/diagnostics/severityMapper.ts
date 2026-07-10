@@ -11,6 +11,7 @@ const SEVERITY_MAP: Record<DiagnosticSeverity, ProblemSeverity> = {
   [DiagnosticSeverity.Hint]: ProblemSeverity.Info,
 };
 
+/** Compute the highest severity present across a set of diagnostics (ignores counts) */
 export function toProblemSeverity(diagnostics: readonly Diagnostic[]): ProblemSeverity {
   let max: ProblemSeverity = ProblemSeverity.None;
 
@@ -24,6 +25,11 @@ export function toProblemSeverity(diagnostics: readonly Diagnostic[]): ProblemSe
   return max;
 }
 
+/**
+ * Convert a raw `Diagnostic[]` array into an immutable `ProblemStatus` value,
+ * computing worst severity and summing counts by category.
+ * Handles thousands of diagnostics efficiently with a single pass.
+ */
 export function toProblemStatus(diagnostics: readonly Diagnostic[]): ProblemStatus {
   let errorCount = 0;
   let warningCount = 0;

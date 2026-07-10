@@ -1,3 +1,4 @@
+/** Ordering matches worst-severity-wins: None < Info < Warning < Error */
 export enum ProblemSeverity {
   None = 0,
   Info = 1,
@@ -5,6 +6,7 @@ export enum ProblemSeverity {
   Error = 3,
 }
 
+/** Immutable value object representing the diagnostics summary for one file or folder */
 export interface ProblemStatus {
   readonly severity: ProblemSeverity;
   readonly errorCount: number;
@@ -12,6 +14,7 @@ export interface ProblemStatus {
   readonly infoCount: number;
 }
 
+/** Shape of the `problemExplorer.*` user settings at runtime */
 export interface Config {
   readonly enabled: boolean;
   readonly showWarnings: boolean;
@@ -22,4 +25,5 @@ export interface Config {
   readonly infoColor: string | undefined;
 }
 
+/** Convenience type for badge formatting — just the counts, no severity */
 export type SeverityCounts = Pick<ProblemStatus, 'errorCount' | 'warningCount' | 'infoCount'>;

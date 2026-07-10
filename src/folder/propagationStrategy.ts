@@ -1,5 +1,6 @@
 import { ProblemSeverity, ProblemStatus } from '../core/types';
 
+/** Combine multiple child statuses into a single parent status using worst-severity-wins */
 export function aggregateStatuses(children: ProblemStatus[]): ProblemStatus {
   let severity = ProblemSeverity.None;
   let errorCount = 0;

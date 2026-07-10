@@ -8,6 +8,7 @@ import { Config } from '../core/types';
 import { SETTINGS_SECTION } from '../core/constants';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
+/** Abstraction over `workspace.getConfiguration` and config change events for testability */
 export interface ConfigDelegate {
   getConfiguration(section?: string): {
     get<T>(key: string, defaultValue?: T): T;
@@ -20,10 +21,12 @@ const defaultDelegate: ConfigDelegate = {
   onDidChangeConfiguration: workspace.onDidChangeConfiguration,
 };
 
+/** Reads and watches `problemExplorer.*` settings, firing `onDidChangeConfig` on relevant changes */
 export class ConfigManager {
   private delegate: ConfigDelegate;
   private config: Config;
   private readonly _onDidChangeConfig = new EventEmitter<void>();
+  /** Fires when any `problemExplorer.*` setting changes */
   readonly onDidChangeConfig: Event<void> = this._onDidChangeConfig.event;
 
   constructor(delegate?: ConfigDelegate) {
@@ -37,6 +40,7 @@ export class ConfigManager {
     });
   }
 
+  /** Get the current snapshot of all `problemExplorer.*` settings */
   getConfig(): Config {
     return this.config;
   }

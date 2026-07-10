@@ -7,6 +7,7 @@ import { createRefreshHandler } from './refresh';
 import { createToggleHandler } from './toggle';
 import { COMMANDS } from '../core/constants';
 
+/** Registers all extension commands (`problemExplorer.refresh`, `problemExplorer.toggle`) */
 export class CommandManager {
   constructor(
     private readonly diagnosticsManager: DiagnosticsManager,
@@ -15,6 +16,7 @@ export class CommandManager {
     private readonly configManager: ConfigManager,
   ) {}
 
+  /** Register all commands into the given extension context */
   register(context: ExtensionContext): void {
     context.subscriptions.push(
       commands.registerCommand(
