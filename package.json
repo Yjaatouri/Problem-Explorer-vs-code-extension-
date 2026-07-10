@@ -2,7 +2,7 @@
   "name": "problem-explorer",
   "displayName": "Problem Explorer",
   "description": "Highlights files and folders with errors and warnings directly in the Explorer",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "Yjaatouri",
   "license": "MIT",
   "repository": {

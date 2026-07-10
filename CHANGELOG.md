@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0 (2026-07-10)
+
+### Added
+
+- **Tooltip enhancements** — folder badges now show "across N files" when multiple files contribute to the diagnostic count
+- **Status bar integration** — total errors, warnings, and infos displayed with codicons; click opens the Problems panel
+- **Per-language severity overrides** — remap severity per file extension via `problemExplorer.severityOverrides` (e.g., `.py` errors → warnings)
+- **Public extension API** — other extensions can call `getExtension('Yjaatouri.problem-explorer').exports` to access `getProblemStatus(uri)` and `onDidChangeProblemStatus` event
+- **Diagnostic trend tracking** — periodic snapshots of total diagnostic counts persisted to global state (every 5 minutes + on change)
+
 ## 0.0.1 (2026-07-10)
 
 ### Added
