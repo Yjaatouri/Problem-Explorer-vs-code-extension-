@@ -1,0 +1,87 @@
+import {
+  Event,
+  EventEmitter,
+  Uri,
+  WorkspaceFolder,
+  Diagnostic,
+  DiagnosticChangeEvent,
+  languages,
+  workspace,
+} from 'vscode';
+import { ProblemCache } from '../cache/cacheLayer';
+import { toProblemStatus } from './severityMapper';
+import { ProblemStatus } from '../core/types';
+
+export interface DiagnosticsDelegate {
+  getAllDiagnostics(): [Uri, Diagnostic[]][];
+  getUriDiagnostics(uri: Uri): Diagnostic[];
+  getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
+}
+
+const defaultDelegate: DiagnosticsDelegate = {
+  getAllDiagnostics: () => languages.getDiagnostics(),
+  getUriDiagnostics: (uri: Uri) => languages.getDiagnostics(uri),
+  getWorkspaceFolder: (uri: Uri) => workspace.getWorkspaceFolder(uri),
+};
+
+export class DiagnosticsManager {
+  private readonly cache: ProblemCache;
+  private readonly delegate: DiagnosticsDelegate;
+  private readonly _onDidChangeDiagnostics = new EventEmitter<Uri[]>();
+
+  readonly onDidChangeDiagnostics: Event<Uri[]> = this._onDidChangeDiagnostics.event;
+  readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
+
+  constructor(cache: ProblemCache, delegate?: DiagnosticsDelegate) {
+    this.cache = cache;
+    this.delegate = delegate ?? defaultDelegate;
+    this.onDidDiagnosticsChange = languages.onDidChangeDiagnostics;
+  }
+
+  fullScan(): Uri[] {
+    const allDiagnostics = this.delegate.getAllDiagnostics();
+    const changed: Uri[] = [];
+
+    for (let i = 0; i < allDiagnostics.length; i++) {
+      const [uri, diagnostics] = allDiagnostics[i];
+      this.updateUri(uri, diagnostics, changed);
+    }
+
+    return changed;
+  }
+
+  processChanges(event: DiagnosticChangeEvent): Uri[] {
+    const uris = event.uris;
+    const changed: Uri[] = [];
+
+    for (let i = 0; i < uris.length; i++) {
+      const uri = uris[i];
+      const diagnostics = this.delegate.getUriDiagnostics(uri);
+      this.updateUri(uri, diagnostics, changed);
+    }
+
+    return changed;
+  }
+
+  getStatus(uri: Uri): ProblemStatus | undefined {
+    const folder = this.delegate.getWorkspaceFolder(uri);
+    if (!folder) {
+      return undefined;
+    }
+    return this.cache.get(uri, folder.uri);
+  }
+
+  private updateUri(uri: Uri, diagnostics: Diagnostic[], changed: Uri[]): void {
+    const folder = this.delegate.getWorkspaceFolder(uri);
+    if (!folder) {
+      return;
+    }
+
+    const status = toProblemStatus(diagnostics);
+    const didChange = this.cache.set(uri, status, folder.uri);
+
+    if (didChange) {
+      changed.push(uri);
+    }
+  }
+}

@@ -65,13 +65,13 @@
 
 ### Task 1.3 — Implement the DiagnosticsManager
 
-- [ ] Create `src/diagnostics/diagnosticsManager.ts`
-- [ ] Implement `fullScan()` — calls `languages.getDiagnostics()`, seeds cache
-- [ ] Implement `processChanges(uris: Uri[])` — incremental update from event
-- [ ] Subscribe to `languages.onDidChangeDiagnostics`
-- [ ] Integrate with CacheLayer (write-through on every change)
-- [ ] Publish internal `onDiagnosticsChanged` event for other modules
-- [ ] Write unit tests (mock `languages.getDiagnostics`)
+- [x] Create `src/diagnostics/diagnosticsManager.ts`
+- [x] Implement `fullScan()` — calls `languages.getDiagnostics()`, seeds cache
+- [x] Implement `processChanges(uris: Uri[])` — incremental update from event
+- [x] Subscribe to `languages.onDidChangeDiagnostics`
+- [x] Integrate with CacheLayer (write-through on every change)
+- [x] Publish internal `onDiagnosticsChanged` event for other modules
+- [x] Write unit tests (mock `languages.getDiagnostics`)
 
 ### Task 1.4 — Implement the IgnoreFilter
 
