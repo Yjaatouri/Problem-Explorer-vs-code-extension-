@@ -30,6 +30,21 @@ export function activate(context: vscode.ExtensionContext): void {
     decorationEngine,
   );
 
+  // Apply initial config
+  const applyConfig = (): void => {
+    const config = configManager.getConfig();
+    diagnosticsManager.setSeverityOverrides(config.severityOverrides);
+    decorationEngine.setSeverityOverrides(config.severityOverrides);
+  };
+  applyConfig();
+
+  context.subscriptions.push(
+    configManager.onDidChangeConfig(() => {
+      applyConfig();
+      decorationEngine.refresh();
+    }),
+  );
+
   context.subscriptions.push(
     vscode.window.registerFileDecorationProvider(decorationEngine),
   );

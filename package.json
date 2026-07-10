@@ -152,6 +152,21 @@
           "description": "Custom CSS color for info badges (overrides theme color). Example: \"#00aaff\"",
           "pattern": "^#[0-9a-fA-F]{6}$|^[0-9a-fA-F]{8}$|^[a-zA-Z]+$",
           "patternErrorMessage": "Must be a valid hex color (#RRGGBB or #RRGGBBAA) or a CSS color name"
+        },
+        "problemExplorer.severityOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "Override diagnostic severities per file extension. Keys are file extensions (e.g. \".py\"), values are maps from original severity (Error/Warning/Information/Hint) to target severity. Example: {\".py\": {\"Error\": \"Warning\"}} demotes Python errors to warnings",
+          "additionalProperties": {
+            "type": "object",
+            "description": "Mapping from source severity name to target severity name",
+            "properties": {
+              "Error": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] },
+              "Warning": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] },
+              "Information": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] },
+              "Hint": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] }
+            }
+          }
         }
       }
     }

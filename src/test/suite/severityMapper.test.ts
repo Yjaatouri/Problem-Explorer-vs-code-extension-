@@ -4,9 +4,10 @@ import {
   Diagnostic,
   Range,
   Position,
+  Uri,
 } from 'vscode';
 import { ProblemSeverity } from '../../core/types';
-import { toProblemSeverity, toProblemStatus } from '../../diagnostics/severityMapper';
+import { toProblemSeverity, toProblemStatus, applySeverityOverrides } from '../../diagnostics/severityMapper';
 
 function makeDiagnostic(severity: DiagnosticSeverity): Diagnostic {
   return new Diagnostic(
@@ -136,6 +137,80 @@ suite('severityMapper', () => {
       ];
       const result = toProblemStatus(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Error);
+    });
+  });
+
+  suite('applySeverityOverrides', () => {
+    function makeError(): Diagnostic {
+      return new Diagnostic(new Range(0, 0, 0, 1), 'err', DiagnosticSeverity.Error);
+    }
+    function makeWarning(): Diagnostic {
+      return new Diagnostic(new Range(0, 0, 0, 1), 'warn', DiagnosticSeverity.Warning);
+    }
+    function makeInfo(): Diagnostic {
+      return new Diagnostic(new Range(0, 0, 0, 1), 'info', DiagnosticSeverity.Information);
+    }
+
+    const pyUri = Uri.file('/workspace/test.py');
+    const tsUri = Uri.file('/workspace/test.ts');
+
+    test('returns original array when no overrides defined', () => {
+      const diags = [makeError()];
+      const result = applySeverityOverrides(pyUri, diags, undefined);
+      assert.strictEqual(result, diags);
+    });
+
+    test('returns original array when extension has no mapping', () => {
+      const diags = [makeError()];
+      const result = applySeverityOverrides(tsUri, diags, { '.py': { Error: 'Warning' } });
+      assert.strictEqual(result, diags);
+    });
+
+    test('demotes error to warning for .py files', () => {
+      const diags = [makeError()];
+      const result = applySeverityOverrides(pyUri, diags, { '.py': { Error: 'Warning' } });
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].severity, DiagnosticSeverity.Warning);
+    });
+
+    test('promotes warning to error for .js files', () => {
+      const jsUri = Uri.file('/workspace/test.js');
+      const diags = [makeWarning()];
+      const result = applySeverityOverrides(jsUri, diags, { '.js': { Warning: 'Error' } });
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].severity, DiagnosticSeverity.Error);
+    });
+
+    test('demotes multiple severities for same extension', () => {
+      const diags = [makeError(), makeWarning(), makeInfo()];
+      const result = applySeverityOverrides(pyUri, diags, {
+        '.py': { Error: 'Warning', Warning: 'Information' },
+      });
+      assert.strictEqual(result.length, 3);
+      assert.strictEqual(result[0].severity, DiagnosticSeverity.Warning);
+      assert.strictEqual(result[1].severity, DiagnosticSeverity.Information);
+      assert.strictEqual(result[2].severity, DiagnosticSeverity.Information);
+    });
+
+    test('returns original array when override maps to same severity', () => {
+      const diags = [makeError()];
+      const result = applySeverityOverrides(pyUri, diags, { '.py': { Error: 'Error' } });
+      assert.strictEqual(result, diags);
+    });
+
+    test('ignores non-matching severity names', () => {
+      const diags = [makeInfo()];
+      const result = applySeverityOverrides(pyUri, diags, { '.py': { Error: 'Warning' } });
+      assert.strictEqual(result, diags);
+    });
+
+    test('toProblemStatus with overrides produces correct counts', () => {
+      const diags = [makeError(), makeError(), makeWarning()];
+      const mapped = applySeverityOverrides(pyUri, diags, { '.py': { Error: 'Warning' } });
+      const status = toProblemStatus(mapped);
+      assert.strictEqual(status.errorCount, 0);
+      assert.strictEqual(status.warningCount, 3);
+      assert.strictEqual(status.severity, ProblemSeverity.Warning);
     });
   });
 });

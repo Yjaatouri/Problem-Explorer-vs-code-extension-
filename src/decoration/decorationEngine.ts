@@ -13,7 +13,7 @@ import {
 import { ProblemCache } from '../cache/cacheLayer';
 import { ProblemSeverity, ProblemStatus } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
-import { toProblemStatus } from '../diagnostics/severityMapper';
+import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
 
 /** Abstraction over `workspace.getWorkspaceFolder` for testability */
 export interface WorkspaceFolderDelegate {
@@ -35,12 +35,18 @@ export class DecorationEngine implements FileDecorationProvider {
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
   private readonly wf: WorkspaceFolderDelegate;
+  private severityOverrides: Record<string, Record<string, string>> | undefined;
 
   constructor(
     private readonly cache: ProblemCache,
     wf?: WorkspaceFolderDelegate,
   ) {
     this.wf = wf ?? defaultDelegate;
+  }
+
+  /** Set per-extension severity overrides (from `Config.severityOverrides`) */
+  setSeverityOverrides(overrides: Record<string, Record<string, string>> | undefined): void {
+    this.severityOverrides = overrides;
   }
 
   /** Synchronous lookup — never perform I/O or async work here. Returns `undefined` for clean files. */
@@ -58,7 +64,8 @@ export class DecorationEngine implements FileDecorationProvider {
     if (!status) {
       const diagnostics = languages.getDiagnostics(uri);
       if (diagnostics.length > 0) {
-        status = toProblemStatus(diagnostics);
+        const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
+        status = toProblemStatus(mapped);
         this.cache.set(uri, status, folder.uri);
       }
     }

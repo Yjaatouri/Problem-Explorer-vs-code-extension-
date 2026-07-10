@@ -55,6 +55,7 @@ export class ConfigManager {
       errorColor: cfg.get<string | undefined>('errorColor', undefined),
       warningColor: cfg.get<string | undefined>('warningColor', undefined),
       infoColor: cfg.get<string | undefined>('infoColor', undefined),
+      severityOverrides: cfg.get<Record<string, Record<string, string>> | undefined>('severityOverrides', undefined),
     };
   }
 }

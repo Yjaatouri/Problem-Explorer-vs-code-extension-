@@ -286,8 +286,12 @@
 
 ### Task 6.3 — Per-language severity overrides
 
-- [ ] Allow users to configure severity thresholds per language
-- [ ] Example: mark Python type errors as warnings, not errors
+- [x] Add `severityOverrides` setting to package.json (object mapping file extensions to severity remaps)
+- [x] Add `severityOverrides` to `Config` interface and `ConfigManager`
+- [x] Create `applySeverityOverrides()` function in `severityMapper.ts`
+- [x] Apply overrides in `DiagnosticsManager.updateUri()` and `DecorationEngine` lazy fallback
+- [x] Wire config changes to both managers in `extension.ts`
+- [x] Tests for `applySeverityOverrides` (9 tests)
 
 ### Task 6.4 — Public extension API
 

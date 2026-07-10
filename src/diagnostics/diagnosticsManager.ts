@@ -9,7 +9,7 @@ import {
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
-import { toProblemStatus } from './severityMapper';
+import { toProblemStatus, applySeverityOverrides } from './severityMapper';
 import { ProblemStatus } from '../core/types';
 import { isIgnored } from '../performance/ignoreFilter';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
@@ -32,6 +32,7 @@ export class DiagnosticsManager {
   private readonly cache: ProblemCache;
   private readonly delegate: DiagnosticsDelegate;
   private readonly _onDidChangeDiagnostics = new EventEmitter<Uri[]>();
+  private severityOverrides: Record<string, Record<string, string>> | undefined;
 
   /** Fired with the set of URIs whose cached status changed after processing */
   readonly onDidChangeDiagnostics: Event<Uri[]> = this._onDidChangeDiagnostics.event;
@@ -43,6 +44,11 @@ export class DiagnosticsManager {
     this.delegate = delegate ?? defaultDelegate;
     this.onDidDiagnosticsChange = languages.onDidChangeDiagnostics;
     this.cache.setIgnorePredicate((uri) => isIgnored(uri, [...DEFAULT_IGNORE_PATTERNS]));
+  }
+
+  /** Set per-extension severity overrides (from `Config.severityOverrides`) */
+  setSeverityOverrides(overrides: Record<string, Record<string, string>> | undefined): void {
+    this.severityOverrides = overrides;
   }
 
   /** Scan all diagnostics in the workspace and seed the cache. Returns URIs whose status changed. */
@@ -87,7 +93,8 @@ export class DiagnosticsManager {
       return;
     }
 
-    const status = toProblemStatus(diagnostics);
+    const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
+    const status = toProblemStatus(mapped);
     const didChange = this.cache.set(uri, status, folder.uri);
 
     if (didChange) {

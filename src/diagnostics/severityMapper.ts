@@ -1,6 +1,7 @@
 import {
   Diagnostic,
   DiagnosticSeverity,
+  Uri,
 } from 'vscode';
 import { ProblemSeverity, ProblemStatus } from '../core/types';
 
@@ -10,6 +11,62 @@ const SEVERITY_MAP: Record<DiagnosticSeverity, ProblemSeverity> = {
   [DiagnosticSeverity.Information]: ProblemSeverity.Info,
   [DiagnosticSeverity.Hint]: ProblemSeverity.Info,
 };
+
+const SEVERITY_NAME_MAP: Record<string, DiagnosticSeverity> = {
+  'Error': DiagnosticSeverity.Error,
+  'Warning': DiagnosticSeverity.Warning,
+  'Information': DiagnosticSeverity.Information,
+  'Hint': DiagnosticSeverity.Hint,
+};
+
+/**
+ * Apply per-extension severity overrides to a diagnostics array.
+ * Returns a new array if any overrides were applied, or the original array if none.
+ */
+export function applySeverityOverrides(
+  uri: Uri,
+  diagnostics: readonly Diagnostic[],
+  overrides: Record<string, Record<string, string>> | undefined,
+): readonly Diagnostic[] {
+  if (!overrides) {
+    return diagnostics;
+  }
+
+  const match = uri.fsPath.match(/\.(\w+)$/);
+  if (!match) {
+    return diagnostics;
+  }
+  const ext = '.' + match[1];
+  const mapping = overrides[ext];
+  if (!mapping) {
+    return diagnostics;
+  }
+
+  const result: Diagnostic[] = [];
+  let changed = false;
+  for (let i = 0; i < diagnostics.length; i++) {
+    const d = diagnostics[i];
+    const targetName = mapping[DiagnosticSeverity[d.severity]];
+    if (!targetName) {
+      result.push(d);
+      continue;
+    }
+    const targetSeverity = SEVERITY_NAME_MAP[targetName];
+    if (targetSeverity === undefined || targetSeverity === d.severity) {
+      result.push(d);
+      continue;
+    }
+    const clone = new Diagnostic(d.range, d.message, targetSeverity);
+    clone.source = d.source;
+    clone.code = d.code;
+    clone.relatedInformation = d.relatedInformation;
+    clone.tags = d.tags;
+    result.push(clone);
+    changed = true;
+  }
+
+  return changed ? result : diagnostics;
+}
 
 /** Compute the highest severity present across a set of diagnostics (ignores counts) */
 export function toProblemSeverity(diagnostics: readonly Diagnostic[]): ProblemSeverity {

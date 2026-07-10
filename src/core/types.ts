@@ -25,6 +25,12 @@ export interface Config {
   readonly errorColor: string | undefined;
   readonly warningColor: string | undefined;
   readonly infoColor: string | undefined;
+  /**
+   * Per-file-extension severity overrides.
+   * Keys are file extensions (e.g. ".py"), values map source severity names to target severity names.
+   * Example: `{ ".py": { "Error": "Warning" } }` demotes Python errors to warnings.
+   */
+  readonly severityOverrides: Record<string, Record<string, string>> | undefined;
 }
 
 /** Convenience type for badge formatting — just the counts, no severity */
