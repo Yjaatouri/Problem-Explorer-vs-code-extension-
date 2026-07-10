@@ -3,6 +3,8 @@ import { ProblemCache } from './cache/cacheLayer';
 import { DiagnosticsManager } from './diagnostics/diagnosticsManager';
 import { DecorationEngine } from './decoration/decorationEngine';
 import { FolderStatusManager } from './folder/folderStatusManager';
+import { ConfigManager } from './config/configManager';
+import { CommandManager } from './commands/commandManager';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
 
@@ -11,6 +13,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const diagnosticsManager = new DiagnosticsManager(cache);
   const decorationEngine = new DecorationEngine(cache);
   const folderStatusManager = new FolderStatusManager(cache);
+  const configManager = new ConfigManager();
+  const commandManager = new CommandManager(
+    diagnosticsManager,
+    decorationEngine,
+    folderStatusManager,
+    configManager,
+  );
 
   context.subscriptions.push(
     vscode.window.registerFileDecorationProvider(decorationEngine),
@@ -41,12 +50,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('problemExplorer.refresh', () => {
-      diagnosticsManager.fullScan();
-      decorationEngine.refresh();
-    }),
-  );
+  commandManager.register(context);
 
   context.subscriptions.push({ dispose: () => debouncedFire.cancel() });
 

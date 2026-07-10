@@ -192,12 +192,12 @@
 
 ### Task 4.2 — Implement the CommandManager
 
-- [ ] Create `src/commands/commandManager.ts`
-- [ ] Create `src/commands/refresh.ts` — full diagnostic rescan + re-render
-- [ ] Create `src/commands/toggle.ts` — enable/disable decorations
-- [ ] Register all commands in `extension.ts`
-- [ ] Add keyboard shortcut for refresh (Ctrl+Shift+P → "Problem Explorer: Refresh")
-- [ ] Test: commands execute and decorations update correctly
+- [x] Create `src/commands/commandManager.ts`
+- [x] Create `src/commands/refresh.ts` — full diagnostic rescan + re-render
+- [x] Create `src/commands/toggle.ts` — enable/disable decorations
+- [x] Register all commands in `extension.ts`
+- [x] Add keyboard shortcut for refresh (Ctrl+Shift+P → "Problem Explorer: Refresh")
+- [x] Test: commands execute and decorations update correctly
 
 ### Task 4.3 — Implement the WorkspaceManager
 

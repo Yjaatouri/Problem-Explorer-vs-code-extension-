@@ -37,6 +37,19 @@
         "command": "problemExplorer.refresh",
         "title": "Refresh Problem Decorations",
         "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.toggle",
+        "title": "Toggle Problem Decorations",
+        "category": "Problem Explorer"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "problemExplorer.refresh",
+        "key": "ctrl+shift+alt+p",
+        "mac": "cmd+shift+alt+p",
+        "when": "editorFocus"
       }
     ],
     "colors": [
