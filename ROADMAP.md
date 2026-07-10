@@ -57,11 +57,11 @@
 
 ### Task 1.2 — Implement the SeverityMapper
 
-- [ ] Create `src/diagnostics/severityMapper.ts`
-- [ ] Implement `toProblemSeverity(diagnostics: Diagnostic[]): ProblemSeverity`
-- [ ] Implement `toProblemStatus(diagnostics: Diagnostic[]): ProblemStatus`
-- [ ] Count errors, warnings, infos separately
-- [ ] Write unit tests (empty, errors only, warnings only, mixed, undefined)
+- [x] Create `src/diagnostics/severityMapper.ts`
+- [x] Implement `toProblemSeverity(diagnostics: Diagnostic[]): ProblemSeverity`
+- [x] Implement `toProblemStatus(diagnostics: Diagnostic[]): ProblemStatus`
+- [x] Count errors, warnings, infos separately
+- [x] Write unit tests (empty, errors only, warnings only, mixed, undefined)
 
 ### Task 1.3 — Implement the DiagnosticsManager
 
