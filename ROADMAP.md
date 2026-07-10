@@ -279,8 +279,10 @@
 
 ### Task 6.2 — Status bar integration
 
-- [ ] Show total error/warning count in the Status Bar
-- [ ] Click → opens Problems panel or runs refresh command
+- [x] Show total error/warning/info count with codicons in the Status Bar
+- [x] Click → opens Problems panel (`workbench.actions.view.problems`)
+- [x] Respects extension enabled/disabled state
+- [x] Updates in real time alongside decorations
 
 ### Task 6.3 — Per-language severity overrides
 

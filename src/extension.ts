@@ -6,6 +6,7 @@ import { FolderStatusManager } from './folder/folderStatusManager';
 import { ConfigManager } from './config/configManager';
 import { CommandManager } from './commands/commandManager';
 import { WorkspaceManager } from './workspace/workspaceManager';
+import { StatusBarManager } from './statusBar/statusBarManager';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
 
@@ -21,6 +22,7 @@ export function activate(context: vscode.ExtensionContext): void {
     folderStatusManager,
     configManager,
   );
+  const statusBarManager = new StatusBarManager(cache);
   new WorkspaceManager(
     cache,
     diagnosticsManager,
@@ -39,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
       dirtyUris.clear();
       decorationEngine.fireDidChange(uris);
     }
+    statusBarManager.update();
   }, PROCESSING_DEBOUNCE_MS);
 
   context.subscriptions.push(
@@ -79,7 +82,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   commandManager.register(context);
 
-  context.subscriptions.push({ dispose: () => debouncedFire.cancel() });
+  context.subscriptions.push(
+    statusBarManager,
+    statusBarManager.registerCommand(),
+    { dispose: () => debouncedFire.cancel() },
+  );
 
   if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
     const changed = diagnosticsManager.fullScan();
@@ -88,6 +95,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (allChanged.length > 0) {
       decorationEngine.fireDidChange(allChanged);
     }
+    statusBarManager.update();
   }
 }
 

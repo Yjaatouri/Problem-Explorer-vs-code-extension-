@@ -1,5 +1,5 @@
 import { Uri } from 'vscode';
-import { ProblemStatus } from '../core/types';
+import { ProblemStatus, ProblemSeverity } from '../core/types';
 import { PER_FOLDER_CACHE_LIMIT } from '../core/constants';
 import { LruCache } from './lruCache';
 
@@ -92,6 +92,35 @@ export class ProblemCache {
       result.push([Uri.parse(uriStr), status]);
     }
     return result;
+  }
+
+  /** Aggregate all entries across every workspace folder into a single status */
+  computeTotals(): ProblemStatus {
+    let errorCount = 0;
+    let warningCount = 0;
+    let infoCount = 0;
+    let fileCount = 0;
+    let maxSeverity = ProblemSeverity.None;
+
+    for (const cache of this.folders.values()) {
+      for (const [, status] of cache.entries()) {
+        if (status.severity > maxSeverity) {
+          maxSeverity = status.severity;
+        }
+        errorCount += status.errorCount;
+        warningCount += status.warningCount;
+        infoCount += status.infoCount;
+        fileCount += status.fileCount;
+      }
+    }
+
+    return {
+      severity: maxSeverity,
+      errorCount,
+      warningCount,
+      infoCount,
+      fileCount,
+    };
   }
 }
 

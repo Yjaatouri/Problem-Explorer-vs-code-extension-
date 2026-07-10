@@ -229,4 +229,43 @@ suite('ProblemCache', () => {
     assert.strictEqual(cache.get(ignored, folderUri), undefined);
     assert.strictEqual(cache.get(normal, folderUri)?.severity, ProblemSeverity.Error);
   });
+
+  test('computeTotals aggregates across all folders', () => {
+    const cache = new ProblemCache();
+    const rootA = vscode.Uri.parse('file:///workspace/a');
+    const rootB = vscode.Uri.parse('file:///workspace/b');
+
+    cache.set(
+      vscode.Uri.parse('file:///workspace/a/file1.ts'),
+      { severity: ProblemSeverity.Error, errorCount: 2, warningCount: 0, infoCount: 0, fileCount: 1 },
+      rootA,
+    );
+    cache.set(
+      vscode.Uri.parse('file:///workspace/a/file2.ts'),
+      { severity: ProblemSeverity.Warning, errorCount: 0, warningCount: 3, infoCount: 1, fileCount: 1 },
+      rootA,
+    );
+    cache.set(
+      vscode.Uri.parse('file:///workspace/b/file3.ts'),
+      { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 },
+      rootB,
+    );
+
+    const totals = cache.computeTotals();
+    assert.strictEqual(totals.errorCount, 3);
+    assert.strictEqual(totals.warningCount, 3);
+    assert.strictEqual(totals.infoCount, 1);
+    assert.strictEqual(totals.fileCount, 3);
+    assert.strictEqual(totals.severity, ProblemSeverity.Error);
+  });
+
+  test('computeTotals returns zeros for empty cache', () => {
+    const cache = new ProblemCache();
+    const totals = cache.computeTotals();
+    assert.strictEqual(totals.errorCount, 0);
+    assert.strictEqual(totals.warningCount, 0);
+    assert.strictEqual(totals.infoCount, 0);
+    assert.strictEqual(totals.fileCount, 0);
+    assert.strictEqual(totals.severity, ProblemSeverity.None);
+  });
 });
