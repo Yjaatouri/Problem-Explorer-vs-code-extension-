@@ -157,11 +157,11 @@
 
 ### Task 3.2 — Implement the PropagationStrategy
 
-- [ ] Create `src/folder/propagationStrategy.ts`
-- [ ] Define aggregation function: `aggregate(children: ProblemStatus[]): ProblemStatus`
-- [ ] Error > Warning > Info > None
-- [ ] Sum counts from all children
-- [ ] Write unit tests
+- [x] Create `src/folder/propagationStrategy.ts`
+- [x] Define aggregation function: `aggregate(children: ProblemStatus[]): ProblemStatus`
+- [x] Error > Warning > Info > None
+- [x] Sum counts from all children
+- [x] Write unit tests
 
 ### Task 3.3 — Wire FolderStatusManager into the change flow
 
