@@ -148,12 +148,12 @@
 
 ### Task 3.1 — Implement the FolderStatusManager
 
-- [ ] Create `src/folder/folderStatusManager.ts`
-- [ ] Implement `updateAncestors(fileUri: Uri): Uri[]` — walks from file to root
-- [ ] Implement `recomputeFolderStatus(folderUri: Uri): ProblemStatus`
-- [ ] Implement `rebuildAll()` — computes all folder statuses from cache
-- [ ] Worst-severity-wins aggregation rule
-- [ ] Write unit tests (nested folders, mixed statuses, empty folders)
+- [x] Create `src/folder/folderStatusManager.ts`
+- [x] Implement `updateAncestors(fileUri: Uri): Uri[]` — walks from file to root
+- [x] Implement `recomputeFolderStatus(folderUri: Uri): ProblemStatus`
+- [x] Implement `rebuildAll()` — computes all folder statuses from cache
+- [x] Worst-severity-wins aggregation rule
+- [x] Write unit tests (nested folders, mixed statuses, empty folders)
 
 ### Task 3.2 — Implement the PropagationStrategy
 

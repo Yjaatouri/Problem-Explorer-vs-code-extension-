@@ -65,6 +65,18 @@ export class ProblemCache {
   getFolderSize(folderUri: Uri): number {
     return this.folders.get(folderUri.toString())?.size ?? 0;
   }
+
+  getEntries(folderUri: Uri): [Uri, ProblemStatus][] {
+    const cache = this.folders.get(folderUri.toString());
+    if (!cache) {
+      return [];
+    }
+    const result: [Uri, ProblemStatus][] = [];
+    for (const [uriStr, status] of cache.entries()) {
+      result.push([Uri.parse(uriStr), status]);
+    }
+    return result;
+  }
 }
 
 function hasChanged(a: ProblemStatus, b: ProblemStatus): boolean {
