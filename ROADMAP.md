@@ -210,8 +210,8 @@
 
 ### Task 4.4 — Handle workspace trust
 
-- [ ] Set `capabilities.untrustedWorkspaces.supported` to `limited` or `true` in `package.json`
-- [ ] Test: extension behaves correctly in untrusted mode (no decorations shown, command warns user)
+- [x] Set `capabilities.untrustedWorkspaces.supported` to `limited` or `true` in `package.json`
+- [x] Test: extension behaves correctly in untrusted mode (no decorations shown, command warns user)
 
 ---
 
