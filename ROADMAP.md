@@ -83,10 +83,10 @@
 
 ### Task 1.5 — Implement debounce and batch utilities
 
-- [ ] Create `src/performance/debounce.ts`
-- [ ] Create `src/performance/batch.ts`
-- [ ] Create `src/performance/throttle.ts`
-- [ ] Write unit tests (timing-sensitive, use fake timers)
+- [x] Create `src/performance/debounce.ts`
+- [x] Create `src/performance/batch.ts`
+- [x] Create `src/performance/throttle.ts`
+- [x] Write unit tests (timing-sensitive, use fake timers)
 
 ---
 
