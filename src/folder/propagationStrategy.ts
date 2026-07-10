@@ -6,6 +6,7 @@ export function aggregateStatuses(children: ProblemStatus[]): ProblemStatus {
   let errorCount = 0;
   let warningCount = 0;
   let infoCount = 0;
+  let fileCount = 0;
 
   for (let i = 0; i < children.length; i++) {
     const s = children[i];
@@ -15,7 +16,8 @@ export function aggregateStatuses(children: ProblemStatus[]): ProblemStatus {
     errorCount += s.errorCount;
     warningCount += s.warningCount;
     infoCount += s.infoCount;
+    fileCount += s.fileCount;
   }
 
-  return { severity, errorCount, warningCount, infoCount };
+  return { severity, errorCount, warningCount, infoCount, fileCount };
 }

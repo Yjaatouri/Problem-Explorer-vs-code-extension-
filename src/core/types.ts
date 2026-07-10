@@ -12,6 +12,8 @@ export interface ProblemStatus {
   readonly errorCount: number;
   readonly warningCount: number;
   readonly infoCount: number;
+  /** Number of files contributing to this status (1 for a single file, aggregated for folders) */
+  readonly fileCount: number;
 }
 
 /** Shape of the `problemExplorer.*` user settings at runtime */

@@ -100,6 +100,7 @@ function hasChanged(a: ProblemStatus, b: ProblemStatus): boolean {
     a.severity !== b.severity ||
     a.errorCount !== b.errorCount ||
     a.warningCount !== b.warningCount ||
-    a.infoCount !== b.infoCount
+    a.infoCount !== b.infoCount ||
+    a.fileCount !== b.fileCount
   );
 }

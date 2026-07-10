@@ -59,10 +59,13 @@ export function toProblemStatus(diagnostics: readonly Diagnostic[]): ProblemStat
     }
   }
 
+  const hasAny = errorCount + warningCount + infoCount > 0;
+
   return {
     severity: maxSeverity,
     errorCount,
     warningCount,
     infoCount,
+    fileCount: hasAny ? 1 : 0,
   };
 }

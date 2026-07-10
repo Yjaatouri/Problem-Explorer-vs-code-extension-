@@ -33,7 +33,7 @@ suite('Benchmarks', function () {
     });
 
     const fileUri = Uri.parse('file:///workspace/src/file.ts');
-    cache.set(fileUri, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0 }, rootUri);
+    cache.set(fileUri, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootUri);
 
     const result = measure('provideFileDecoration', () => {
       engine.provideFileDecoration(fileUri, {} as any);
@@ -132,6 +132,7 @@ suite('Benchmarks', function () {
         errorCount: i % 3 === 0 ? 1 : 0,
         warningCount: i % 3 !== 0 ? 1 : 0,
         infoCount: 0,
+        fileCount: 1,
       });
     }
 
@@ -154,7 +155,7 @@ suite('Benchmarks', function () {
 
     const setResult = measure('cache set (10k unique)', () => {
       for (let i = 0; i < 10000; i++) {
-        cache.set(fileUris[i], { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0 }, rootUri);
+        cache.set(fileUris[i], { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootUri);
       }
     }, 3);
 

@@ -80,7 +80,7 @@ suite('WorkspaceManager', () => {
     const de = new DecorationEngine(cache);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
 
-    cache.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0 }, rootA);
+    cache.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootA);
     assert.strictEqual(cache.getFolderSize(rootA), 1);
 
     const wm = new WorkspaceManager(cache, dm, fm, de, delegate);
@@ -97,8 +97,8 @@ suite('WorkspaceManager', () => {
     const de = new DecorationEngine(cache);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
 
-    cache.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0 }, rootA);
-    cache.set(Uri.parse('file:///workspace/b/other.ts'), { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0 }, rootB);
+    cache.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootA);
+    cache.set(Uri.parse('file:///workspace/b/other.ts'), { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootB);
     assert.strictEqual(cache.getFolderSize(rootA), 1);
     assert.strictEqual(cache.getFolderSize(rootB), 1);
 

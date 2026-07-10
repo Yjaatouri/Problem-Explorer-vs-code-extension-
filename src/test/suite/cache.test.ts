@@ -120,6 +120,7 @@ suite('ProblemCache', () => {
     errorCount: 1,
     warningCount: 0,
     infoCount: 0,
+    fileCount: 1,
   };
 
   const statusWarning: ProblemStatus = {
@@ -127,6 +128,7 @@ suite('ProblemCache', () => {
     errorCount: 0,
     warningCount: 1,
     infoCount: 0,
+    fileCount: 1,
   };
 
   test('get returns undefined for uncached file', () => {

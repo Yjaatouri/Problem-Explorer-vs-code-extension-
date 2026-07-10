@@ -17,6 +17,7 @@ suite('EdgeCases', () => {
       errorCount: severity === ProblemSeverity.Error ? 1 : 0,
       warningCount: severity === ProblemSeverity.Warning ? 1 : 0,
       infoCount: severity === ProblemSeverity.Info ? 1 : 0,
+      fileCount: severity !== ProblemSeverity.None ? 1 : 0,
     };
   }
 

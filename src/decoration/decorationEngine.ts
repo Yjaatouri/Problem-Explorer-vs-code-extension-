@@ -117,6 +117,9 @@ export class DecorationEngine implements FileDecorationProvider {
     if (status.infoCount > 0) {
       parts.push(`${status.infoCount} info${status.infoCount !== 1 ? 's' : ''}`);
     }
+    if (parts.length > 0 && status.fileCount > 1) {
+      parts.push(`across ${status.fileCount} file${status.fileCount !== 1 ? 's' : ''}`);
+    }
     return parts.join(', ');
   }
 }

@@ -272,8 +272,10 @@
 
 ### Task 6.1 — Problem count tooltip
 
-- [ ] Enhance `BadgeFormatter` to include count in tooltip: "3 errors, 5 warnings"
-- [ ] Show total in folder hover: "12 errors, 8 warnings across 15 files"
+- [x] Add `fileCount` field to `ProblemStatus`
+- [x] Update `toProblemStatus` to set `fileCount = 1` for files with diagnostics
+- [x] Update `aggregateStatuses` to sum `fileCount` for folders
+- [x] Update `formatTooltip` to show "across N files" for folder statuses with fileCount > 1
 
 ### Task 6.2 — Status bar integration
 

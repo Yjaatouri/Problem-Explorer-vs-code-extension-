@@ -27,6 +27,7 @@ suite('DecorationEngine', () => {
       errorCount: overrides?.errorCount ?? (severity === ProblemSeverity.Error ? 1 : 0),
       warningCount: overrides?.warningCount ?? (severity === ProblemSeverity.Warning ? 1 : 0),
       infoCount: overrides?.infoCount ?? (severity === ProblemSeverity.Info ? 1 : 0),
+      fileCount: overrides?.fileCount ?? (severity !== ProblemSeverity.None ? 1 : 0),
     };
   }
 
@@ -98,6 +99,24 @@ suite('DecorationEngine', () => {
     assert.ok(result?.tooltip?.includes('3 errors'));
     assert.ok(result?.tooltip?.includes('2 warnings'));
     assert.ok(result?.tooltip?.includes('5 info'));
+  });
+
+  test('tooltip shows across N files for folder-like status with fileCount > 1', () => {
+    const folderUri = Uri.parse('file:///workspace/src');
+    cache.set(
+      folderUri,
+      s(ProblemSeverity.Error, { errorCount: 3, warningCount: 2, fileCount: 5 }),
+      rootUri,
+    );
+    const result = engine.provideFileDecoration(folderUri, {} as any);
+    assert.ok(result?.tooltip?.includes('across 5 files'));
+  });
+
+  test('tooltip does not show across N files for single file', () => {
+    cache.set(fileUri, s(ProblemSeverity.Error, { errorCount: 1, fileCount: 1 }), rootUri);
+    const result = engine.provideFileDecoration(fileUri, {} as any);
+    assert.ok(result?.tooltip?.includes('1 error'));
+    assert.ok(!result?.tooltip?.includes('across'));
   });
 
   test('propagate is false', () => {

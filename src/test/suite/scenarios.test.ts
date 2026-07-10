@@ -28,6 +28,7 @@ suite('Scenarios', () => {
         errorCount: sev === ProblemSeverity.Error ? Math.floor(Math.random() * 5) + 1 : 0,
         warningCount: sev === ProblemSeverity.Warning ? Math.floor(Math.random() * 5) + 1 : 0,
         infoCount: sev === ProblemSeverity.Info ? Math.floor(Math.random() * 5) + 1 : 0,
+        fileCount: sev !== ProblemSeverity.None ? 1 : 0,
       };
       const uri = Uri.parse(`file:///workspace/src/file${i}.ts`);
       cache.set(uri, s, rootUri);
@@ -80,6 +81,7 @@ suite('Scenarios', () => {
       errorCount: 1,
       warningCount: 0,
       infoCount: 0,
+      fileCount: 1,
     };
     cache.set(deepDir, status, rootUri);
     assert.strictEqual(cache.get(deepDir, rootUri)?.severity, ProblemSeverity.Error);

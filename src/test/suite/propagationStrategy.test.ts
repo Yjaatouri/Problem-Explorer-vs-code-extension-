@@ -9,6 +9,7 @@ suite('aggregateStatuses', () => {
       errorCount: overrides?.errorCount ?? (severity === ProblemSeverity.Error ? 1 : 0),
       warningCount: overrides?.warningCount ?? (severity === ProblemSeverity.Warning ? 1 : 0),
       infoCount: overrides?.infoCount ?? (severity === ProblemSeverity.Info ? 1 : 0),
+      fileCount: overrides?.fileCount ?? (severity !== ProblemSeverity.None ? 1 : 0),
     };
   }
 
@@ -24,6 +25,7 @@ suite('aggregateStatuses', () => {
     const result = aggregateStatuses([s(ProblemSeverity.Error)]);
     assert.strictEqual(result.severity, ProblemSeverity.Error);
     assert.strictEqual(result.errorCount, 1);
+    assert.strictEqual(result.fileCount, 1);
   });
 
   test('single Warning child', () => {
@@ -77,6 +79,7 @@ suite('aggregateStatuses', () => {
     assert.strictEqual(result.warningCount, 5);
     assert.strictEqual(result.infoCount, 7);
     assert.strictEqual(result.severity, ProblemSeverity.Error);
+    assert.strictEqual(result.fileCount, 3);
   });
 
   test('zero-count children contribute zero to sum', () => {
