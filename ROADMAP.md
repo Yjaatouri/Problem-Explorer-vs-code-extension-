@@ -295,9 +295,11 @@
 
 ### Task 6.4 — Public extension API
 
-- [ ] Export `ProblemExplorerAPI` from `activate()` for other extensions
-- [ ] `getProblemStatus(uri): ProblemStatus | undefined`
-- [ ] `onDidChangeProblemStatus: Event<{ uri, status }>`
+- [x] Create `ProblemExplorerAPI` interface with `getProblemStatus(uri)` + `onDidChangeProblemStatus` event
+- [x] Create `ApiManager` class with delegate-based workspace folder resolution for testability
+- [x] Return `ProblemExplorerAPI` from `activate()` — other extensions can call `getExtension('Yjaatouri.problem-explorer').exports`
+- [x] Wire `notifyChanged()` calls into extension.ts change processing (diagnostics changes, file deletes, initial scan)
+- [x] Write 9 unit tests for `ApiManager` (getStatus, events, dispose)
 
 ### Task 6.5 — Diagnostic trend visualization
 

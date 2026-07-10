@@ -1,0 +1,140 @@
+import * as assert from 'assert';
+import { Uri, WorkspaceFolder } from 'vscode';
+import { ProblemCache } from '../../cache/cacheLayer';
+import { ApiManager, WorkspaceFolderDelegate, ProblemStatusChangeEvent } from '../../api/problemExplorerApi';
+import { ProblemSeverity, ProblemStatus } from '../../core/types';
+
+suite('ApiManager', () => {
+  const rootUri = Uri.parse('file:///workspace');
+  const fileUri = Uri.parse('file:///workspace/src/file.ts');
+
+  function makeMockWorkspace(): WorkspaceFolderDelegate {
+    return {
+      getWorkspaceFolder: (uri) => {
+        const str = uri.toString();
+        if (str === rootUri.toString() || str.startsWith(rootUri.toString() + '/')) {
+          return { uri: rootUri, name: 'workspace', index: 0 };
+        }
+        return undefined;
+      },
+    };
+  }
+
+  function s(severity: ProblemSeverity, overrides?: Partial<ProblemStatus>): ProblemStatus {
+    return {
+      severity,
+      errorCount: overrides?.errorCount ?? (severity === ProblemSeverity.Error ? 1 : 0),
+      warningCount: overrides?.warningCount ?? (severity === ProblemSeverity.Warning ? 1 : 0),
+      infoCount: overrides?.infoCount ?? (severity === ProblemSeverity.Info ? 1 : 0),
+      fileCount: overrides?.fileCount ?? (severity !== ProblemSeverity.None ? 1 : 0),
+    };
+  }
+
+  const errorStatus = s(ProblemSeverity.Error);
+
+  let cache: ProblemCache;
+  let wf: WorkspaceFolderDelegate;
+  let api: ApiManager;
+
+  setup(() => {
+    cache = new ProblemCache();
+    wf = makeMockWorkspace();
+    api = new ApiManager(cache, wf);
+  });
+
+  suite('getProblemStatus', () => {
+    test('returns undefined for URI outside workspace', () => {
+      const outside = Uri.parse('file:///outside/file.ts');
+      assert.strictEqual(api.getProblemStatus(outside), undefined);
+    });
+
+    test('returns undefined for un-cached URI', () => {
+      assert.strictEqual(api.getProblemStatus(fileUri), undefined);
+    });
+
+    test('returns status from cache for cached URI', () => {
+      const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
+      cache.set(fileUri, folderUri, errorStatus);
+      const result = api.getProblemStatus(fileUri);
+      assert.deepStrictEqual(result, errorStatus);
+    });
+
+    test('returns undefined after cache entry is deleted', () => {
+      const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
+      cache.set(fileUri, folderUri, errorStatus);
+      cache.delete(fileUri, folderUri);
+      assert.strictEqual(api.getProblemStatus(fileUri), undefined);
+    });
+
+    test('resolves workspace folder correctly', () => {
+      const subFile = Uri.parse('file:///workspace/sub/file.ts');
+      const folderUri = wf.getWorkspaceFolder(subFile)!.uri;
+      cache.set(subFile, folderUri, errorStatus);
+      assert.deepStrictEqual(api.getProblemStatus(subFile), errorStatus);
+    });
+  });
+
+  suite('onDidChangeProblemStatus', () => {
+    test('fires event with status when notifyChanged is called', () => {
+      const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
+      cache.set(fileUri, folderUri, errorStatus);
+
+      const events: ProblemStatusChangeEvent[] = [];
+      const disposable = api.onDidChangeProblemStatus((e) => events.push(e));
+      try {
+        api.notifyChanged(fileUri, folderUri);
+        assert.strictEqual(events.length, 1);
+        assert.strictEqual(events[0].uri.toString(), fileUri.toString());
+        assert.deepStrictEqual(events[0].status, errorStatus);
+      } finally {
+        disposable.dispose();
+      }
+    });
+
+    test('fires event with undefined status for deleted entry', () => {
+      const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
+      cache.set(fileUri, folderUri, errorStatus);
+      cache.delete(fileUri, folderUri);
+
+      const events: ProblemStatusChangeEvent[] = [];
+      const disposable = api.onDidChangeProblemStatus((e) => events.push(e));
+      try {
+        api.notifyChanged(fileUri, folderUri);
+        assert.strictEqual(events.length, 1);
+        assert.strictEqual(events[0].uri.toString(), fileUri.toString());
+        assert.strictEqual(events[0].status, undefined);
+      } finally {
+        disposable.dispose();
+      }
+    });
+
+    test('fires multiple events for different URIs', () => {
+      const file2 = Uri.parse('file:///workspace/src/file2.ts');
+      const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
+      cache.set(fileUri, folderUri, errorStatus);
+      cache.set(file2, folderUri, s(ProblemSeverity.Warning));
+
+      const events: ProblemStatusChangeEvent[] = [];
+      const disposable = api.onDidChangeProblemStatus((e) => events.push(e));
+      try {
+        api.notifyChanged(fileUri, folderUri);
+        api.notifyChanged(file2, folderUri);
+        assert.strictEqual(events.length, 2);
+        assert.strictEqual(events[0].status?.severity, ProblemSeverity.Error);
+        assert.strictEqual(events[1].status?.severity, ProblemSeverity.Warning);
+      } finally {
+        disposable.dispose();
+      }
+    });
+
+    test('disposable stops receiving events', () => {
+      const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
+
+      const events: ProblemStatusChangeEvent[] = [];
+      const disposable = api.onDidChangeProblemStatus((e) => events.push(e));
+      disposable.dispose();
+      api.notifyChanged(fileUri, folderUri);
+      assert.strictEqual(events.length, 0);
+    });
+  });
+});

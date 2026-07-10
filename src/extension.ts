@@ -7,10 +7,11 @@ import { ConfigManager } from './config/configManager';
 import { CommandManager } from './commands/commandManager';
 import { WorkspaceManager } from './workspace/workspaceManager';
 import { StatusBarManager } from './statusBar/statusBarManager';
+import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
 
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   const cache = new ProblemCache();
   const diagnosticsManager = new DiagnosticsManager(cache);
   const decorationEngine = new DecorationEngine(cache);
@@ -23,6 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
     configManager,
   );
   const statusBarManager = new StatusBarManager(cache);
+  const apiManager = new ApiManager(cache);
   new WorkspaceManager(
     cache,
     diagnosticsManager,
@@ -49,6 +51,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerFileDecorationProvider(decorationEngine),
   );
 
+  // Notify the public API that a URI's status has changed
+  const notifyApi = (uris: vscode.Uri[]): void => {
+    for (let i = 0; i < uris.length; i++) {
+      const folder = vscode.workspace.getWorkspaceFolder(uris[i]);
+      if (folder) {
+        apiManager.notifyChanged(uris[i], folder.uri);
+      }
+    }
+  };
+
   const dirtyUris = new Set<string>();
   const debouncedFire = debounce(() => {
     if (dirtyUris.size > 0) {
@@ -62,9 +74,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.languages.onDidChangeDiagnostics((e) => {
       const changed = diagnosticsManager.processChanges(e);
+      notifyApi(changed);
       for (let i = 0; i < changed.length; i++) {
         dirtyUris.add(changed[i].toString());
         const ancestors = folderStatusManager.updateAncestors(changed[i]);
+        notifyApi(ancestors);
         for (let j = 0; j < ancestors.length; j++) {
           dirtyUris.add(ancestors[j].toString());
         }
@@ -82,8 +96,10 @@ export function activate(context: vscode.ExtensionContext): void {
         const folder = vscode.workspace.getWorkspaceFolder(uri);
         if (folder) {
           cache.delete(uri, folder.uri);
+          apiManager.notifyChanged(uri, folder.uri);
           dirtyUris.add(uri.toString());
           const ancestors = folderStatusManager.updateAncestors(uri);
+          notifyApi(ancestors);
           for (let j = 0; j < ancestors.length; j++) {
             dirtyUris.add(ancestors[j].toString());
           }
@@ -107,11 +123,14 @@ export function activate(context: vscode.ExtensionContext): void {
     const changed = diagnosticsManager.fullScan();
     const changedFolders = folderStatusManager.rebuildAll();
     const allChanged = [...changed, ...changedFolders];
+    notifyApi(allChanged);
     if (allChanged.length > 0) {
       decorationEngine.fireDidChange(allChanged);
     }
     statusBarManager.update();
   }
+
+  return apiManager;
 }
 
 export function deactivate(): void {
