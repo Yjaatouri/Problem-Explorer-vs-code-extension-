@@ -11,6 +11,7 @@ export const COMMANDS = {
 export const COLORS = {
   ERROR_FOREGROUND: 'problemExplorer.errorForeground',
   WARNING_FOREGROUND: 'problemExplorer.warningForeground',
+  INFO_FOREGROUND: 'problemExplorer.infoForeground',
 } as const;
 
 export const PROCESSING_DEBOUNCE_MS = 50;

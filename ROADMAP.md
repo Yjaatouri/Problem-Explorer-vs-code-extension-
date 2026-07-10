@@ -96,12 +96,12 @@
 
 ### Task 2.1 — Implement the DecorationEngine
 
-- [ ] Create `src/decoration/decorationEngine.ts`
-- [ ] Implement `FileDecorationProvider` interface
-- [ ] `provideFileDecoration(uri)` → synchronous cache lookup → `FileDecoration | undefined`
-- [ ] Implement `onDidChangeFileDecorations` event emitter
-- [ ] Register provider in `extension.ts` via `window.registerFileDecorationProvider()`
-- [ ] Test: decorations appear on files with diagnostics
+- [x] Create `src/decoration/decorationEngine.ts`
+- [x] Implement `FileDecorationProvider` interface
+- [x] `provideFileDecoration(uri)` → synchronous cache lookup → `FileDecoration | undefined`
+- [x] Implement `onDidChangeFileDecorations` event emitter
+- [x] Register provider in `extension.ts` via `window.registerFileDecorationProvider()`
+- [x] Test: decorations appear on files with diagnostics
 
 ### Task 2.2 — Implement the BadgeFormatter
 

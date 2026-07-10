@@ -60,6 +60,16 @@
           "highContrast": "editorWarning.foreground",
           "highContrastLight": "editorWarning.foreground"
         }
+      },
+      {
+        "id": "problemExplorer.infoForeground",
+        "description": "Foreground color for files containing info diagnostics",
+        "defaults": {
+          "dark": "editorInfo.foreground",
+          "light": "editorInfo.foreground",
+          "highContrast": "editorInfo.foreground",
+          "highContrastLight": "editorInfo.foreground"
+        }
       }
     ],
     "configuration": {
