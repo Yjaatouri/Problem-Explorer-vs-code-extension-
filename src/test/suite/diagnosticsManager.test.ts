@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
-import { ProblemStatus, ProblemSeverity } from '../../core/types';
+import { ProblemSeverity } from '../../core/types';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../../diagnostics/diagnosticsManager';
 
 suite('DiagnosticsManager', () => {

@@ -4,7 +4,6 @@ import { ProblemCache } from '../../cache/cacheLayer';
 import { LruCache } from '../../cache/lruCache';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
-import { toProblemStatus } from '../../diagnostics/severityMapper';
 import { aggregateStatuses } from '../../folder/propagationStrategy';
 import { ProblemSeverity, ProblemStatus } from '../../core/types';
 import { measure, formatResult } from '../../benchmark/benchmark';

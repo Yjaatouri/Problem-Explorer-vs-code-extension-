@@ -5,7 +5,7 @@
 node_modules/**
 src/**
 tsconfig.json
-.eslintrc.json
+eslint.config.mjs
 .prettierrc
 webpack.config.js
 **/*.ts
