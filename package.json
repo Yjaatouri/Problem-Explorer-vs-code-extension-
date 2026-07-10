@@ -119,6 +119,27 @@
             "**/.tox/**"
           ],
           "description": "Glob patterns for files and folders to ignore"
+        },
+        "problemExplorer.errorColor": {
+          "type": "string",
+          "default": null,
+          "description": "Custom CSS color for error badges (overrides theme color). Example: \"#ff0000\"",
+          "pattern": "^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{8}$|^[a-zA-Z]+$",
+          "patternErrorMessage": "Must be a valid hex color (#RRGGBB or #RRGGBBAA) or a CSS color name"
+        },
+        "problemExplorer.warningColor": {
+          "type": "string",
+          "default": null,
+          "description": "Custom CSS color for warning badges (overrides theme color). Example: \"#ffaa00\"",
+          "pattern": "^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{8}$|^[a-zA-Z]+$",
+          "patternErrorMessage": "Must be a valid hex color (#RRGGBB or #RRGGBBAA) or a CSS color name"
+        },
+        "problemExplorer.infoColor": {
+          "type": "string",
+          "default": null,
+          "description": "Custom CSS color for info badges (overrides theme color). Example: \"#00aaff\"",
+          "pattern": "^#[0-9a-fA-F]{6}$|^[0-9a-fA-F]{8}$|^[a-zA-Z]+$",
+          "patternErrorMessage": "Must be a valid hex color (#RRGGBB or #RRGGBBAA) or a CSS color name"
         }
       }
     }

@@ -129,10 +129,10 @@
 
 ### Task 2.5 — Add `package.json` contributions
 
-- [ ] Contribute two custom colors: `problemExplorer.errorForeground`, `problemExplorer.warningForeground`
-- [ ] Contribute `onStartupFinished` activation event
-- [ ] Contribute `problemExplorer.refresh` command
-- [ ] Define `configuration` section with settings:
+- [x] Contribute two custom colors: `problemExplorer.errorForeground`, `problemExplorer.warningForeground`
+- [x] Contribute `onStartupFinished` activation event
+- [x] Contribute `problemExplorer.refresh` command
+- [x] Define `configuration` section with settings:
   - `problemExplorer.enabled` (boolean)
   - `problemExplorer.showWarnings` (boolean)
   - `problemExplorer.errorColor` (string, references custom color)
