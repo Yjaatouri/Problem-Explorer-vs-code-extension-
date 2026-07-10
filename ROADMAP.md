@@ -113,12 +113,12 @@
 
 ### Task 2.3 — Implement the ColorProvider
 
-- [ ] Create `src/decoration/colorProvider.ts`
-- [ ] Implement `getErrorColor(): ThemeColor`
-- [ ] Implement `getWarningColor(): ThemeColor`
-- [ ] Implement `getInfoColor(): ThemeColor`
-- [ ] Default colors reference built-in `editorError.foreground` and `editorWarning.foreground`
-- [ ] Integrate with ConfigurationManager for user overrides
+- [x] Create `src/decoration/colorProvider.ts`
+- [x] Implement `getErrorColor(): ThemeColor`
+- [x] Implement `getWarningColor(): ThemeColor`
+- [x] Implement `getInfoColor(): ThemeColor`
+- [x] Default colors reference built-in `editorError.foreground` and `editorWarning.foreground`
+- [x] Integrate with ConfigurationManager for user overrides
 
 ### Task 2.4 — Wire DecorationEngine to DiagnosticsManager
 
