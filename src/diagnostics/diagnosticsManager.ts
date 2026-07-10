@@ -11,6 +11,8 @@ import {
 import { ProblemCache } from '../cache/cacheLayer';
 import { toProblemStatus } from './severityMapper';
 import { ProblemStatus } from '../core/types';
+import { isIgnored } from '../performance/ignoreFilter';
+import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
 export interface DiagnosticsDelegate {
   getAllDiagnostics(): [Uri, Diagnostic[]][];
@@ -36,6 +38,7 @@ export class DiagnosticsManager {
     this.cache = cache;
     this.delegate = delegate ?? defaultDelegate;
     this.onDidDiagnosticsChange = languages.onDidChangeDiagnostics;
+    this.cache.setIgnorePredicate((uri) => isIgnored(uri, [...DEFAULT_IGNORE_PATTERNS]));
   }
 
   fullScan(): Uri[] {

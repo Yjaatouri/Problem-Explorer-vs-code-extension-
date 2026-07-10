@@ -3,11 +3,18 @@ import { ProblemStatus } from '../core/types';
 import { PER_FOLDER_CACHE_LIMIT } from '../core/constants';
 import { LruCache } from './lruCache';
 
+export type IgnorePredicate = (uri: Uri) => boolean;
+
 export class ProblemCache {
   private readonly folders: Map<string, LruCache<string, ProblemStatus>>;
+  private ignorePredicate: IgnorePredicate | undefined;
 
   constructor() {
     this.folders = new Map();
+  }
+
+  setIgnorePredicate(predicate: IgnorePredicate | undefined): void {
+    this.ignorePredicate = predicate;
   }
 
   get(uri: Uri, folderUri: Uri): ProblemStatus | undefined {
@@ -19,6 +26,10 @@ export class ProblemCache {
   }
 
   set(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
+    if (this.ignorePredicate?.(uri)) {
+      return false;
+    }
+
     const uriKey = uri.toString();
     const folderKey = folderUri.toString();
     let cache = this.folders.get(folderKey);

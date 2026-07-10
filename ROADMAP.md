@@ -75,11 +75,11 @@
 
 ### Task 1.4 — Implement the IgnoreFilter
 
-- [ ] Create `src/performance/ignoreFilter.ts`
-- [ ] Implement `isIgnored(uri: Uri, patterns: string[]): boolean`
-- [ ] Default ignore patterns (`**/node_modules/**`, `**/.git/**`, etc.)
-- [ ] Apply filter in CacheLayer set() — skip ignored URIs
-- [ ] Write unit tests (glob matching against known paths)
+- [x] Create `src/performance/ignoreFilter.ts`
+- [x] Implement `isIgnored(uri: Uri, patterns: string[]): boolean`
+- [x] Default ignore patterns (`**/node_modules/**`, `**/.git/**`, etc.)
+- [x] Apply filter in CacheLayer set() — skip ignored URIs
+- [x] Write unit tests (glob matching against known paths)
 
 ### Task 1.5 — Implement debounce and batch utilities
 
