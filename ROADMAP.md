@@ -105,11 +105,11 @@
 
 ### Task 2.2 — Implement the BadgeFormatter
 
-- [ ] Create `src/decoration/badgeFormatter.ts`
-- [ ] Implement `getBadge(severity: ProblemSeverity, counts: Counts): string`
-- [ ] Supported badges: `E`, `W`, `!`, `""` (empty for clean)
-- [ ] Make badge style configurable (`'letter'`, `'count'`, `'dot'`, `'none'`)
-- [ ] Write unit tests
+- [x] Create `src/decoration/badgeFormatter.ts`
+- [x] Implement `getBadge(severity: ProblemSeverity, counts: Counts): string`
+- [x] Supported badges: `E`, `W`, `!`, `""` (empty for clean)
+- [x] Make badge style configurable (`'letter'`, `'count'`, `'dot'`, `'none'`)
+- [x] Write unit tests
 
 ### Task 2.3 — Implement the ColorProvider
 
