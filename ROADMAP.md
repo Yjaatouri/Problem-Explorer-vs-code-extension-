@@ -171,9 +171,9 @@
 
 ### Task 3.4 — Handle collapsed folders correctly
 
-- [ ] `provideFileDecoration` is not called for collapsed folders until expanded
-- [ ] Ensure `onDidChangeFileDecorations` fires for folder URIs so VS Code re-queries when expanded
-- [ ] Test: collapse a folder, change a file inside it, expand → decoration is correct
+- [x] `provideFileDecoration` is not called for collapsed folders until expanded
+- [x] Ensure `onDidChangeFileDecorations` fires for folder URIs so VS Code re-queries when expanded
+- [x] Test: collapse a folder, change a file inside it, expand → decoration is correct
 
 ---
 
