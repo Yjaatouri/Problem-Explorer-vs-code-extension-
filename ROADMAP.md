@@ -234,11 +234,11 @@
 
 ### Task 5.2 — Performance validation
 
-- [ ] Profile `provideFileDecoration` latency (< 1µs target)
-- [ ] Profile initial activation with a 10k-file workspace (< 200ms target)
-- [ ] Profile memory with LRU cache at limit
-- [ ] Profile rapid diagnostic change handling
-- [ ] Create benchmark script
+- [x] Profile `provideFileDecoration` latency (< 1µs target)
+- [x] Profile initial activation with a 10k-file workspace (< 200ms target)
+- [x] Profile memory with LRU cache at limit
+- [x] Profile rapid diagnostic change handling
+- [x] Create benchmark script
 
 ### Task 5.3 — Edge case hardening
 
