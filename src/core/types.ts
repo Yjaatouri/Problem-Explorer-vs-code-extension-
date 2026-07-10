@@ -17,6 +17,9 @@ export interface Config {
   readonly showWarnings: boolean;
   readonly badgeStyle: 'letter' | 'count' | 'dot' | 'none';
   readonly ignorePatterns: string[];
+  readonly errorColor: string | undefined;
+  readonly warningColor: string | undefined;
+  readonly infoColor: string | undefined;
 }
 
 export type SeverityCounts = Pick<ProblemStatus, 'errorCount' | 'warningCount' | 'infoCount'>;

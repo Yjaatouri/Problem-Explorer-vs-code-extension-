@@ -183,12 +183,12 @@
 
 ### Task 4.1 — Implement the ConfigurationManager
 
-- [ ] Create `src/config/configManager.ts`
-- [ ] Implement `getConfig(): Config` — reads all `problemExplorer.*` settings
-- [ ] Subscribe to `workspace.onDidChangeConfiguration`
-- [ ] Filter to only `affectsConfiguration('problemExplorer')` changes
-- [ ] Trigger `DecorationEngine.refresh()` on relevant config changes
-- [ ] Write unit tests (mock `workspace.getConfiguration`)
+- [x] Create `src/config/configManager.ts`
+- [x] Implement `getConfig(): Config` — reads all `problemExplorer.*` settings
+- [x] Subscribe to `workspace.onDidChangeConfiguration`
+- [x] Filter to only `affectsConfiguration('problemExplorer')` changes
+- [x] Trigger `DecorationEngine.refresh()` on relevant config changes
+- [x] Write unit tests (mock `workspace.getConfiguration`)
 
 ### Task 4.2 — Implement the CommandManager
 
