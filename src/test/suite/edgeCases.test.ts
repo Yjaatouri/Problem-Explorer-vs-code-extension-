@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { Uri, ThemeColor } from 'vscode';
+import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { LruCache } from '../../cache/lruCache';
 import { DecorationEngine, WorkspaceFolderDelegate } from '../../decoration/decorationEngine';
@@ -214,7 +214,7 @@ suite('EdgeCases', () => {
       assert.strictEqual(cache.get(rootUri, rootUri)?.severity, ProblemSeverity.Error);
 
       cache.delete(fileA, rootUri);
-      const changed = mgr.updateAncestors(fileA); // fileA is now missing, root recomputed
+      mgr.updateAncestors(fileA); // fileA is now missing, root recomputed
       const rootStatus = cache.get(rootUri, rootUri);
       assert.strictEqual(rootStatus?.severity, ProblemSeverity.Warning);
     });

@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { Uri, WorkspaceFolder } from 'vscode';
+import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { ApiManager, WorkspaceFolderDelegate, ProblemStatusChangeEvent } from '../../api/problemExplorerApi';
 import { ProblemSeverity, ProblemStatus } from '../../core/types';
@@ -54,14 +54,14 @@ suite('ApiManager', () => {
 
     test('returns status from cache for cached URI', () => {
       const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
-      cache.set(fileUri, folderUri, errorStatus);
+      cache.set(fileUri, errorStatus, folderUri);
       const result = api.getProblemStatus(fileUri);
       assert.deepStrictEqual(result, errorStatus);
     });
 
     test('returns undefined after cache entry is deleted', () => {
       const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
-      cache.set(fileUri, folderUri, errorStatus);
+      cache.set(fileUri, errorStatus, folderUri);
       cache.delete(fileUri, folderUri);
       assert.strictEqual(api.getProblemStatus(fileUri), undefined);
     });
@@ -69,7 +69,7 @@ suite('ApiManager', () => {
     test('resolves workspace folder correctly', () => {
       const subFile = Uri.parse('file:///workspace/sub/file.ts');
       const folderUri = wf.getWorkspaceFolder(subFile)!.uri;
-      cache.set(subFile, folderUri, errorStatus);
+      cache.set(subFile, errorStatus, folderUri);
       assert.deepStrictEqual(api.getProblemStatus(subFile), errorStatus);
     });
   });
@@ -77,7 +77,7 @@ suite('ApiManager', () => {
   suite('onDidChangeProblemStatus', () => {
     test('fires event with status when notifyChanged is called', () => {
       const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
-      cache.set(fileUri, folderUri, errorStatus);
+      cache.set(fileUri, errorStatus, folderUri);
 
       const events: ProblemStatusChangeEvent[] = [];
       const disposable = api.onDidChangeProblemStatus((e) => events.push(e));
@@ -93,7 +93,7 @@ suite('ApiManager', () => {
 
     test('fires event with undefined status for deleted entry', () => {
       const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
-      cache.set(fileUri, folderUri, errorStatus);
+      cache.set(fileUri, errorStatus, folderUri);
       cache.delete(fileUri, folderUri);
 
       const events: ProblemStatusChangeEvent[] = [];
@@ -111,8 +111,8 @@ suite('ApiManager', () => {
     test('fires multiple events for different URIs', () => {
       const file2 = Uri.parse('file:///workspace/src/file2.ts');
       const folderUri = wf.getWorkspaceFolder(fileUri)!.uri;
-      cache.set(fileUri, folderUri, errorStatus);
-      cache.set(file2, folderUri, s(ProblemSeverity.Warning));
+      cache.set(fileUri, errorStatus, folderUri);
+      cache.set(file2, s(ProblemSeverity.Warning), folderUri);
 
       const events: ProblemStatusChangeEvent[] = [];
       const disposable = api.onDidChangeProblemStatus((e) => events.push(e));

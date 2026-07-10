@@ -25,7 +25,7 @@ suite('ConfigManager', () => {
           get: <T>(key: string, defaultValue?: T): T =>
             (values[key] as T) ?? (defaultValue as T),
         }),
-        onDidChangeConfiguration: (listener) => {
+        onDidChangeConfiguration: (listener: (...args: unknown[]) => void) => {
           listeners.push(listener);
           return { dispose: () => {} };
         },
@@ -104,7 +104,7 @@ suite('ConfigManager', () => {
       getConfiguration: () => ({
         get: <T>(key: string, d?: T): T => (values[key] as T) ?? (d as T),
       }),
-      onDidChangeConfiguration: (l) => {
+      onDidChangeConfiguration: (l: (...args: unknown[]) => void) => {
         listeners.push(l);
         return { dispose: () => {} };
       },
@@ -140,7 +140,7 @@ suite('ConfigManager', () => {
       getConfiguration: () => ({
         get: <T>(key: string, d?: T): T => (values[key] as T) ?? (d as T),
       }),
-      onDidChangeConfiguration: (l) => {
+      onDidChangeConfiguration: (l: (...args: unknown[]) => void) => {
         listeners.push(l);
         return { dispose: () => {} };
       },

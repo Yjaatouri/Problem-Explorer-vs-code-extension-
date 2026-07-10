@@ -61,7 +61,7 @@ suite('DecorationEngine', () => {
     const result = engine.provideFileDecoration(fileUri, {} as any);
     assert.ok(result);
     assert.strictEqual(result.badge, BADGE_LETTERS.warning);
-    assert.strictEqual(result.color.id, COLORS.WARNING_FOREGROUND);
+    assert.strictEqual(result.color!.id, COLORS.WARNING_FOREGROUND);
   });
 
   test('provideFileDecoration returns decoration for cached info file', () => {
@@ -69,7 +69,7 @@ suite('DecorationEngine', () => {
     const result = engine.provideFileDecoration(fileUri, {} as any);
     assert.ok(result);
     assert.strictEqual(result.badge, BADGE_LETTERS.info);
-    assert.strictEqual(result.color.id, COLORS.INFO_FOREGROUND);
+    assert.strictEqual(result.color!.id, COLORS.INFO_FOREGROUND);
   });
 
   test('provideFileDecoration returns undefined for clean file', () => {

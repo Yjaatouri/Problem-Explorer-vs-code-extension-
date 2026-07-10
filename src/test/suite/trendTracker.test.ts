@@ -45,13 +45,13 @@ suite('TrendTracker', () => {
     test('single snapshot captures current totals', () => {
       const root = cacheKey('file:///root');
       const file = cacheKey('file:///root/file.ts');
-      cache.set(file, root, {
+      cache.set(file, {
         severity: ProblemSeverity.Error,
         errorCount: 3,
         warningCount: 2,
         infoCount: 1,
         fileCount: 1,
-      });
+      }, root);
       tracker.takeSnapshot();
       const history = tracker.getHistory();
       assert.strictEqual(history.length, 1);
@@ -125,13 +125,13 @@ suite('TrendTracker', () => {
     test('history survives tracker instance recreation', () => {
       const root = cacheKey('file:///root');
       const file = cacheKey('file:///root/file.ts');
-      cache.set(file, root, {
+      cache.set(file, {
         severity: ProblemSeverity.Error,
         errorCount: 5,
         warningCount: 0,
         infoCount: 0,
         fileCount: 1,
-      });
+      }, root);
       tracker.takeSnapshot();
       assert.strictEqual(tracker.getHistory()[0].errorCount, 5);
 

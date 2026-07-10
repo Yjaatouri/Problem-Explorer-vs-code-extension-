@@ -129,11 +129,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
     const changed = diagnosticsManager.fullScan();
     const changedFolders = folderStatusManager.rebuildAll();
-    const allChanged = [...changed, ...changedFolders];
-    notifyApi(allChanged);
-    if (allChanged.length > 0) {
-      decorationEngine.fireDidChange(allChanged);
-    }
+    notifyApi([...changed, ...changedFolders]);
+    decorationEngine.refresh();
     statusBarManager.update();
   }
 

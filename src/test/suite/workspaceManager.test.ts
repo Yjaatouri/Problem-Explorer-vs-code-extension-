@@ -83,7 +83,7 @@ suite('WorkspaceManager', () => {
     cache.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootA);
     assert.strictEqual(cache.getFolderSize(rootA), 1);
 
-    const wm = new WorkspaceManager(cache, dm, fm, de, delegate);
+    new WorkspaceManager(cache, dm, fm, de, delegate);
     const removed = [makeFolder(rootB, 1)];
     listeners[0]({ added: [], removed } as WorkspaceFoldersChangeEvent);
 
@@ -102,7 +102,7 @@ suite('WorkspaceManager', () => {
     assert.strictEqual(cache.getFolderSize(rootA), 1);
     assert.strictEqual(cache.getFolderSize(rootB), 1);
 
-    const wm = new WorkspaceManager(cache, dm, fm, de, delegate);
+    new WorkspaceManager(cache, dm, fm, de, delegate);
     listeners[0]({ added: [], removed: [makeFolder(rootB, 1)] } as WorkspaceFoldersChangeEvent);
 
     assert.strictEqual(cache.getFolderSize(rootA), 1);
@@ -123,7 +123,7 @@ suite('WorkspaceManager', () => {
     };
 
     const { delegate, listeners } = makeMockDelegate([]);
-    const wm = new WorkspaceManager(cache, dm, fm, de, delegate);
+    new WorkspaceManager(cache, dm, fm, de, delegate);
 
     listeners[0]({
       added: [makeFolder(rootA, 0)],

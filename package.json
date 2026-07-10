@@ -2,7 +2,7 @@
   "name": "problem-explorer",
   "displayName": "Problem Explorer",
   "description": "Highlights files and folders with errors and warnings directly in the Explorer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Yjaatouri",
   "license": "MIT",
   "repository": {
@@ -161,10 +161,42 @@
             "type": "object",
             "description": "Mapping from source severity name to target severity name",
             "properties": {
-              "Error": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] },
-              "Warning": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] },
-              "Information": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] },
-              "Hint": { "type": "string", "enum": ["Error", "Warning", "Information", "Hint"] }
+              "Error": {
+                "type": "string",
+                "enum": [
+                  "Error",
+                  "Warning",
+                  "Information",
+                  "Hint"
+                ]
+              },
+              "Warning": {
+                "type": "string",
+                "enum": [
+                  "Error",
+                  "Warning",
+                  "Information",
+                  "Hint"
+                ]
+              },
+              "Information": {
+                "type": "string",
+                "enum": [
+                  "Error",
+                  "Warning",
+                  "Information",
+                  "Hint"
+                ]
+              },
+              "Hint": {
+                "type": "string",
+                "enum": [
+                  "Error",
+                  "Warning",
+                  "Information",
+                  "Hint"
+                ]
+              }
             }
           }
         }
@@ -182,6 +214,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.1.1",
+    "@types/sinon": "^22.0.0",
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
@@ -190,6 +223,7 @@
     "eslint-config-prettier": "^10.0.0",
     "mocha": "^11.0.0",
     "prettier": "^3.3.0",
+    "sinon": "^22.0.0",
     "ts-loader": "^9.5.0",
     "typescript": "^5.5.0",
     "vsce": "^2.15.0",
