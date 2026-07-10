@@ -12,32 +12,32 @@
 
 ### Task 0.1 — Scaffold the extension
 
-- [ ] Run `yo code` to generate the extension scaffold
-- [ ] Choose a unique publisher ID and extension ID
-- [ ] Configure `package.json` with metadata (name, publisher, display name, description, categories)
-- [ ] Set up `tsconfig.json` with strict mode
-- [ ] Set up ESLint + Prettier configs
+- [x] Run `yo code` to generate the extension scaffold
+- [x] Choose a unique publisher ID and extension ID (Yjaatouri / problem-explorer)
+- [x] Configure `package.json` with metadata (name, publisher, display name, description, categories)
+- [x] Set up `tsconfig.json` with strict mode
+- [x] Set up ESLint + Prettier configs
 
 ### Task 0.2 — Configure the build pipeline
 
-- [ ] Install and configure Webpack for production bundling
-- [ ] Add `npm run build`, `npm run watch`, `npm run lint` scripts
-- [ ] Configure `.vscodeignore` to exclude dev files from .vsix
+- [x] Install and configure Webpack for production bundling
+- [x] Add `npm run build`, `npm run watch`, `npm run lint` scripts
+- [x] Configure `.vscodeignore` to exclude dev files from .vsix
 - [ ] Verify `F5` launches the extension in a development host
 
 ### Task 0.3 — Create the folder structure
 
-- [ ] Create all directories under `src/` as defined in the architecture doc
-- [ ] Create `src/core/types.ts` with all shared type definitions
-- [ ] Create `src/core/constants.ts` with all constants
-- [ ] Create `src/core/errors.ts` with custom error classes
+- [x] Create all directories under `src/` as defined in the architecture doc
+- [x] Create `src/core/types.ts` with all shared type definitions
+- [x] Create `src/core/constants.ts` with all constants
+- [x] Create `src/core/errors.ts` with custom error classes
 
 ### Task 0.4 — Write the empty `activate`/`deactivate`
 
-- [ ] `extension.ts` exports `activate` and `deactivate` functions
-- [ ] `activate` logs a startup message
-- [ ] `deactivate` is a no-op
-- [ ] Verify "Hello World" shows on activation
+- [x] `extension.ts` exports `activate` and `deactivate` functions
+- [x] `activate` logs a startup message
+- [x] `deactivate` is a no-op
+- [x] Verify webpack build succeeds (compiled to dist/extension.js)
 
 ---
 

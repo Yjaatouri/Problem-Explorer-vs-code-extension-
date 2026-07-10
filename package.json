@@ -1,0 +1,146 @@
+{
+  "name": "problem-explorer",
+  "displayName": "Problem Explorer",
+  "description": "Highlights files and folders with errors and warnings directly in the Explorer",
+  "version": "0.0.1",
+  "publisher": "Yjaatouri",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yjaatouri/Problem-Explorer-vs-code-extension-.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Yjaatouri/Problem-Explorer-vs-code-extension-/issues"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "diagnostics",
+    "errors",
+    "warnings",
+    "explorer",
+    "decorations",
+    "problems"
+  ],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:problemExplorer.refresh"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "problemExplorer.refresh",
+        "title": "Refresh Problem Decorations",
+        "category": "Problem Explorer"
+      }
+    ],
+    "colors": [
+      {
+        "id": "problemExplorer.errorForeground",
+        "description": "Foreground color for files containing errors",
+        "defaults": {
+          "dark": "editorError.foreground",
+          "light": "editorError.foreground",
+          "highContrast": "editorError.foreground",
+          "highContrastLight": "editorError.foreground"
+        }
+      },
+      {
+        "id": "problemExplorer.warningForeground",
+        "description": "Foreground color for files containing warnings",
+        "defaults": {
+          "dark": "editorWarning.foreground",
+          "light": "editorWarning.foreground",
+          "highContrast": "editorWarning.foreground",
+          "highContrastLight": "editorWarning.foreground"
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Problem Explorer",
+      "properties": {
+        "problemExplorer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable problem decorations in the Explorer"
+        },
+        "problemExplorer.showWarnings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show warning decorations alongside error decorations"
+        },
+        "problemExplorer.badgeStyle": {
+          "type": "string",
+          "default": "letter",
+          "enum": [
+            "letter",
+            "count",
+            "dot",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Show a single letter badge (E, W, I)",
+            "Show the problem count as the badge",
+            "Show a small colored dot",
+            "Hide the badge text entirely (color only)"
+          ],
+          "description": "Style of badge shown on files with problems"
+        },
+        "problemExplorer.ignorePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/.next/**",
+            "**/target/**",
+            "**/__pycache__/**",
+            "**/vendor/**",
+            "**/.tox/**"
+          ],
+          "description": "Glob patterns for files and folders to ignore"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "webpack --mode production",
+    "watch": "webpack --mode development --watch",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vscode/test-electron": "^2.4.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "mocha": "^11.0.0",
+    "prettier": "^3.3.0",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.5.0",
+    "vsce": "^2.15.0",
+    "webpack": "^5.95.0",
+    "webpack-cli": "^6.0.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Decorations are disabled in untrusted workspaces for security"
+    }
+  }
+}
