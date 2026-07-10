@@ -4,6 +4,7 @@
   "description": "Highlights files and folders with errors and warnings directly in the Explorer",
   "version": "0.1.1",
   "publisher": "Yjaatouri",
+  "icon": "icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
