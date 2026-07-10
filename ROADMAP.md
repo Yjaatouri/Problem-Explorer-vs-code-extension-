@@ -242,11 +242,11 @@
 
 ### Task 5.3 — Edge case hardening
 
-- [ ] Handle workspace-less VS Code window (no folder open)
-- [ ] Handle files with non-ASCII/Unicode paths
-- [ ] Handle virtual file systems (scheme != `file`)
-- [ ] Handle deleted files (evict from cache via file system watcher)
-- [ ] Handle extremely long file paths on Windows
+- [x] Handle workspace-less VS Code window (no folder open)
+- [x] Handle files with non-ASCII/Unicode paths
+- [x] Handle virtual file systems (scheme != `file`)
+- [x] Handle deleted files (evict from cache via file system watcher)
+- [x] Handle extremely long file paths on Windows
 
 ### Task 5.4 — Documentation
 

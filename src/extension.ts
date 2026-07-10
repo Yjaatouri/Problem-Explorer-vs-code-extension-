@@ -57,15 +57,37 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  context.subscriptions.push(
+    vscode.workspace.onDidDeleteFiles((e) => {
+      for (let i = 0; i < e.files.length; i++) {
+        const uri = e.files[i];
+        const folder = vscode.workspace.getWorkspaceFolder(uri);
+        if (folder) {
+          cache.delete(uri, folder.uri);
+          dirtyUris.add(uri.toString());
+          const ancestors = folderStatusManager.updateAncestors(uri);
+          for (let j = 0; j < ancestors.length; j++) {
+            dirtyUris.add(ancestors[j].toString());
+          }
+        }
+      }
+      if (e.files.length > 0) {
+        debouncedFire();
+      }
+    }),
+  );
+
   commandManager.register(context);
 
   context.subscriptions.push({ dispose: () => debouncedFire.cancel() });
 
-  const changed = diagnosticsManager.fullScan();
-  const changedFolders = folderStatusManager.rebuildAll();
-  const allChanged = [...changed, ...changedFolders];
-  if (allChanged.length > 0) {
-    decorationEngine.fireDidChange(allChanged);
+  if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
+    const changed = diagnosticsManager.fullScan();
+    const changedFolders = folderStatusManager.rebuildAll();
+    const allChanged = [...changed, ...changedFolders];
+    if (allChanged.length > 0) {
+      decorationEngine.fireDidChange(allChanged);
+    }
   }
 }
 
