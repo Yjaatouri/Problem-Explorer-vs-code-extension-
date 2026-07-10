@@ -6,9 +6,9 @@
 
 ---
 
-## Phase 0 — Foundation (current)
+## Phase 0 — Foundation (complete)
 
-> Set up the project skeleton, tooling, scaffolding, and the core `activate`/`deactivate` contract.
+> ✅ Project skeleton, tooling, scaffolding, and the core `activate`/`deactivate` contract.
 
 ### Task 0.1 — Scaffold the extension
 
@@ -23,7 +23,7 @@
 - [x] Install and configure Webpack for production bundling
 - [x] Add `npm run build`, `npm run watch`, `npm run lint` scripts
 - [x] Configure `.vscodeignore` to exclude dev files from .vsix
-- [ ] Verify `F5` launches the extension in a development host
+- [x] Verify `F5` launches the extension in a development host
 
 ### Task 0.3 — Create the folder structure
 
