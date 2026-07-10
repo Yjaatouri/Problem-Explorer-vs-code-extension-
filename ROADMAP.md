@@ -201,12 +201,12 @@
 
 ### Task 4.3 — Implement the WorkspaceManager
 
-- [ ] Create `src/workspace/workspaceManager.ts`
-- [ ] Implement `getWorkspaceFolders(): WorkspaceFolder[]`
-- [ ] Subscribe to `workspace.onDidChangeWorkspaceFolders`
-- [ ] On folder added: run diagnostics scan for that folder
-- [ ] On folder removed: clear cache for that folder
-- [ ] Write unit tests (multi-root scenarios)
+- [x] Create `src/workspace/workspaceManager.ts`
+- [x] Implement `getWorkspaceFolders(): WorkspaceFolder[]`
+- [x] Subscribe to `workspace.onDidChangeWorkspaceFolders`
+- [x] On folder added: run diagnostics scan for that folder
+- [x] On folder removed: clear cache for that folder
+- [x] Write unit tests (multi-root scenarios)
 
 ### Task 4.4 — Handle workspace trust
 

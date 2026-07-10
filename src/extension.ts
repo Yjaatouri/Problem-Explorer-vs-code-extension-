@@ -5,6 +5,7 @@ import { DecorationEngine } from './decoration/decorationEngine';
 import { FolderStatusManager } from './folder/folderStatusManager';
 import { ConfigManager } from './config/configManager';
 import { CommandManager } from './commands/commandManager';
+import { WorkspaceManager } from './workspace/workspaceManager';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
 
@@ -19,6 +20,12 @@ export function activate(context: vscode.ExtensionContext): void {
     decorationEngine,
     folderStatusManager,
     configManager,
+  );
+  new WorkspaceManager(
+    cache,
+    diagnosticsManager,
+    folderStatusManager,
+    decorationEngine,
   );
 
   context.subscriptions.push(
