@@ -165,9 +165,9 @@
 
 ### Task 3.3 — Wire FolderStatusManager into the change flow
 
-- [ ] In `extension.ts`: after DiagnosticsManager processes a change, call `FolderStatusManager.updateAncestors(uri)`
-- [ ] Collect all ancestor URIs into the dirty set alongside the file URI
-- [ ] Test: changing a file's diagnostics updates all parent folders up to the workspace root
+- [x] In `extension.ts`: after DiagnosticsManager processes a change, call `FolderStatusManager.updateAncestors(uri)`
+- [x] Collect all ancestor URIs into the dirty set alongside the file URI
+- [x] Test: changing a file's diagnostics updates all parent folders up to the workspace root
 
 ### Task 3.4 — Handle collapsed folders correctly
 

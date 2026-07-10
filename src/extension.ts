@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ProblemCache } from './cache/cacheLayer';
 import { DiagnosticsManager } from './diagnostics/diagnosticsManager';
 import { DecorationEngine } from './decoration/decorationEngine';
+import { FolderStatusManager } from './folder/folderStatusManager';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
 
@@ -9,6 +10,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const cache = new ProblemCache();
   const diagnosticsManager = new DiagnosticsManager(cache);
   const decorationEngine = new DecorationEngine(cache);
+  const folderStatusManager = new FolderStatusManager(cache);
 
   context.subscriptions.push(
     vscode.window.registerFileDecorationProvider(decorationEngine),
@@ -28,6 +30,10 @@ export function activate(context: vscode.ExtensionContext): void {
       const changed = diagnosticsManager.processChanges(e);
       for (let i = 0; i < changed.length; i++) {
         dirtyUris.add(changed[i].toString());
+        const ancestors = folderStatusManager.updateAncestors(changed[i]);
+        for (let j = 0; j < ancestors.length; j++) {
+          dirtyUris.add(ancestors[j].toString());
+        }
       }
       if (changed.length > 0) {
         debouncedFire();
@@ -45,8 +51,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push({ dispose: () => debouncedFire.cancel() });
 
   const changed = diagnosticsManager.fullScan();
-  if (changed.length > 0) {
-    decorationEngine.fireDidChange(changed);
+  const changedFolders = folderStatusManager.rebuildAll();
+  const allChanged = [...changed, ...changedFolders];
+  if (allChanged.length > 0) {
+    decorationEngine.fireDidChange(allChanged);
   }
 }
 
