@@ -81,6 +81,32 @@ suite('LruCache', () => {
     assert.strictEqual(cache.get('a'), undefined);
     assert.strictEqual(cache.get('b'), 2);
   });
+
+  test('entries iterates over all key-value pairs', () => {
+    const cache = new LruCache<string, number>(10);
+    cache.set('a', 1);
+    cache.set('b', 2);
+    cache.set('c', 3);
+    const result = Array.from(cache.entries());
+    assert.strictEqual(result.length, 3);
+    assert.deepStrictEqual(result, [['a', 1], ['b', 2], ['c', 3]]);
+  });
+
+  test('entries returns correct pairs after eviction', () => {
+    const cache = new LruCache<string, number>(2);
+    cache.set('a', 1);
+    cache.set('b', 2);
+    cache.set('c', 3);
+    const result = Array.from(cache.entries());
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0][0], 'b');
+    assert.strictEqual(result[1][0], 'c');
+  });
+
+  test('entries returns nothing for empty cache', () => {
+    const cache = new LruCache<string, number>(10);
+    assert.strictEqual(Array.from(cache.entries()).length, 0);
+  });
 });
 
 suite('ProblemCache', () => {
@@ -163,5 +189,42 @@ suite('ProblemCache', () => {
     assert.strictEqual(cache.get(fileA, differentFolder), undefined);
     assert.strictEqual(cache.getFolderSize(folderUri), 0);
     assert.strictEqual(cache.getFolderSize(differentFolder), 0);
+  });
+
+  test('getEntries returns all entries for a folder', () => {
+    const cache = new ProblemCache();
+    cache.set(fileA, statusError, folderUri);
+    cache.set(fileB, statusWarning, folderUri);
+    const entries = cache.getEntries(folderUri);
+    assert.strictEqual(entries.length, 2);
+    assert.strictEqual(entries[0][1].severity, ProblemSeverity.Error);
+    assert.strictEqual(entries[1][1].severity, ProblemSeverity.Warning);
+  });
+
+  test('getEntries returns empty for unknown folder', () => {
+    const cache = new ProblemCache();
+    const entries = cache.getEntries(differentFolder);
+    assert.strictEqual(entries.length, 0);
+  });
+
+  test('getEntries does not include entries from other folders', () => {
+    const cache = new ProblemCache();
+    cache.set(fileA, statusError, folderUri);
+    cache.set(fileA, statusWarning, differentFolder);
+    const entries = cache.getEntries(folderUri);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0][1].severity, ProblemSeverity.Error);
+  });
+
+  test('setIgnorePredicate prevents ignored URIs from being cached', () => {
+    const cache = new ProblemCache();
+    cache.setIgnorePredicate((uri) => uri.toString().includes('node_modules'));
+    const ignored = vscode.Uri.parse('file:///workspace/node_modules/pkg/index.js');
+    const normal = vscode.Uri.parse('file:///workspace/src/app.ts');
+
+    assert.strictEqual(cache.set(ignored, statusError, folderUri), false);
+    assert.strictEqual(cache.set(normal, statusError, folderUri), true);
+    assert.strictEqual(cache.get(ignored, folderUri), undefined);
+    assert.strictEqual(cache.get(normal, folderUri)?.severity, ProblemSeverity.Error);
   });
 });

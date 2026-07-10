@@ -1,7 +1,9 @@
 import * as assert from 'assert';
 
-suite('Problem Explorer', () => {
-  test('Extension activates successfully', () => {
-    assert.ok(true, 'Placeholder test');
+suite('Extension', () => {
+  test('extension exports activate and deactivate', () => {
+    const ext = require('../../extension');
+    assert.strictEqual(typeof ext.activate, 'function');
+    assert.strictEqual(typeof ext.deactivate, 'function');
   });
 });

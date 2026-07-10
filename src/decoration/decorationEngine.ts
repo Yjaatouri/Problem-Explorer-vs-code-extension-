@@ -7,6 +7,7 @@ import {
   languages,
   ThemeColor,
   Uri,
+  WorkspaceFolder,
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
@@ -14,18 +15,32 @@ import { ProblemSeverity, ProblemStatus } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { toProblemStatus } from '../diagnostics/severityMapper';
 
+export interface WorkspaceFolderDelegate {
+  getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
+}
+
+const defaultDelegate: WorkspaceFolderDelegate = {
+  getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
+};
+
 export class DecorationEngine implements FileDecorationProvider {
   private readonly _onDidChangeFileDecorations = new EventEmitter<Uri | Uri[] | undefined>();
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
+  private readonly wf: WorkspaceFolderDelegate;
 
-  constructor(private readonly cache: ProblemCache) {}
+  constructor(
+    private readonly cache: ProblemCache,
+    wf?: WorkspaceFolderDelegate,
+  ) {
+    this.wf = wf ?? defaultDelegate;
+  }
 
   provideFileDecoration(
     uri: Uri,
     _token: CancellationToken,
   ): FileDecoration | undefined {
-    const folder = workspace.getWorkspaceFolder(uri);
+    const folder = this.wf.getWorkspaceFolder(uri);
     if (!folder) {
       return undefined;
     }

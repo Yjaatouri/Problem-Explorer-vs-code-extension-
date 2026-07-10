@@ -221,9 +221,9 @@
 
 ### Task 5.1 — Write full test suite
 
-- [ ] Unit tests for every module (target: >90% coverage)
-- [ ] Integration tests using VS Code test runner with a sample workspace
-- [ ] Test scenarios:
+- [x] Unit tests for every module (target: >90% coverage)
+- [x] Integration tests using VS Code test runner with a sample workspace
+- [x] Test scenarios:
   - Empty workspace
   - Single file with errors
   - 1000 files with random diagnostics
