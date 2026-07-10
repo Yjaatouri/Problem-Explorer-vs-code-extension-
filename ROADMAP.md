@@ -259,9 +259,9 @@
 
 - [x] Run `vsce package` to produce .vsix (40.54 KB, 9 files)
 - [x] Verify .vsix size < 100KB (40.54 KB ✓)
-- [ ] Publish to VS Code Marketplace (requires VSCE_PAT secret)
+- [x] Publish to VS Code Marketplace (v0.0.1 published)
 - [x] Set up CI/CD pipeline (GitHub Actions)
-  - `.github/workflows/ci.yml` — build + lint + package on every push/PR (Ubuntu + Windows, Node 18/20)
+  - `.github/workflows/ci.yml` — build + lint + package on every push/PR (Ubuntu + Windows, Node 20/22)
   - `.github/workflows/release.yml` — publish to Marketplace + create GitHub Release on `v*` tags
 
 ---
