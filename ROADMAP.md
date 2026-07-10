@@ -303,8 +303,13 @@
 
 ### Task 6.5 — Diagnostic trend visualization
 
-- [ ] Track diagnostic count history in `globalState`
-- [ ] Show mini sparkline in tooltip (future stretch goal)
+- [x] Create `TrendTracker` class with interval-based snapshot capture (default every 5 minutes)
+- [x] `StorageProvider` interface + `MementoStorageProvider` adapter for VS Code `globalState`
+- [x] `takeSnapshot()` reads `ProblemCache.computeTotals()`, appends to history, trims to last 100 entries
+- [x] `start()` takes initial baseline + sets periodic timer; `stop()` clears timer
+- [x] Also snapshots on every debounced diagnostic change (alongside status bar update)
+- [x] Wired into `extension.ts` via `context.globalState`; cleanup on deactivation
+- [x] Write 9 unit tests (empty history, single/multiple snapshots, trimming, start/stop, timer, persistence)
 
 ---
 

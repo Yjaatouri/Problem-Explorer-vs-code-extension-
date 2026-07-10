@@ -8,6 +8,7 @@ import { CommandManager } from './commands/commandManager';
 import { WorkspaceManager } from './workspace/workspaceManager';
 import { StatusBarManager } from './statusBar/statusBarManager';
 import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
+import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
 
@@ -25,6 +26,11 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   );
   const statusBarManager = new StatusBarManager(cache);
   const apiManager = new ApiManager(cache);
+  const trendTracker = new TrendTracker(
+    cache,
+    new MementoStorageProvider(context.globalState),
+  );
+  trendTracker.start();
   new WorkspaceManager(
     cache,
     diagnosticsManager,
@@ -69,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       decorationEngine.fireDidChange(uris);
     }
     statusBarManager.update();
+    trendTracker.takeSnapshot();
   }, PROCESSING_DEBOUNCE_MS);
 
   context.subscriptions.push(
@@ -116,7 +123,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   context.subscriptions.push(
     statusBarManager,
     statusBarManager.registerCommand(),
-    { dispose: () => debouncedFire.cancel() },
+    { dispose: () => { debouncedFire.cancel(); trendTracker.stop(); } },
   );
 
   if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {

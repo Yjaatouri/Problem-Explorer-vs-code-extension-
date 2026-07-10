@@ -37,3 +37,7 @@ export const BADGE_LETTERS: Record<string, string> = {
 } as const;
 
 export const BADGE_DOT = '\u25CF';
+
+export const TREND_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+export const MAX_TREND_SNAPSHOTS = 100;
+export const TREND_STORAGE_KEY = 'problemExplorer.trendHistory';
