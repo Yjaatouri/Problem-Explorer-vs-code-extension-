@@ -122,10 +122,10 @@
 
 ### Task 2.4 — Wire DecorationEngine to DiagnosticsManager
 
-- [ ] In `extension.ts`: when `DiagnosticsManager.onDiagnosticsChanged` fires, call `DecorationEngine.fireDidChange(uris)`
-- [ ] Debounce the firing using the 50ms debounce utility
-- [ ] Collect dirty URIs in a `Set<string>` during debounce window
-- [ ] Test: typing in a TypeScript file updates decorations in real time
+- [x] In `extension.ts`: when `DiagnosticsManager.onDiagnosticsChanged` fires, call `DecorationEngine.fireDidChange(uris)`
+- [x] Debounce the firing using the 50ms debounce utility
+- [x] Collect dirty URIs in a `Set<string>` during debounce window
+- [x] Test: typing in a TypeScript file updates decorations in real time
 
 ### Task 2.5 — Add `package.json` contributions
 
