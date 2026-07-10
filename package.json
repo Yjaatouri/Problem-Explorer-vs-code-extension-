@@ -28,8 +28,7 @@
     "vscode": "^1.90.0"
   },
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:problemExplorer.refresh"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
