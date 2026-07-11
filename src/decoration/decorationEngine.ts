@@ -15,6 +15,7 @@ import { Config, ProblemSeverity, ProblemStatus } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
 import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
+import { isIgnored } from '../performance/ignoreFilter';
 
 export interface WorkspaceFolderDelegate {
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
@@ -65,6 +66,10 @@ export class DecorationEngine implements FileDecorationProvider {
       let status = this.cache.get(uri, folder.uri);
 
       if (!status) {
+        // Don't fetch diagnostics for ignored files
+        if (isIgnored(uri, this.config?.ignorePatterns)) {
+          return undefined;
+        }
         const diagnostics = languages.getDiagnostics(uri);
         if (diagnostics.length > 0) {
           const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);

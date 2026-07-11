@@ -11,8 +11,7 @@ import {
 import { ProblemCache } from '../cache/cacheLayer';
 import { toProblemStatus, applySeverityOverrides } from './severityMapper';
 import { ProblemStatus } from '../core/types';
-import { isIgnored } from '../performance/ignoreFilter';
-import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
+import { isIgnored, precompilePatterns } from '../performance/ignoreFilter';
 
 /** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
 export interface DiagnosticsDelegate {
@@ -43,7 +42,12 @@ export class DiagnosticsManager {
     this.cache = cache;
     this.delegate = delegate ?? defaultDelegate;
     this.onDidDiagnosticsChange = languages.onDidChangeDiagnostics;
-    this.cache.setIgnorePredicate((uri) => isIgnored(uri, [...DEFAULT_IGNORE_PATTERNS]));
+  }
+
+  /** Set the glob patterns that determine which URIs the cache should ignore. Pre-compiles patterns for efficiency. */
+  setIgnorePatterns(patterns: string[]): void {
+    precompilePatterns(patterns);
+    this.cache.setIgnorePredicate((uri) => isIgnored(uri, patterns));
   }
 
   /** Set per-extension severity overrides (from `Config.severityOverrides`) */
