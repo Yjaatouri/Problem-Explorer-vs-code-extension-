@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "outDir": "./out",
+    "rootDir": "./src",
+    "declaration": false,
+    "declarationMap": false,
+    "paths": {
+      "../../*": ["./out/*"]
+    },
+    "baseUrl": "./src/test/suite"
+  },
+  "include": ["src/test/**/*"],
+  "exclude": ["node_modules", "dist", ".vscode-test"]
+}

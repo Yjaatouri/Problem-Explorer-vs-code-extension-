@@ -106,7 +106,7 @@ export class ProblemCache {
 
     cache.set(uriKey, status);
     this.folderKeys.add(uriKey);
-    return old !== undefined;
+    return true;
   }
 
   /** `true` when the given cache key represents a folder aggregate (not a file entry). */

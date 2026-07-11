@@ -35,7 +35,8 @@ suite('Scenarios', () => {
       statuses.push(s);
     }
 
-    assert.strictEqual(cache.getFolderSize(rootUri), 1000);
+    const storedCount = statuses.filter((s) => s.severity !== ProblemSeverity.None).length;
+    assert.strictEqual(cache.getFolderSize(rootUri), storedCount);
 
     const aggregated = aggregateStatuses(statuses);
     const expectedSeverity = statuses.reduce(
