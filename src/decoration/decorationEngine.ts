@@ -11,8 +11,9 @@ import {
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
-import { ProblemSeverity, ProblemStatus } from '../core/types';
+import { Config, ProblemSeverity, ProblemStatus } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
+import { getBadge } from './badgeFormatter';
 import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
 
 export interface WorkspaceFolderDelegate {
@@ -29,6 +30,7 @@ export class DecorationEngine implements FileDecorationProvider {
     this._onDidChangeFileDecorations.event;
   private readonly wf: WorkspaceFolderDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
+  private config: Config | undefined;
 
   constructor(
     private readonly cache: ProblemCache,
@@ -41,11 +43,20 @@ export class DecorationEngine implements FileDecorationProvider {
     this.severityOverrides = overrides;
   }
 
+  /** Provide the current user configuration. When unset, defaults apply (enabled, letter badges). */
+  setConfig(config: Config | undefined): void {
+    this.config = config;
+  }
+
   provideFileDecoration(
     uri: Uri,
     _token: CancellationToken,
   ): FileDecoration | undefined {
     try {
+      if (this.config && !this.config.enabled) {
+        return undefined;
+      }
+
       const folder = this.wf.getWorkspaceFolder(uri);
       if (!folder) {
         return undefined;
@@ -54,21 +65,7 @@ export class DecorationEngine implements FileDecorationProvider {
       let status = this.cache.get(uri, folder.uri);
 
       if (!status) {
-        let diagnostics = languages.getDiagnostics(uri);
-
-        if (diagnostics.length === 0) {
-          const inputPath = uri.fsPath.replace(/\\/g, '/').toLowerCase();
-          const all = languages.getDiagnostics();
-          for (let i = 0; i < all.length; i++) {
-            const [diagUri, diags] = all[i];
-            if (diags.length > 0 &&
-                diagUri.fsPath.replace(/\\/g, '/').toLowerCase() === inputPath) {
-              diagnostics = diags;
-              break;
-            }
-          }
-        }
-
+        const diagnostics = languages.getDiagnostics(uri);
         if (diagnostics.length > 0) {
           const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
           status = toProblemStatus(mapped);
@@ -77,6 +74,14 @@ export class DecorationEngine implements FileDecorationProvider {
       }
 
       if (!status || status.severity === ProblemSeverity.None) {
+        return undefined;
+      }
+
+      if (
+        this.config &&
+        !this.config.showWarnings &&
+        status.severity !== ProblemSeverity.Error
+      ) {
         return undefined;
       }
 
@@ -94,7 +99,7 @@ export class DecorationEngine implements FileDecorationProvider {
     this._onDidChangeFileDecorations.fire(undefined);
   }
 
-  private toDecoration(status: ProblemStatus): FileDecoration {
+  private toDecoration(status: ProblemStatus): FileDecoration | undefined {
     let color: ThemeColor;
     let badge: string;
 
@@ -112,12 +117,26 @@ export class DecorationEngine implements FileDecorationProvider {
         badge = BADGE_LETTERS.info;
         break;
       default:
-        return undefined as unknown as FileDecoration;
+        return undefined;
+    }
+
+    const style = this.config?.badgeStyle ?? 'letter';
+    if (style !== 'letter') {
+      badge = getBadge(status.severity, status, style);
+    }
+    // FileDecoration.badge is limited to 2 characters by the VS Code API
+    if (badge.length > 2) {
+      badge = '9+';
     }
 
     const tooltip = this.formatTooltip(status);
 
-    return { badge, color, tooltip, propagate: false };
+    return {
+      badge: badge.length > 0 ? badge : undefined,
+      color,
+      tooltip,
+      propagate: false,
+    };
   }
 
   private formatTooltip(status: ProblemStatus): string {

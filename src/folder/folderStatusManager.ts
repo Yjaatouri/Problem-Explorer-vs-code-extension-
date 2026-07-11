@@ -1,6 +1,7 @@
 import { Uri, WorkspaceFolder, workspace } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
 import { ProblemStatus } from '../core/types';
+import { normalizeUriKey } from '../core/uriKey';
 import { aggregateStatuses } from './propagationStrategy';
 
 /** Abstraction over VS Code workspace API for folder propagation logic */
@@ -11,7 +12,11 @@ export interface FolderWorkspace {
 
 const defaultWorkspace: FolderWorkspace = {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
-  workspaceFolders: workspace.workspaceFolders ?? [],
+  // Must be a getter: workspace.workspaceFolders may be empty at module load
+  // time and changes over the lifetime of the extension host.
+  get workspaceFolders() {
+    return workspace.workspaceFolders ?? [];
+  },
 };
 
 /**
@@ -40,9 +45,9 @@ export class FolderStatusManager {
     }
 
     const changed: Uri[] = [];
-    const rootStr = folder.uri.toString();
+    const rootStr = normalizeUriKey(folder.uri);
     let current = Uri.joinPath(fileUri, '..');
-    let currentStr = current.toString();
+    let currentStr = normalizeUriKey(current);
 
     while (currentStr !== rootStr) {
       const parentFolder = this.wf.getWorkspaceFolder(current);
@@ -54,7 +59,7 @@ export class FolderStatusManager {
         changed.push(current);
       }
       const next = Uri.joinPath(current, '..');
-      const nextStr = next.toString();
+      const nextStr = normalizeUriKey(next);
       if (nextStr === currentStr) {
         break;
       }
@@ -72,13 +77,13 @@ export class FolderStatusManager {
 
   /** Compute the aggregate status of all children directly under a given folder */
   recomputeFolderStatus(folderUri: Uri, workspaceFolderUri: Uri): ProblemStatus {
-    const folderStr = folderUri.toString();
-    const prefix = folderStr.endsWith('/') ? folderStr : folderStr + '/';
+    const folderStr = normalizeUriKey(folderUri);
+    const prefix = folderStr + '/';
 
     const children = this.cache
       .getEntries(workspaceFolderUri)
       .filter(([uri]) => {
-        const str = uri.toString();
+        const str = normalizeUriKey(uri);
         return str !== folderStr && str.startsWith(prefix);
       })
       .map(([, status]) => status);
@@ -92,24 +97,24 @@ export class FolderStatusManager {
 
     for (const folder of this.wf.workspaceFolders) {
       const folderUri = folder.uri;
-      const rootStr = folderUri.toString();
+      const rootStr = normalizeUriKey(folderUri);
       const entries = this.cache.getEntries(folderUri);
 
       const folders = new Set<string>();
       for (const [uri] of entries) {
-        const uriStr = uri.toString();
+        const uriStr = normalizeUriKey(uri);
         if (uriStr === rootStr) {
           continue;
         }
         let current = Uri.joinPath(uri, '..');
-        let currentStr = current.toString();
+        let currentStr = normalizeUriKey(current);
         if (currentStr === rootStr || currentStr === uriStr) {
           continue;
         }
         while (currentStr !== rootStr) {
           folders.add(currentStr);
           const next = Uri.joinPath(current, '..');
-          const nextStr = next.toString();
+          const nextStr = normalizeUriKey(next);
           if (nextStr === currentStr) {
             break;
           }

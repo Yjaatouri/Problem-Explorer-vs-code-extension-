@@ -1,6 +1,7 @@
 import { Uri } from 'vscode';
 import { ProblemStatus, ProblemSeverity } from '../core/types';
 import { PER_FOLDER_CACHE_LIMIT } from '../core/constants';
+import { normalizeUriKey } from '../core/uriKey';
 import { LruCache } from './lruCache';
 
 /** Predicate that returns `true` when a URI should be excluded from the cache */
@@ -22,11 +23,11 @@ export class ProblemCache {
 
   /** Look up a URI's cached status. Returns `undefined` if not cached or ignored. */
   get(uri: Uri, folderUri: Uri): ProblemStatus | undefined {
-    const cache = this.folders.get(folderUri.toString());
+    const cache = this.folders.get(normalizeUriKey(folderUri));
     if (!cache) {
       return undefined;
     }
-    return cache.get(uri.toString());
+    return cache.get(normalizeUriKey(uri));
   }
 
   /**
@@ -38,8 +39,8 @@ export class ProblemCache {
       return false;
     }
 
-    const uriKey = uri.toString();
-    const folderKey = folderUri.toString();
+    const uriKey = normalizeUriKey(uri);
+    const folderKey = normalizeUriKey(folderUri);
     let cache = this.folders.get(folderKey);
 
     if (!cache) {
@@ -60,7 +61,7 @@ export class ProblemCache {
 
   /** Remove a URI from its folder's cache */
   delete(uri: Uri, folderUri: Uri): void {
-    this.folders.get(folderUri.toString())?.delete(uri.toString());
+    this.folders.get(normalizeUriKey(folderUri))?.delete(normalizeUriKey(uri));
   }
 
   /** Remove all cached entries across every workspace folder */
@@ -70,12 +71,12 @@ export class ProblemCache {
 
   /** Remove all entries for a single workspace folder */
   clearFolder(folderUri: Uri): void {
-    this.folders.delete(folderUri.toString());
+    this.folders.delete(normalizeUriKey(folderUri));
   }
 
   /** Number of cached entries under a given folder */
   getFolderSize(folderUri: Uri): number {
-    return this.folders.get(folderUri.toString())?.size ?? 0;
+    return this.folders.get(normalizeUriKey(folderUri))?.size ?? 0;
   }
 
   /**
@@ -83,7 +84,7 @@ export class ProblemCache {
    * Each entry is re-parsed into a `Uri` object — prefer `get()` for single lookups.
    */
   getEntries(folderUri: Uri): [Uri, ProblemStatus][] {
-    const cache = this.folders.get(folderUri.toString());
+    const cache = this.folders.get(normalizeUriKey(folderUri));
     if (!cache) {
       return [];
     }

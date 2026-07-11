@@ -43,6 +43,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     const config = configManager.getConfig();
     diagnosticsManager.setSeverityOverrides(config.severityOverrides);
     decorationEngine.setSeverityOverrides(config.severityOverrides);
+    decorationEngine.setConfig(config);
   };
   applyConfig();
 

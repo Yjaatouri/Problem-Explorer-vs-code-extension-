@@ -9,18 +9,20 @@ export function createToggleHandler(
   decorationEngine: DecorationEngine,
   diagnosticsManager: DiagnosticsManager,
   folderStatusManager: FolderStatusManager,
-): () => void {
-  return () => {
+): () => Promise<void> {
+  return async () => {
     const config = configManager.getConfig();
     const newValue = !config.enabled;
-    workspace.getConfiguration('problemExplorer').update('enabled', newValue, true);
+    // Await so ConfigManager (and DecorationEngine via setConfig) observe the
+    // new value before decorations are re-queried.
+    await workspace
+      .getConfiguration('problemExplorer')
+      .update('enabled', newValue, true);
 
     if (newValue) {
       diagnosticsManager.fullScan();
       folderStatusManager.rebuildAll();
-      decorationEngine.refresh();
-    } else {
-      decorationEngine.fireDidChange(undefined);
     }
+    decorationEngine.refresh();
   };
 }
