@@ -220,6 +220,103 @@ suite('EdgeCases', () => {
     });
   });
 
+  // ── 6. Folder delete / rename with nested errors ───────────
+
+  suite('folder lifecycle events', () => {
+    test('deletePrefix removes folder aggregate and all descendants from cache', () => {
+      const cache = new ProblemCache();
+      const child = Uri.parse('file:///workspace/src/a/file.ts');
+      const sub = Uri.parse('file:///workspace/src/a/sub/file2.ts');
+      cache.set(child, status(ProblemSeverity.Error), rootUri);
+      cache.set(sub, status(ProblemSeverity.Warning), rootUri);
+
+      cache.deletePrefix(Uri.parse('file:///workspace/src/a'), rootUri);
+      assert.strictEqual(cache.get(child, rootUri), undefined);
+      assert.strictEqual(cache.get(sub, rootUri), undefined);
+    });
+
+    test('movePrefix followed by updateAncestors produces correct root aggregate', () => {
+      const cache = new ProblemCache();
+      const wf: FolderWorkspace = {
+        workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
+        getWorkspaceFolder: (u) =>
+          u.toString().startsWith(rootUri.toString() + '/')
+            ? { uri: rootUri, name: 'workspace', index: 0 }
+            : undefined,
+      };
+      const mgr = new FolderStatusManager(cache, wf);
+      const oldDir = Uri.parse('file:///workspace/src/a');
+      const newDir = Uri.parse('file:///workspace/src/b');
+      const fileA = Uri.parse('file:///workspace/src/a/file.ts');
+
+      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
+      mgr.updateAncestors(fileA);
+      assert.strictEqual(cache.get(rootUri, rootUri)?.severity, ProblemSeverity.Error);
+
+      // Rename the folder
+      cache.movePrefix(oldDir, newDir, rootUri);
+      mgr.clearIndexPrefix(oldDir);
+      mgr.updateAncestors(oldDir);  // remove old from index
+      mgr.updateAncestors(newDir);  // add new to index
+
+      const rootStatus = cache.get(rootUri, rootUri);
+      assert.strictEqual(rootStatus?.severity, ProblemSeverity.Error);
+      assert.strictEqual(rootStatus?.errorCount, 1);
+    });
+
+    test('movePrefix on file creates correct ancestor aggregate at new location', () => {
+      const cache = new ProblemCache();
+      const wf: FolderWorkspace = {
+        workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
+        getWorkspaceFolder: (u) =>
+          u.toString().startsWith(rootUri.toString() + '/')
+            ? { uri: rootUri, name: 'workspace', index: 0 }
+            : undefined,
+      };
+      const mgr = new FolderStatusManager(cache, wf);
+      const oldFile = Uri.parse('file:///workspace/src/a.ts');
+      const newFile = Uri.parse('file:///workspace/src/b.ts');
+
+      cache.set(oldFile, status(ProblemSeverity.Error), rootUri);
+      mgr.updateAncestors(oldFile);
+      assert.strictEqual(cache.get(rootUri, rootUri)?.errorCount, 1);
+
+      cache.movePrefix(oldFile, newFile, rootUri);
+      mgr.updateAncestors(oldFile);
+      mgr.updateAncestors(newFile);
+
+      const rootStatus = cache.get(rootUri, rootUri);
+      assert.strictEqual(rootStatus?.severity, ProblemSeverity.Error);
+      assert.strictEqual(rootStatus?.errorCount, 1);
+    });
+
+    test('delete folder wipes all descendants from ancestor aggregate', () => {
+      const cache = new ProblemCache();
+      const wf: FolderWorkspace = {
+        workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
+        getWorkspaceFolder: (u) =>
+          u.toString().startsWith(rootUri.toString() + '/')
+            ? { uri: rootUri, name: 'workspace', index: 0 }
+            : undefined,
+      };
+      const mgr = new FolderStatusManager(cache, wf);
+      const fileInFolderA = Uri.parse('file:///workspace/src/a/file.ts');
+
+      cache.set(fileInFolderA, status(ProblemSeverity.Error), rootUri);
+      mgr.updateAncestors(fileInFolderA);
+      assert.strictEqual(cache.get(rootUri, rootUri)?.errorCount, 1);
+
+      // Simulate folder deletion
+      cache.delete(Uri.parse('file:///workspace/src/a'), rootUri);   // remove exact
+      cache.deletePrefix(Uri.parse('file:///workspace/src/a'), rootUri); // remove descendants
+      mgr.updateAncestors(fileInFolderA);  // remove from ancestors
+      mgr.updateAncestors(Uri.parse('file:///workspace/src/a'));  // remove folder aggregate
+
+      assert.strictEqual(cache.get(rootUri, rootUri)?.errorCount, 0);
+      assert.strictEqual(cache.get(rootUri, rootUri)?.severity, ProblemSeverity.None);
+    });
+  });
+
   // ── 5. Extremely long file paths ─────────────────────────────
 
   suite('long file paths', () => {

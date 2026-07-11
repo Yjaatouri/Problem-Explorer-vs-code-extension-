@@ -311,4 +311,56 @@ suite('ProblemCache', () => {
     assert.strictEqual(cache.get(subFolder, folderUri), undefined);
     assert.strictEqual(cache.getFolderSize(folderUri), 0);
   });
+
+  test('deletePrefix removes exact URI and descendants', () => {
+    const cache = new ProblemCache();
+    const file1 = vscode.Uri.parse('file:///workspace/src/a/file1.ts');
+    const file2 = vscode.Uri.parse('file:///workspace/src/a/sub/file2.ts');
+    const other = vscode.Uri.parse('file:///workspace/src/b/file.ts');
+    cache.set(file1, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.set(file2, { severity: ProblemSeverity.Warning, errorCount: 0, warningCount: 1, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.set(other, { severity: ProblemSeverity.Info, errorCount: 0, warningCount: 0, infoCount: 1, fileCount: 1 }, folderUri);
+
+    const removed = cache.deletePrefix(vscode.Uri.parse('file:///workspace/src/a'), folderUri);
+    assert.strictEqual(removed.length, 2);
+    assert.strictEqual(cache.get(file1, folderUri), undefined);
+    assert.strictEqual(cache.get(file2, folderUri), undefined);
+    assert.ok(cache.get(other, folderUri)); // sibling must survive
+  });
+
+  test('movePrefix re-keys a single file', () => {
+    const cache = new ProblemCache();
+    const oldFile = vscode.Uri.parse('file:///workspace/src/a.ts');
+    const newFile = vscode.Uri.parse('file:///workspace/src/b.ts');
+    cache.set(oldFile, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, folderUri);
+
+    const moved = cache.movePrefix(oldFile, newFile, folderUri);
+    assert.strictEqual(moved.length, 1);
+    assert.strictEqual(cache.get(oldFile, folderUri), undefined);
+    assert.ok(cache.get(newFile, folderUri));
+  });
+
+  test('movePrefix re-keys a folder and all descendants', () => {
+    const cache = new ProblemCache();
+    const oldDir = vscode.Uri.parse('file:///workspace/src/a');
+    const newDir = vscode.Uri.parse('file:///workspace/src/b');
+    const file1 = vscode.Uri.parse('file:///workspace/src/a/file1.ts');
+    const file2 = vscode.Uri.parse('file:///workspace/src/a/sub/file2.ts');
+    cache.set(file1, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.set(file2, { severity: ProblemSeverity.Warning, errorCount: 0, warningCount: 1, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.setFolderAggregate(oldDir, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 1, infoCount: 0, fileCount: 2 }, folderUri);
+
+    const moved = cache.movePrefix(oldDir, newDir, folderUri);
+    assert.strictEqual(moved.length, 3); // file1, file2, oldDir aggregate
+    assert.strictEqual(cache.get(file1, folderUri), undefined);
+    assert.strictEqual(cache.get(file2, folderUri), undefined);
+    assert.strictEqual(cache.get(oldDir, folderUri), undefined);
+
+    const movedFile1 = vscode.Uri.parse('file:///workspace/src/b/file1.ts');
+    const movedFile2 = vscode.Uri.parse('file:///workspace/src/b/sub/file2.ts');
+    const movedDir = vscode.Uri.parse('file:///workspace/src/b');
+    assert.ok(cache.get(movedFile1, folderUri));
+    assert.ok(cache.get(movedFile2, folderUri));
+    assert.ok(cache.get(movedDir, folderUri)); // aggregate (no longer marked as folder key)
+  });
 });

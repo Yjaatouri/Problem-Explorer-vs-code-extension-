@@ -120,6 +120,22 @@ export class FolderStatusManager {
     return changed;
   }
 
+  /**
+   * Remove every entry from the child-index whose key starts with the given
+   * URI prefix (inclusive — removes the folder's own index entry too).
+   * Call this before {@link updateAncestors} when moving a subtree so that
+   * stale sub-folder index entries don't survive.
+   */
+  clearIndexPrefix(uri: Uri): void {
+    const prefix = normalizeUriKey(uri);
+    const prefixSlash = prefix + '/';
+    for (const [key] of this.childIndex) {
+      if (key === prefix || key.startsWith(prefixSlash)) {
+        this.childIndex.delete(key);
+      }
+    }
+  }
+
   /** Compute the aggregate status of all direct children from the index (O(directChildren)). */
   private aggregateFromIndex(parentKey: string): ProblemStatus {
     const index = this.childIndex.get(parentKey);

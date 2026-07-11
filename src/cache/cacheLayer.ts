@@ -116,6 +116,62 @@ export class ProblemCache {
   }
 
   /**
+   * Remove all cached entries whose key starts with the given URI (the URI
+   * itself and every descendant). Returns the list of removed URIs.
+   */
+  deletePrefix(uri: Uri, folderUri: Uri): Uri[] {
+    const folderKey = normalizeUriKey(folderUri);
+    const cache = this.folders.get(folderKey);
+    if (!cache) return [];
+
+    const prefix = normalizeUriKey(uri);
+    const prefixSlash = prefix + '/';
+    const removed: Uri[] = [];
+
+    for (const [key] of cache.entries()) {
+      if (key === prefix || key.startsWith(prefixSlash)) {
+        cache.delete(key);
+        this.folderKeys.delete(key);
+        removed.push(Uri.parse(key));
+      }
+    }
+    return removed;
+  }
+
+  /**
+   * Move all cached entries under an old URI prefix to a new URI prefix
+   * (handles both file renames and folder renames with descendants).
+   * Returns the list of old URIs that were moved.
+   */
+  movePrefix(oldUri: Uri, newUri: Uri, folderUri: Uri): Uri[] {
+    const folderKey = normalizeUriKey(folderUri);
+    const cache = this.folders.get(folderKey);
+    if (!cache) return [];
+
+    const oldPrefix = normalizeUriKey(oldUri);
+    const oldPrefixSlash = oldPrefix + '/';
+    const newPrefix = normalizeUriKey(newUri);
+
+    type Pending = { oldKey: string; newKey: string; status: ProblemStatus };
+    const pending: Pending[] = [];
+
+    for (const [key, status] of cache.entries()) {
+      if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
+        const newKey = key === oldPrefix ? newPrefix : newPrefix + key.slice(oldPrefix.length);
+        pending.push({ oldKey: key, newKey, status });
+      }
+    }
+
+    for (const { oldKey, newKey, status } of pending) {
+      cache.delete(oldKey);
+      this.folderKeys.delete(oldKey);
+      cache.set(newKey, status);
+    }
+
+    return pending.map((p) => Uri.parse(p.oldKey));
+  }
+
+  /**
    * Remove a URI from its folder's cache. If it was a folder aggregate,
    * the folder-key marker is also removed.
    */
