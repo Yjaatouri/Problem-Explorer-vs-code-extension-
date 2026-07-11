@@ -153,14 +153,12 @@ export class FolderStatusManager {
     const folderStr = normalizeUriKey(folderUri);
     const prefix = folderStr + '/';
 
-    const children = this.cache
-      .getFileEntries(workspaceFolderUri)
-      .filter(([uri]) => {
-        const str = normalizeUriKey(uri);
-        return str !== folderStr && str.startsWith(prefix);
-      })
-      .map(([, status]) => status);
-
+    const children: ProblemStatus[] = [];
+    for (const [key, status] of this.cache.getRawFileEntries(workspaceFolderUri)) {
+      if (key !== folderStr && key.startsWith(prefix)) {
+        children.push(status);
+      }
+    }
     return aggregateStatuses(children);
   }
 
@@ -174,15 +172,15 @@ export class FolderStatusManager {
     for (const folder of this.wf.workspaceFolders) {
       const folderUri = folder.uri;
       const rootStr = normalizeUriKey(folderUri);
-      const entries = this.cache.getFileEntries(folderUri);
+      const entries = this.cache.getRawFileEntries(folderUri);
 
       // Discover all intermediate folders from file paths
       const folders = new Set<string>();
-      for (const [uri] of entries) {
-        const uriStr = normalizeUriKey(uri);
+      for (const [uriStr] of entries) {
         if (uriStr === rootStr) {
           continue;
         }
+        const uri = Uri.parse(uriStr);
         let current = Uri.joinPath(uri, '..');
         let currentStr = normalizeUriKey(current);
         if (currentStr === rootStr || currentStr === uriStr) {
@@ -214,11 +212,9 @@ export class FolderStatusManager {
         const parentKey = dirStr;
         const parentPrefix = parentKey + '/';
         const childMap = new Map<string, ProblemStatus>();
-        for (const [childUri, childStatus] of this.cache.getFileEntries(folderUri)) {
-          const childStr = normalizeUriKey(childUri);
+        for (const [childStr, childStatus] of this.cache.getRawFileEntries(folderUri)) {
           if (childStr.startsWith(parentPrefix) && childStr !== parentKey) {
             const rest = childStr.slice(parentPrefix.length);
-            // Only direct children (no '/ in the remainder)
             if (!rest.includes('/')) {
               childMap.set(childStr, childStatus);
             }
@@ -250,8 +246,7 @@ export class FolderStatusManager {
       // Populate root's direct children in the index
       const rootPrefix = rootStr + '/';
       const rootChildren = new Map<string, ProblemStatus>();
-      for (const [childUri, childStatus] of this.cache.getFileEntries(folderUri)) {
-        const childStr = normalizeUriKey(childUri);
+      for (const [childStr, childStatus] of this.cache.getRawFileEntries(folderUri)) {
         if (childStr === rootStr) continue;
         if (childStr.startsWith(rootPrefix)) {
           const rest = childStr.slice(rootPrefix.length);

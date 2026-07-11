@@ -312,8 +312,7 @@ suite('EdgeCases', () => {
       mgr.updateAncestors(fileInFolderA);  // remove from ancestors
       mgr.updateAncestors(Uri.parse('file:///workspace/src/a'));  // remove folder aggregate
 
-      assert.strictEqual(cache.get(rootUri, rootUri)?.errorCount, 0);
-      assert.strictEqual(cache.get(rootUri, rootUri)?.severity, ProblemSeverity.None);
+      assert.strictEqual(cache.get(rootUri, rootUri), undefined);
     });
   });
 

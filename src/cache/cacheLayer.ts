@@ -1,15 +1,13 @@
 import { Uri } from 'vscode';
 import { ProblemStatus, ProblemSeverity } from '../core/types';
-import { PER_FOLDER_CACHE_LIMIT } from '../core/constants';
 import { normalizeUriKey } from '../core/uriKey';
-import { LruCache } from './lruCache';
 
 /** Predicate that returns `true` when a URI should be excluded from the cache */
 export type IgnorePredicate = (uri: Uri) => boolean;
 
-/** Per-workspace-folder cache of file and folder diagnostics, backed by LRU eviction */
+/** Per-workspace-folder cache of file and folder diagnostics. No LRU eviction. */
 export class ProblemCache {
-  private readonly folders: Map<string, LruCache<string, ProblemStatus>>;
+  private readonly folders: Map<string, Map<string, ProblemStatus>>;
   private readonly folderKeys: Set<string>;
   private ignorePredicate: IgnorePredicate | undefined;
 
@@ -34,7 +32,8 @@ export class ProblemCache {
 
   /**
    * Store a status for a URI under the given workspace folder.
-   * Marks the entry as a file (not a folder aggregate).
+   * If the status has `None` severity the entry is deleted instead (no-op
+   * when nothing was cached). Marks the entry as a file (not a folder aggregate).
    * @returns `true` if the value changed (or was newly inserted), `false` if unchanged or ignored.
    */
   set(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
@@ -44,12 +43,21 @@ export class ProblemCache {
 
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
-    let cache = this.folders.get(folderKey);
 
+    // Don't store entries that have no problems
+    if (status.severity === ProblemSeverity.None) {
+      this.folderKeys.delete(uriKey);
+      const cache = this.folders.get(folderKey);
+      const had = cache?.has(uriKey) ?? false;
+      cache?.delete(uriKey);
+      return had;
+    }
+
+    let cache = this.folders.get(folderKey);
     this.folderKeys.delete(uriKey);
 
     if (!cache) {
-      cache = new LruCache<string, ProblemStatus>(PER_FOLDER_CACHE_LIMIT);
+      cache = new Map();
       this.folders.set(folderKey, cache);
       cache.set(uriKey, status);
       return true;
@@ -67,29 +75,38 @@ export class ProblemCache {
   /**
    * Store a folder aggregate status. Marks the entry as a folder
    * (so {@link getFileEntries} and {@link computeTotals} exclude it).
+   * A `None`-severity aggregate is deleted instead (no entry when the
+   * folder has no problems).
    * @returns `true` if the value changed, `false` otherwise.
    */
   setFolderAggregate(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
-    let cache = this.folders.get(folderKey);
 
-    if (!cache) {
-      cache = new LruCache<string, ProblemStatus>(PER_FOLDER_CACHE_LIMIT);
-      this.folders.set(folderKey, cache);
-      cache.set(uriKey, status);
-      this.folderKeys.add(uriKey);
-      return true;
+    // Don't store folder aggregates that have no problems
+    if (status.severity === ProblemSeverity.None) {
+      this.folderKeys.delete(uriKey);
+      const cache = this.folders.get(folderKey);
+      const had = cache?.has(uriKey) ?? false;
+      cache?.delete(uriKey);
+      return had;
     }
 
-    const old = cache.get(uriKey);
-    if (old !== undefined && !hasChanged(old, status)) {
-      return false;
+    let cache = this.folders.get(folderKey);
+    const old = cache?.get(uriKey);
+
+    if (cache) {
+      if (old !== undefined && !hasChanged(old, status)) {
+        return false;
+      }
+    } else {
+      cache = new Map();
+      this.folders.set(folderKey, cache);
     }
 
     cache.set(uriKey, status);
     this.folderKeys.add(uriKey);
-    return true;
+    return old !== undefined;
   }
 
   /** `true` when the given cache key represents a folder aggregate (not a file entry). */
@@ -99,20 +116,37 @@ export class ProblemCache {
 
   /**
    * Iterate all **file** entries under a folder (excludes folder aggregates).
-   * Each entry is re-parsed into a `Uri` object.
+   * Returns raw normalized-URI string keys to avoid the cost of `Uri.parse`.
+   * Prefer this over {@link getFileEntries} in hot paths.
    */
-  getFileEntries(folderUri: Uri): [Uri, ProblemStatus][] {
+  getRawFileEntries(folderUri: Uri): [string, ProblemStatus][] {
     const cache = this.folders.get(normalizeUriKey(folderUri));
-    if (!cache) {
-      return [];
-    }
-    const result: [Uri, ProblemStatus][] = [];
-    for (const [uriStr, status] of cache.entries()) {
-      if (!this.isFolderKey(uriStr)) {
-        result.push([Uri.parse(uriStr), status]);
+    if (!cache) return [];
+    const result: [string, ProblemStatus][] = [];
+    for (const [key, status] of cache) {
+      if (!this.isFolderKey(key)) {
+        result.push([key, status]);
       }
     }
     return result;
+  }
+
+  /**
+   * Iterate all cached entries under a folder (including folder aggregates).
+   * Returns raw normalized-URI string keys to avoid the cost of `Uri.parse`.
+   */
+  getRawEntries(folderUri: Uri): [string, ProblemStatus][] {
+    const cache = this.folders.get(normalizeUriKey(folderUri));
+    if (!cache) return [];
+    return Array.from(cache);
+  }
+
+  /**
+   * Iterate all **file** entries under a folder (excludes folder aggregates).
+   * Each entry is re-parsed into a `Uri` object — prefer {@link getRawFileEntries} in hot paths.
+   */
+  getFileEntries(folderUri: Uri): [Uri, ProblemStatus][] {
+    return this.getRawFileEntries(folderUri).map(([k, v]) => [Uri.parse(k), v]);
   }
 
   /**
@@ -128,7 +162,7 @@ export class ProblemCache {
     const prefixSlash = prefix + '/';
     const removed: Uri[] = [];
 
-    for (const [key] of cache.entries()) {
+    for (const [key] of cache) {
       if (key === prefix || key.startsWith(prefixSlash)) {
         cache.delete(key);
         this.folderKeys.delete(key);
@@ -155,7 +189,7 @@ export class ProblemCache {
     type Pending = { oldKey: string; newKey: string; status: ProblemStatus };
     const pending: Pending[] = [];
 
-    for (const [key, status] of cache.entries()) {
+    for (const [key, status] of cache) {
       if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
         const newKey = key === oldPrefix ? newPrefix : newPrefix + key.slice(oldPrefix.length);
         pending.push({ oldKey: key, newKey, status });
@@ -192,7 +226,7 @@ export class ProblemCache {
     const folderKey = normalizeUriKey(folderUri);
     const cache = this.folders.get(folderKey);
     if (cache) {
-      for (const [key] of cache.entries()) {
+      for (const [key] of cache) {
         this.folderKeys.delete(key);
       }
     }
@@ -206,18 +240,10 @@ export class ProblemCache {
 
   /**
    * Iterate all cached entries under a folder.
-   * Each entry is re-parsed into a `Uri` object — prefer `get()` for single lookups.
+   * Each entry is re-parsed into a `Uri` object — prefer {@link getRawEntries} for hot paths.
    */
   getEntries(folderUri: Uri): [Uri, ProblemStatus][] {
-    const cache = this.folders.get(normalizeUriKey(folderUri));
-    if (!cache) {
-      return [];
-    }
-    const result: [Uri, ProblemStatus][] = [];
-    for (const [uriStr, status] of cache.entries()) {
-      result.push([Uri.parse(uriStr), status]);
-    }
-    return result;
+    return this.getRawEntries(folderUri).map(([k, v]) => [Uri.parse(k), v]);
   }
 
   /** Aggregate all **file** entries across every workspace folder into a single status (excludes folder aggregates) */
@@ -229,7 +255,7 @@ export class ProblemCache {
     let maxSeverity = ProblemSeverity.None;
 
     for (const cache of this.folders.values()) {
-      for (const [key, status] of cache.entries()) {
+      for (const [key, status] of cache) {
         if (this.isFolderKey(key)) {
           continue;
         }

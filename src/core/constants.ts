@@ -16,8 +16,6 @@ export const COLORS = {
 
 export const PROCESSING_DEBOUNCE_MS = 50;
 
-export const PER_FOLDER_CACHE_LIMIT = 10000;
-
 export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   '**/node_modules/**',
   '**/.git/**',

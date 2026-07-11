@@ -134,7 +134,7 @@ suite('DiagnosticsManager', () => {
     const changed = manager.processChanges(event);
 
     assert.strictEqual(changed.length, 1);
-    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.None);
+    assert.strictEqual(cache.get(fileA, folderUri), undefined);
   });
 
   test('getStatus returns cached status', () => {
