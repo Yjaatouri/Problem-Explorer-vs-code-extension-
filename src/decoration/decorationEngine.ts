@@ -15,7 +15,6 @@ import { ProblemSeverity, ProblemStatus } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
 
-/** Abstraction over `workspace.getWorkspaceFolder` for testability */
 export interface WorkspaceFolderDelegate {
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
 }
@@ -24,12 +23,6 @@ const defaultDelegate: WorkspaceFolderDelegate = {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 };
 
-/**
- * `FileDecorationProvider` that translates cached `ProblemStatus` values into visual
- * decorations (badge, color, tooltip) for files and folders in the Explorer.
- *
- * Must be registered via `window.registerFileDecorationProvider()`.
- */
 export class DecorationEngine implements FileDecorationProvider {
   private readonly _onDidChangeFileDecorations = new EventEmitter<Uri | Uri[] | undefined>();
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
@@ -44,45 +37,59 @@ export class DecorationEngine implements FileDecorationProvider {
     this.wf = wf ?? defaultDelegate;
   }
 
-  /** Set per-extension severity overrides (from `Config.severityOverrides`) */
   setSeverityOverrides(overrides: Record<string, Record<string, string>> | undefined): void {
     this.severityOverrides = overrides;
   }
 
-  /** Synchronous lookup — never perform I/O or async work here. Returns `undefined` for clean files. */
   provideFileDecoration(
     uri: Uri,
     _token: CancellationToken,
   ): FileDecoration | undefined {
-    const folder = this.wf.getWorkspaceFolder(uri);
-    if (!folder) {
-      return undefined;
-    }
-
-    let status = this.cache.get(uri, folder.uri);
-
-    if (!status) {
-      const diagnostics = languages.getDiagnostics(uri);
-      if (diagnostics.length > 0) {
-        const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
-        status = toProblemStatus(mapped);
-        this.cache.set(uri, status, folder.uri);
+    try {
+      const folder = this.wf.getWorkspaceFolder(uri);
+      if (!folder) {
+        return undefined;
       }
-    }
 
-    if (!status || status.severity === ProblemSeverity.None) {
+      let status = this.cache.get(uri, folder.uri);
+
+      if (!status) {
+        let diagnostics = languages.getDiagnostics(uri);
+
+        if (diagnostics.length === 0) {
+          const inputPath = uri.fsPath.replace(/\\/g, '/').toLowerCase();
+          const all = languages.getDiagnostics();
+          for (let i = 0; i < all.length; i++) {
+            const [diagUri, diags] = all[i];
+            if (diags.length > 0 &&
+                diagUri.fsPath.replace(/\\/g, '/').toLowerCase() === inputPath) {
+              diagnostics = diags;
+              break;
+            }
+          }
+        }
+
+        if (diagnostics.length > 0) {
+          const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
+          status = toProblemStatus(mapped);
+          this.cache.set(uri, status, folder.uri);
+        }
+      }
+
+      if (!status || status.severity === ProblemSeverity.None) {
+        return undefined;
+      }
+
+      return this.toDecoration(status);
+    } catch {
       return undefined;
     }
-
-    return this.toDecoration(status);
   }
 
-  /** Signal that the decoration for the given URIs may have changed */
   fireDidChange(uris: Uri | Uri[] | undefined): void {
     this._onDidChangeFileDecorations.fire(uris);
   }
 
-  /** Force VS Code to re-query all visible file decorations */
   refresh(): void {
     this._onDidChangeFileDecorations.fire(undefined);
   }

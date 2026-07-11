@@ -134,6 +134,9 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     statusBarManager.update();
   }
 
+  // Re-query decorations after language servers have had time to provide diagnostics
+  setTimeout(() => { decorationEngine.refresh(); }, 5000);
+
   return apiManager;
 }
 
