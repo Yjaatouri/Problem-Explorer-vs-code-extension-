@@ -172,6 +172,43 @@ suite('FolderStatusManager', () => {
       const changed = manager.rebuildAll();
       assert.strictEqual(changed.length, 0);
     });
+
+    test('reads latest workspaceFolders (not stale snapshot)', () => {
+      const mutableFolders: Uri[] = [];
+      const dynamicWf: FolderWorkspace = {
+        get workspaceFolders() {
+          return mutableFolders.map((uri, index) => ({
+            uri,
+            name: uri.path.split('/').filter(Boolean).pop() ?? 'root',
+            index,
+          }));
+        },
+        getWorkspaceFolder: (uri: Uri) => {
+          const str = uri.toString();
+          for (const f of mutableFolders) {
+            const fStr = f.toString();
+            if (str === fStr || str.startsWith(fStr + '/')) {
+              return { uri: f, name: f.path.split('/').filter(Boolean).pop() ?? 'root', index: 0 };
+            }
+          }
+          return undefined;
+        },
+      };
+      const dynamicManager = new FolderStatusManager(cache, dynamicWf);
+
+      // No folders initially — rebuildAll should produce nothing
+      assert.strictEqual(dynamicManager.rebuildAll().length, 0);
+
+      // Add a folder and a cached file under it
+      mutableFolders.push(rootUri);
+      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
+
+      // rebuildAll must see the newly added folder
+      const changed = dynamicManager.rebuildAll();
+      assert.ok(changed.length > 0, 'should detect changes when folders appear after construction');
+      const rootDir = cache.get(rootUri, rootUri);
+      assert.strictEqual(rootDir?.severity, ProblemSeverity.Error);
+    });
   });
 
   suite('aggregation (worst-severity-wins)', () => {
