@@ -70,7 +70,22 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   };
 
   const dirtyUris = new Set<string>();
-  const debouncedFire = debounce(() => {
+  const pendingUris = new Set<string>();
+
+  const flushUpdates = debounce(() => {
+    // Recompute ancestors for all pending URIs (deduped via Set)
+    for (const uriStr of pendingUris) {
+      const uri = vscode.Uri.parse(uriStr);
+      dirtyUris.add(uriStr);
+      const ancestors = folderStatusManager.updateAncestors(uri);
+      notifyApi(ancestors);
+      for (let k = 0; k < ancestors.length; k++) {
+        dirtyUris.add(ancestors[k].toString());
+      }
+    }
+    pendingUris.clear();
+
+    // Fire decorations for all dirty URIs
     if (dirtyUris.size > 0) {
       const uris = Array.from(dirtyUris, (s) => vscode.Uri.parse(s));
       dirtyUris.clear();
@@ -85,15 +100,10 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       const changed = diagnosticsManager.processChanges(e);
       notifyApi(changed);
       for (let i = 0; i < changed.length; i++) {
-        dirtyUris.add(changed[i].toString());
-        const ancestors = folderStatusManager.updateAncestors(changed[i]);
-        notifyApi(ancestors);
-        for (let j = 0; j < ancestors.length; j++) {
-          dirtyUris.add(ancestors[j].toString());
-        }
+        pendingUris.add(changed[i].toString());
       }
       if (changed.length > 0) {
-        debouncedFire();
+        flushUpdates();
       }
     }),
   );
@@ -108,16 +118,10 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
         cache.delete(uri, folder.uri);
         cache.deletePrefix(uri, folder.uri);
         folderStatusManager.clearIndexPrefix(uri);
-
-        dirtyUris.add(uri.toString());
-        const ancestors = folderStatusManager.updateAncestors(uri);
-        notifyApi(ancestors);
-        for (let j = 0; j < ancestors.length; j++) {
-          dirtyUris.add(ancestors[j].toString());
-        }
+        pendingUris.add(uri.toString());
       }
       if (e.files.length > 0) {
-        debouncedFire();
+        flushUpdates();
       }
     }),
   );
@@ -129,28 +133,13 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
         const folder = vscode.workspace.getWorkspaceFolder(newUri);
         if (!folder) continue;
 
-        // Move all cache entries and clear stale index entries
         cache.movePrefix(oldUri, newUri, folder.uri);
         folderStatusManager.clearIndexPrefix(oldUri);
-
-        // Remove old path from ancestor chain
-        dirtyUris.add(oldUri.toString());
-        const oldAncestors = folderStatusManager.updateAncestors(oldUri);
-        notifyApi(oldAncestors);
-        for (let j = 0; j < oldAncestors.length; j++) {
-          dirtyUris.add(oldAncestors[j].toString());
-        }
-
-        // Add new path to ancestor chain
-        dirtyUris.add(newUri.toString());
-        const newAncestors = folderStatusManager.updateAncestors(newUri);
-        notifyApi(newAncestors);
-        for (let j = 0; j < newAncestors.length; j++) {
-          dirtyUris.add(newAncestors[j].toString());
-        }
+        pendingUris.add(oldUri.toString());
+        pendingUris.add(newUri.toString());
       }
       if (e.files.length > 0) {
-        debouncedFire();
+        flushUpdates();
       }
     }),
   );
@@ -160,7 +149,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   context.subscriptions.push(
     statusBarManager,
     statusBarManager.registerCommand(),
-    { dispose: () => { debouncedFire.cancel(); trendTracker.stop(); } },
+    { dispose: () => { flushUpdates.cancel(); trendTracker.stop(); } },
   );
 
   if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
