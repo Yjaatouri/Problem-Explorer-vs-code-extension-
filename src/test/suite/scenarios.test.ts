@@ -111,7 +111,7 @@ suite('Scenarios', () => {
     assert.strictEqual(result.severity, ProblemSeverity.Error);
     assert.strictEqual(result.errorCount, 2500);
     assert.strictEqual(result.warningCount, 2500);
-    assert.strictEqual(result.infoCount, 5000);
+    assert.strictEqual(result.infoCount, 2500);
     assert.ok(elapsed < 50, `toProblemStatus took ${elapsed}ms (expected < 50ms)`);
   });
 });

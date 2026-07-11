@@ -1,5 +1,6 @@
 import {
   ConfigurationChangeEvent,
+  Disposable,
   Event,
   EventEmitter,
   workspace,
@@ -22,22 +23,28 @@ const defaultDelegate: ConfigDelegate = {
 };
 
 /** Reads and watches `problemExplorer.*` settings, firing `onDidChangeConfig` on relevant changes */
-export class ConfigManager {
+export class ConfigManager implements Disposable {
   private delegate: ConfigDelegate;
   private config: Config;
   private readonly _onDidChangeConfig = new EventEmitter<void>();
   /** Fires when any `problemExplorer.*` setting changes */
   readonly onDidChangeConfig: Event<void> = this._onDidChangeConfig.event;
+  private readonly disposable: Disposable;
 
   constructor(delegate?: ConfigDelegate) {
     this.delegate = delegate ?? defaultDelegate;
     this.config = this.readConfig();
-    this.delegate.onDidChangeConfiguration((e) => {
+    this.disposable = this.delegate.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration(SETTINGS_SECTION)) {
         this.config = this.readConfig();
         this._onDidChangeConfig.fire();
       }
     });
+  }
+
+  dispose(): void {
+    this.disposable.dispose();
+    this._onDidChangeConfig.dispose();
   }
 
   /** Get the current snapshot of all `problemExplorer.*` settings */

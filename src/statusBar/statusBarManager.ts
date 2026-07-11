@@ -58,6 +58,8 @@ export class StatusBarManager implements Disposable {
   }
 
   registerCommand(): Disposable {
+    // Intentionally internal — not declared in package.json contributes.commands.
+    // This is a status bar click handler (opens Problems panel), not a user-facing palette command.
     return commands.registerCommand('problemExplorer.showStatus', () => {
       commands.executeCommand('workbench.actions.view.problems');
     });

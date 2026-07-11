@@ -9,7 +9,7 @@ const SEVERITY_MAP: Record<DiagnosticSeverity, ProblemSeverity> = {
   [DiagnosticSeverity.Error]: ProblemSeverity.Error,
   [DiagnosticSeverity.Warning]: ProblemSeverity.Warning,
   [DiagnosticSeverity.Information]: ProblemSeverity.Info,
-  [DiagnosticSeverity.Hint]: ProblemSeverity.Info,
+  [DiagnosticSeverity.Hint]: ProblemSeverity.None,
 };
 
 const SEVERITY_NAME_MAP: Record<string, DiagnosticSeverity> = {
@@ -32,7 +32,7 @@ export function applySeverityOverrides(
     return diagnostics;
   }
 
-  const match = uri.fsPath.match(/\.(\w+)$/);
+  const match = uri.fsPath.match(/\.([\w.]+)$/);
   if (!match) {
     return diagnostics;
   }
@@ -107,11 +107,13 @@ export function toProblemStatus(diagnostics: readonly Diagnostic[]): ProblemStat
         }
         break;
       case DiagnosticSeverity.Information:
-      case DiagnosticSeverity.Hint:
         infoCount++;
         if (maxSeverity < ProblemSeverity.Info) {
           maxSeverity = ProblemSeverity.Info;
         }
+        break;
+      case DiagnosticSeverity.Hint:
+        // Hints are intentionally ignored — they don't contribute to counts or severity
         break;
     }
   }

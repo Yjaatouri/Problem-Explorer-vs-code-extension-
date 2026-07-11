@@ -31,7 +31,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     new MementoStorageProvider(context.globalState),
   );
   trendTracker.start();
-  new WorkspaceManager(
+  const workspaceManager = new WorkspaceManager(
     cache,
     diagnosticsManager,
     folderStatusManager,
@@ -149,6 +149,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   context.subscriptions.push(
     statusBarManager,
     statusBarManager.registerCommand(),
+    configManager,
+    workspaceManager,
     { dispose: () => { flushUpdates.cancel(); trendTracker.stop(); } },
   );
 
@@ -161,7 +163,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   }
 
   // Re-query decorations after language servers have had time to provide diagnostics
-  setTimeout(() => { decorationEngine.refresh(); }, 5000);
+  const refreshTimeout = setTimeout(() => { decorationEngine.refresh(); }, 5000);
+  context.subscriptions.push({ dispose: () => clearTimeout(refreshTimeout) });
 
   return apiManager;
 }

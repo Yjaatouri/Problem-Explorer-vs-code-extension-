@@ -1,4 +1,5 @@
 import {
+  Disposable,
   Event,
   WorkspaceFolder,
   workspace,
@@ -29,8 +30,9 @@ const defaultDelegate: WorkspaceDelegate = {
 };
 
 /** Tracks multi-root workspace folder changes and re-seeds cache/decoration state */
-export class WorkspaceManager {
+export class WorkspaceManager implements Disposable {
   private readonly delegate: WorkspaceDelegate;
+  private readonly disposable: Disposable;
 
   constructor(
     private readonly cache: ProblemCache,
@@ -40,9 +42,13 @@ export class WorkspaceManager {
     delegate?: WorkspaceDelegate,
   ) {
     this.delegate = delegate ?? defaultDelegate;
-    this.delegate.onDidChangeWorkspaceFolders((e) => {
+    this.disposable = this.delegate.onDidChangeWorkspaceFolders((e) => {
       this.handleChange(e);
     });
+  }
+
+  dispose(): void {
+    this.disposable.dispose();
   }
 
   /** Return the current list of workspace folders */

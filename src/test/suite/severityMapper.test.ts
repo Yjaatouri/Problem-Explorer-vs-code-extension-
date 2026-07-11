@@ -38,9 +38,9 @@ suite('severityMapper', () => {
       assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.Info);
     });
 
-    test('returns Info for hints', () => {
+    test('returns None for hints (ignored)', () => {
       const diags = [makeDiagnostic(DiagnosticSeverity.Hint)];
-      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.Info);
+      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.None);
     });
 
     test('returns highest severity in mixed array', () => {
@@ -91,14 +91,14 @@ suite('severityMapper', () => {
       assert.strictEqual(result.warningCount, 2);
     });
 
-    test('counts infos and hints together', () => {
+    test('ignores hints, only counts information', () => {
       const diags = [
         makeDiagnostic(DiagnosticSeverity.Information),
         makeDiagnostic(DiagnosticSeverity.Hint),
       ];
       const result = toProblemStatus(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Info);
-      assert.strictEqual(result.infoCount, 2);
+      assert.strictEqual(result.infoCount, 1);
     });
 
     test('counts mixed severities separately', () => {
@@ -211,6 +211,29 @@ suite('severityMapper', () => {
       assert.strictEqual(status.errorCount, 0);
       assert.strictEqual(status.warningCount, 3);
       assert.strictEqual(status.severity, ProblemSeverity.Warning);
+    });
+
+    test('matches .d.ts extension for overrides', () => {
+      const dtsUri = Uri.file('/workspace/types.d.ts');
+      const diags = [makeError()];
+      const mapped = applySeverityOverrides(dtsUri, diags, { '.d.ts': { Error: 'Warning' } });
+      assert.strictEqual(mapped.length, 1);
+      assert.strictEqual(mapped[0].severity, DiagnosticSeverity.Warning);
+    });
+
+    test('matches dashed extension like .spec.ts', () => {
+      const specUri = Uri.file('/workspace/test.spec.ts');
+      const diags = [makeError()];
+      const mapped = applySeverityOverrides(specUri, diags, { '.spec.ts': { Error: 'Warning' } });
+      assert.strictEqual(mapped.length, 1);
+      assert.strictEqual(mapped[0].severity, DiagnosticSeverity.Warning);
+    });
+
+    test('matches simple extension correctly after fix', () => {
+      const diags = [makeError()];
+      const mapped = applySeverityOverrides(pyUri, diags, { '.py': { Error: 'Warning' } });
+      assert.strictEqual(mapped.length, 1);
+      assert.strictEqual(mapped[0].severity, DiagnosticSeverity.Warning);
     });
   });
 });
