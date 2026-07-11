@@ -1,6 +1,26 @@
 # Changelog
 
-## 0.1.0 (2026-07-10)
+## 0.3.0 (2026-07-11)
+
+### Added
+
+- **Resource disposal** — `WorkspaceManager` and `ConfigManager` implement `Disposable` and are properly registered in `context.subscriptions` for clean deactivation; the 5-second refresh timeout is also stored as a disposable
+
+### Fixed
+
+- **Hint diagnostics ignored** — hint-severity diagnostics no longer produce file decorations; hints are excluded from problem counts entirely
+- **Severity-override extension matching** — regex `/\.[\w.]+$/` now correctly matches compound extensions like `.d.ts` and `.spec.ts`
+- **@types/node alignment** — downgraded from `^26.1.1` to `^20.11.0` to match VS Code 1.90's Node 20 runtime
+
+### Changed
+
+- **vsce replaced** — deprecated `vsce` devDependency replaced with `@vscode/vsce`
+
+### Removed
+
+- **Dead code** — unused `_onDidChangeDiagnostics` EventEmitter in `DiagnosticsManager`; unused `throttle.ts` and `batch.ts` utility modules
+
+## 0.2.0 (2026-07-11)
 
 ### Added
 

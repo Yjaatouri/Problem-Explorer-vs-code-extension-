@@ -1,6 +1,5 @@
 import {
   Event,
-  EventEmitter,
   Uri,
   WorkspaceFolder,
   Diagnostic,
@@ -30,11 +29,8 @@ const defaultDelegate: DiagnosticsDelegate = {
 export class DiagnosticsManager {
   private readonly cache: ProblemCache;
   private readonly delegate: DiagnosticsDelegate;
-  private readonly _onDidChangeDiagnostics = new EventEmitter<Uri[]>();
   private severityOverrides: Record<string, Record<string, string>> | undefined;
 
-  /** Fired with the set of URIs whose cached status changed after processing */
-  readonly onDidChangeDiagnostics: Event<Uri[]> = this._onDidChangeDiagnostics.event;
   /** Direct passthrough to `languages.onDidChangeDiagnostics` */
   readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
 
