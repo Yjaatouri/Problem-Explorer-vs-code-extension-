@@ -10,10 +10,12 @@ export type IgnorePredicate = (uri: Uri) => boolean;
 /** Per-workspace-folder cache of file and folder diagnostics, backed by LRU eviction */
 export class ProblemCache {
   private readonly folders: Map<string, LruCache<string, ProblemStatus>>;
+  private readonly folderKeys: Set<string>;
   private ignorePredicate: IgnorePredicate | undefined;
 
   constructor() {
     this.folders = new Map();
+    this.folderKeys = new Set();
   }
 
   /** Provide a function that filters URIs on insertion. Call with `undefined` to clear. */
@@ -32,6 +34,7 @@ export class ProblemCache {
 
   /**
    * Store a status for a URI under the given workspace folder.
+   * Marks the entry as a file (not a folder aggregate).
    * @returns `true` if the value changed (or was newly inserted), `false` if unchanged or ignored.
    */
   set(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
@@ -42,6 +45,8 @@ export class ProblemCache {
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
     let cache = this.folders.get(folderKey);
+
+    this.folderKeys.delete(uriKey);
 
     if (!cache) {
       cache = new LruCache<string, ProblemStatus>(PER_FOLDER_CACHE_LIMIT);
@@ -59,19 +64,83 @@ export class ProblemCache {
     return true;
   }
 
-  /** Remove a URI from its folder's cache */
+  /**
+   * Store a folder aggregate status. Marks the entry as a folder
+   * (so {@link getFileEntries} and {@link computeTotals} exclude it).
+   * @returns `true` if the value changed, `false` otherwise.
+   */
+  setFolderAggregate(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
+    const uriKey = normalizeUriKey(uri);
+    const folderKey = normalizeUriKey(folderUri);
+    let cache = this.folders.get(folderKey);
+
+    if (!cache) {
+      cache = new LruCache<string, ProblemStatus>(PER_FOLDER_CACHE_LIMIT);
+      this.folders.set(folderKey, cache);
+      cache.set(uriKey, status);
+      this.folderKeys.add(uriKey);
+      return true;
+    }
+
+    const old = cache.get(uriKey);
+    if (old !== undefined && !hasChanged(old, status)) {
+      return false;
+    }
+
+    cache.set(uriKey, status);
+    this.folderKeys.add(uriKey);
+    return true;
+  }
+
+  /** `true` when the given cache key represents a folder aggregate (not a file entry). */
+  private isFolderKey(key: string): boolean {
+    return this.folderKeys.has(key);
+  }
+
+  /**
+   * Iterate all **file** entries under a folder (excludes folder aggregates).
+   * Each entry is re-parsed into a `Uri` object.
+   */
+  getFileEntries(folderUri: Uri): [Uri, ProblemStatus][] {
+    const cache = this.folders.get(normalizeUriKey(folderUri));
+    if (!cache) {
+      return [];
+    }
+    const result: [Uri, ProblemStatus][] = [];
+    for (const [uriStr, status] of cache.entries()) {
+      if (!this.isFolderKey(uriStr)) {
+        result.push([Uri.parse(uriStr), status]);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Remove a URI from its folder's cache. If it was a folder aggregate,
+   * the folder-key marker is also removed.
+   */
   delete(uri: Uri, folderUri: Uri): void {
-    this.folders.get(normalizeUriKey(folderUri))?.delete(normalizeUriKey(uri));
+    const key = normalizeUriKey(uri);
+    this.folderKeys.delete(key);
+    this.folders.get(normalizeUriKey(folderUri))?.delete(key);
   }
 
   /** Remove all cached entries across every workspace folder */
   clear(): void {
     this.folders.clear();
+    this.folderKeys.clear();
   }
 
   /** Remove all entries for a single workspace folder */
   clearFolder(folderUri: Uri): void {
-    this.folders.delete(normalizeUriKey(folderUri));
+    const folderKey = normalizeUriKey(folderUri);
+    const cache = this.folders.get(folderKey);
+    if (cache) {
+      for (const [key] of cache.entries()) {
+        this.folderKeys.delete(key);
+      }
+    }
+    this.folders.delete(folderKey);
   }
 
   /** Number of cached entries under a given folder */
@@ -95,7 +164,7 @@ export class ProblemCache {
     return result;
   }
 
-  /** Aggregate all entries across every workspace folder into a single status */
+  /** Aggregate all **file** entries across every workspace folder into a single status (excludes folder aggregates) */
   computeTotals(): ProblemStatus {
     let errorCount = 0;
     let warningCount = 0;
@@ -104,7 +173,10 @@ export class ProblemCache {
     let maxSeverity = ProblemSeverity.None;
 
     for (const cache of this.folders.values()) {
-      for (const [, status] of cache.entries()) {
+      for (const [key, status] of cache.entries()) {
+        if (this.isFolderKey(key)) {
+          continue;
+        }
         if (status.severity > maxSeverity) {
           maxSeverity = status.severity;
         }

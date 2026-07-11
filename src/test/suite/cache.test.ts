@@ -268,4 +268,47 @@ suite('ProblemCache', () => {
     assert.strictEqual(totals.fileCount, 0);
     assert.strictEqual(totals.severity, ProblemSeverity.None);
   });
+
+  test('getFileEntries returns only file entries, not folder aggregates', () => {
+    const cache = new ProblemCache();
+    const srcFile = vscode.Uri.parse('file:///workspace/a.ts');
+    const subFolder = vscode.Uri.parse('file:///workspace/sub');
+    cache.set(srcFile, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.setFolderAggregate(subFolder, { severity: ProblemSeverity.Warning, errorCount: 0, warningCount: 2, infoCount: 0, fileCount: 1 }, folderUri);
+    const files = cache.getFileEntries(folderUri);
+    assert.strictEqual(files.length, 1);
+    assert.strictEqual(files[0][0].toString(), srcFile.toString());
+  });
+
+  test('setFolderAggregate stores folders without affecting computeTotals', () => {
+    const cache = new ProblemCache();
+    const srcFile = vscode.Uri.parse('file:///workspace/a.ts');
+    const subFolder = vscode.Uri.parse('file:///workspace/sub');
+    cache.set(srcFile, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.setFolderAggregate(subFolder, { severity: ProblemSeverity.Warning, errorCount: 0, warningCount: 2, infoCount: 0, fileCount: 1 }, folderUri);
+    const totals = cache.computeTotals();
+    assert.strictEqual(totals.errorCount, 1);
+    assert.strictEqual(totals.warningCount, 0);
+    assert.strictEqual(totals.fileCount, 1);
+  });
+
+  test('setFolderAggregate entry is readable via get', () => {
+    const cache = new ProblemCache();
+    const subFolder = vscode.Uri.parse('file:///workspace/sub');
+    cache.setFolderAggregate(subFolder, { severity: ProblemSeverity.Error, errorCount: 3, warningCount: 0, infoCount: 0, fileCount: 2 }, folderUri);
+    const status = cache.get(subFolder, folderUri);
+    assert.ok(status);
+    assert.strictEqual(status.errorCount, 3);
+  });
+
+  test('clearFolder removes file and folder entries', () => {
+    const cache = new ProblemCache();
+    const subFolder = vscode.Uri.parse('file:///workspace/sub');
+    cache.set(fileA, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.setFolderAggregate(subFolder, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, folderUri);
+    cache.clearFolder(folderUri);
+    assert.strictEqual(cache.get(fileA, folderUri), undefined);
+    assert.strictEqual(cache.get(subFolder, folderUri), undefined);
+    assert.strictEqual(cache.getFolderSize(folderUri), 0);
+  });
 });
