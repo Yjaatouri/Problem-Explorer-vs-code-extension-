@@ -32,12 +32,15 @@ export class DecorationEngine implements FileDecorationProvider {
   private readonly wf: WorkspaceFolderDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
   private config: Config | undefined;
+  private readonly _log: (msg: string) => void;
 
   constructor(
     private readonly cache: ProblemCache,
     wf?: WorkspaceFolderDelegate,
+    log?: (msg: string) => void,
   ) {
     this.wf = wf ?? defaultDelegate;
+    this._log = log ?? (() => { /* no-op */ });
   }
 
   setSeverityOverrides(overrides: Record<string, Record<string, string>> | undefined): void {
@@ -53,32 +56,42 @@ export class DecorationEngine implements FileDecorationProvider {
     uri: Uri,
     _token: CancellationToken,
   ): FileDecoration | undefined {
+    this._log(`provideFileDecoration: ${uri.fsPath}`);
     try {
       if (this.config && !this.config.enabled) {
+        this._log('  -> disabled by config');
         return undefined;
       }
 
       const folder = this.wf.getWorkspaceFolder(uri);
       if (!folder) {
+        this._log(`  -> no workspace folder`);
         return undefined;
       }
+      this._log(`  folder=${folder.uri.toString()}`);
 
       let status = this.cache.get(uri, folder.uri);
 
       if (!status) {
-        // Don't fetch diagnostics for ignored files
-        if (isIgnored(uri, this.config?.ignorePatterns)) {
+        const ignored = isIgnored(uri, this.config?.ignorePatterns);
+        if (ignored) {
+          this._log('  -> ignored by pattern');
           return undefined;
         }
         const diagnostics = languages.getDiagnostics(uri);
+        this._log(`  cache miss, diagnostics=${diagnostics.length}`);
         if (diagnostics.length > 0) {
           const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
           status = toProblemStatus(mapped);
           this.cache.set(uri, status, folder.uri);
+          this._log(`  cached: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
         }
+      } else {
+        this._log(`  cache hit: sev=${status.severity}`);
       }
 
       if (!status || status.severity === ProblemSeverity.None) {
+        this._log('  -> no status / None');
         return undefined;
       }
 
@@ -87,20 +100,38 @@ export class DecorationEngine implements FileDecorationProvider {
         !this.config.showWarnings &&
         status.severity !== ProblemSeverity.Error
       ) {
+        this._log('  -> showWarnings=false, not Error');
         return undefined;
       }
 
-      return this.toDecoration(status);
-    } catch {
+      const deco = this.toDecoration(status);
+      this._log(`  -> RETURNING decoration badge="${deco?.badge ?? 'none'}" color=${deco?.color?.id ?? 'none'}`);
+      return deco;
+    } catch (err: unknown) {
+      this._log(`  -> EXCEPTION: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }
 
   fireDidChange(uris: Uri | Uri[] | undefined): void {
+    if (uris === undefined) {
+      this._log('fireDidChange(undefined) — full refresh');
+    } else if (Array.isArray(uris)) {
+      this._log(`fireDidChange: ${uris.length} URIs`);
+      for (let i = 0; i < Math.min(uris.length, 5); i++) {
+        this._log(`  uri[${i}]=${uris[i].toString()}`);
+      }
+      if (uris.length > 5) {
+        this._log(`  ... and ${uris.length - 5} more`);
+      }
+    } else {
+      this._log(`fireDidChange: single URI ${uris.toString()}`);
+    }
     this._onDidChangeFileDecorations.fire(uris);
   }
 
   refresh(): void {
+    this._log('refresh() fired');
     this._onDidChangeFileDecorations.fire(undefined);
   }
 
