@@ -43,6 +43,11 @@
         "command": "problemExplorer.toggle",
         "title": "Toggle Problem Decorations",
         "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.test",
+        "title": "Test Problem Explorer",
+        "category": "Problem Explorer"
       }
     ],
     "keybindings": [

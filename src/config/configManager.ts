@@ -57,7 +57,7 @@ export class ConfigManager implements Disposable {
     return {
       enabled: cfg.get<boolean>('enabled', true),
       showWarnings: cfg.get<boolean>('showWarnings', true),
-      badgeStyle: cfg.get<'letter' | 'count' | 'dot' | 'none'>('badgeStyle', 'letter'),
+      badgeStyle: cfg.get<'letter' | 'count' | 'dot' | 'none'>('badgeStyle', 'count'),
       ignorePatterns: cfg.get<string[]>('ignorePatterns', [...DEFAULT_IGNORE_PATTERNS]),
       errorColor: cfg.get<string | undefined>('errorColor', undefined),
       warningColor: cfg.get<string | undefined>('warningColor', undefined),

@@ -37,12 +37,22 @@ export class ProblemCache {
    * @returns `true` if the value changed (or was newly inserted), `false` if unchanged or ignored.
    */
   set(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
-    if (this.ignorePredicate?.(uri)) {
-      return false;
-    }
-
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
+    const now = new Date().toISOString();
+
+    // FORENSIC: Log BEFORE state
+    const cacheBefore = this.folders.get(folderKey);
+    const oldStatus = cacheBefore?.get(uriKey);
+    const hadBefore = cacheBefore?.has(uriKey) ?? false;
+
+    if (this.ignorePredicate?.(uri)) {
+      // Still log ignored case
+      if (hadBefore) {
+        console.log(`[PE ${now}] [FORENSIC:Step3] cache.set IGNORED: uriKey=${uriKey} folderKey=${folderKey} time=${now} oldSeverity=${oldStatus?.severity} ignored=true`);
+      }
+      return false;
+    }
 
     // Don't store entries that have no problems
     if (status.severity === ProblemSeverity.None) {
@@ -50,6 +60,9 @@ export class ProblemCache {
       const cache = this.folders.get(folderKey);
       const had = cache?.has(uriKey) ?? false;
       cache?.delete(uriKey);
+      if (had || hadBefore) {
+        console.log(`[PE ${now}] [FORENSIC:Step3] cache.set DELETE None: uriKey=${uriKey} folderKey=${folderKey} time=${now} hadBefore=${hadBefore} oldSeverity=${oldStatus?.severity} newSeverity=None`);
+      }
       return had;
     }
 
@@ -60,15 +73,18 @@ export class ProblemCache {
       cache = new Map();
       this.folders.set(folderKey, cache);
       cache.set(uriKey, status);
+      console.log(`[PE ${now}] [FORENSIC:Step3] cache.set INSERT NEW: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount} fileCount=${status.fileCount} oldSeverity=none`);
       return true;
     }
 
     const old = cache.get(uriKey);
     if (old !== undefined && !hasChanged(old, status)) {
+      console.log(`[PE ${now}] [FORENSIC:Step3] cache.set NO CHANGE: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity}`);
       return false;
     }
 
     cache.set(uriKey, status);
+    console.log(`[PE ${now}] [FORENSIC:Step3] cache.set UPDATE: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount} fileCount=${status.fileCount} oldSeverity=${old?.severity ?? 'none'}`);
     return true;
   }
 
@@ -82,6 +98,7 @@ export class ProblemCache {
   setFolderAggregate(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
+    const now = new Date().toISOString();
 
     // Don't store folder aggregates that have no problems
     if (status.severity === ProblemSeverity.None) {
@@ -89,6 +106,9 @@ export class ProblemCache {
       const cache = this.folders.get(folderKey);
       const had = cache?.has(uriKey) ?? false;
       cache?.delete(uriKey);
+      if (had) {
+        console.log(`[PE ${now}] [FORENSIC:Step3] setFolderAggregate DELETE None: uriKey=${uriKey} folderKey=${folderKey} time=${now} oldSeverity=none`);
+      }
       return had;
     }
 
@@ -97,6 +117,7 @@ export class ProblemCache {
 
     if (cache) {
       if (old !== undefined && !hasChanged(old, status)) {
+        console.log(`[PE ${now}] [FORENSIC:Step3] setFolderAggregate NO CHANGE: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity}`);
         return false;
       }
     } else {
@@ -106,6 +127,7 @@ export class ProblemCache {
 
     cache.set(uriKey, status);
     this.folderKeys.add(uriKey);
+    console.log(`[PE ${now}] [FORENSIC:Step3] setFolderAggregate ${old ? 'UPDATE' : 'INSERT'}: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount} fileCount=${status.fileCount} oldSeverity=${old?.severity ?? 'none'}`);
     return true;
   }
 

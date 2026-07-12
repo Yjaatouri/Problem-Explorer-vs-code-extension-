@@ -14,8 +14,48 @@ import { ProblemCache } from '../cache/cacheLayer';
 import { Config, ProblemSeverity, ProblemStatus } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
-import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
 import { isIgnored } from '../performance/ignoreFilter';
+import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
+import { normalizeUriKey } from '../core/uriKey';
+
+// ----- FORENSIC COUNTERS -----
+export const forensicCounters = {
+  provideFileDecorationCalls: 0,
+  returnDecoration: 0,
+  returnUndefined: 0,
+  reasonNoWsFolder: 0,
+  reasonDisabled: 0,
+  reasonIgnored: 0,
+  reasonNoStatus: 0,
+  reasonShowWarnings: 0,
+  reasonException: 0,
+  fireDidChangeCalls: 0,
+  fireDidChangeUndefined: 0,
+  fireDidChangeArray: 0,
+  fireDidChangeSingle: 0,
+};
+
+export function dumpForensicReport(): string {
+  const c = forensicCounters;
+  const lines = [
+    `[FORENSIC:REPORT] ===== FORENSIC REPORT =====`,
+    `[FORENSIC:REPORT] provideFileDecoration calls: ${c.provideFileDecorationCalls}`,
+    `[FORENSIC:REPORT]   Returned decoration: ${c.returnDecoration}`,
+    `[FORENSIC:REPORT]   Returned undefined: ${c.returnUndefined}`,
+    `[FORENSIC:REPORT]   Reason: No workspace folder: ${c.reasonNoWsFolder}`,
+    `[FORENSIC:REPORT]   Reason: Disabled: ${c.reasonDisabled}`,
+    `[FORENSIC:REPORT]   Reason: Ignored: ${c.reasonIgnored}`,
+    `[FORENSIC:REPORT]   Reason: No status/None severity: ${c.reasonNoStatus}`,
+    `[FORENSIC:REPORT]   Reason: showWarnings=false: ${c.reasonShowWarnings}`,
+    `[FORENSIC:REPORT]   Reason: Exception: ${c.reasonException}`,
+    `[FORENSIC:REPORT] fireDidChange calls: ${c.fireDidChangeCalls}`,
+    `[FORENSIC:REPORT]   fireDidChange(undefined): ${c.fireDidChangeUndefined}`,
+    `[FORENSIC:REPORT]   fireDidChange(Array): ${c.fireDidChangeArray}`,
+    `[FORENSIC:REPORT]   fireDidChange(single): ${c.fireDidChangeSingle}`,
+    `[FORENSIC:REPORT] ===== END FORENSIC REPORT =====`,
+  ];
+  return lines.join('\n');
+}
 
 export interface WorkspaceFolderDelegate {
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
@@ -56,42 +96,66 @@ export class DecorationEngine implements FileDecorationProvider {
     uri: Uri,
     _token: CancellationToken,
   ): FileDecoration | undefined {
-    this._log(`provideFileDecoration: ${uri.fsPath}`);
-    try {
-      if (this.config && !this.config.enabled) {
-        this._log('  -> disabled by config');
-        return undefined;
-      }
+    forensicCounters.provideFileDecorationCalls++;
+    const callNum = forensicCounters.provideFileDecorationCalls;
+    const now = new Date().toISOString();
+    const fsPath = uri.fsPath;
+    const configEnabled = this.config?.enabled ?? true;
+    const folder = this.wf.getWorkspaceFolder(uri);
 
-      const folder = this.wf.getWorkspaceFolder(uri);
-      if (!folder) {
-        this._log(`  -> no workspace folder`);
-        return undefined;
-      }
-      this._log(`  folder=${folder.uri.toString()}`);
+    const explorerUriStr = uri.toString(true);
 
-      let status = this.cache.get(uri, folder.uri);
+    if (!folder) {
+      forensicCounters.returnUndefined++;
+      forensicCounters.reasonNoWsFolder++;
+      this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now}`);
+      this._log('  -> RETURN: no workspace folder');
+      return undefined;
+    }
 
-      if (!status) {
-        const ignored = isIgnored(uri, this.config?.ignorePatterns);
-        if (ignored) {
-          this._log('  -> ignored by pattern');
+    const ignored = isIgnored(uri, this.config?.ignorePatterns);
+    const cacheStatus = this.cache.get(uri, folder.uri);
+    const diagnostics = languages.getDiagnostics(uri);
+    const diagLen = diagnostics.length;
+    const uriKey = normalizeUriKey(uri);
+    const folderKey = normalizeUriKey(folder.uri);
+
+    // Step 8: URI consistency log
+    this._log(`[FORENSIC:Step8] URI consistency: explorerUri=${uri.toString(true)} fsPath=${fsPath} uriKey=${uriKey} folderKey=${folderKey} scheme=${uri.scheme} authority=${uri.authority}`);
+
+    this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} cacheHit=${!!cacheStatus} diagLen=${diagLen} cacheSeverity=${cacheStatus?.severity ?? 'none'} uriKey=${uriKey}`);
+
+      try {
+        if (this.config && !this.config.enabled) {
+          forensicCounters.returnUndefined++;
+          forensicCounters.reasonDisabled++;
+          this._log('  -> RETURN: disabled by config');
           return undefined;
         }
-        const diagnostics = languages.getDiagnostics(uri);
-        this._log(`  cache miss, diagnostics=${diagnostics.length}`);
-        if (diagnostics.length > 0) {
-          const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
-          status = toProblemStatus(mapped);
-          this.cache.set(uri, status, folder.uri);
-          this._log(`  cached: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
+
+        let status = this.cache.get(uri, folder.uri);
+
+        if (!status) {
+          if (ignored) {
+            forensicCounters.returnUndefined++;
+            forensicCounters.reasonIgnored++;
+            this._log('  -> RETURN: ignored by pattern');
+            return undefined;
+          }
+          if (diagLen > 0) {
+            const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
+            status = toProblemStatus(mapped);
+            this.cache.set(uri, status, folder.uri);
+            this._log(`  cached NEW: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
+          }
+        } else {
+          this._log(`  cache HIT: sev=${status.severity}`);
         }
-      } else {
-        this._log(`  cache hit: sev=${status.severity}`);
-      }
 
       if (!status || status.severity === ProblemSeverity.None) {
-        this._log('  -> no status / None');
+        forensicCounters.returnUndefined++;
+        forensicCounters.reasonNoStatus++;
+        this._log('  -> RETURN: no status / None severity');
         return undefined;
       }
 
@@ -100,38 +164,55 @@ export class DecorationEngine implements FileDecorationProvider {
         !this.config.showWarnings &&
         status.severity !== ProblemSeverity.Error
       ) {
-        this._log('  -> showWarnings=false, not Error');
+        forensicCounters.returnUndefined++;
+        forensicCounters.reasonShowWarnings++;
+        this._log('  -> RETURN: showWarnings=false');
         return undefined;
       }
 
       const deco = this.toDecoration(status);
-      this._log(`  -> RETURNING decoration badge="${deco?.badge ?? 'none'}" color=${deco?.color?.id ?? 'none'}`);
+      if (!deco) {
+        forensicCounters.returnUndefined++;
+        this._log('  -> RETURN: toDecoration returned undefined');
+        return undefined;
+      }
+      forensicCounters.returnDecoration++;
+      this._log(`[FORENSIC:Step6] DECORATION: badge="${deco.badge ?? 'none'}" badgeLength=${(deco.badge ?? '').length} tooltip="${deco.tooltip}" color=${deco.color?.id ?? 'none'} propagate=${deco.propagate}`);
+      this._log(`  -> RETURNING decoration badge="${deco.badge ?? 'none'}" color=${deco.color?.id ?? 'none'}`);
       return deco;
     } catch (err: unknown) {
+      forensicCounters.returnUndefined++;
+      forensicCounters.reasonException++;
       this._log(`  -> EXCEPTION: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }
 
   fireDidChange(uris: Uri | Uri[] | undefined): void {
+    forensicCounters.fireDidChangeCalls++;
+    const now = new Date().toISOString();
     if (uris === undefined) {
-      this._log('fireDidChange(undefined) — full refresh');
+      forensicCounters.fireDidChangeUndefined++;
+      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} UNDEFINED (full refresh) time=${now}`);
     } else if (Array.isArray(uris)) {
-      this._log(`fireDidChange: ${uris.length} URIs`);
-      for (let i = 0; i < Math.min(uris.length, 5); i++) {
-        this._log(`  uri[${i}]=${uris[i].toString()}`);
+      forensicCounters.fireDidChangeArray++;
+      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} Array(${uris.length}) time=${now}`);
+      for (let i = 0; i < Math.min(uris.length, 10); i++) {
+        this._log(`[FORENSIC:Step4]   uri[${i}]=${uris[i].toString(true)}`);
       }
-      if (uris.length > 5) {
-        this._log(`  ... and ${uris.length - 5} more`);
+      if (uris.length > 10) {
+        this._log(`[FORENSIC:Step4]   ... and ${uris.length - 10} more`);
       }
     } else {
-      this._log(`fireDidChange: single URI ${uris.toString()}`);
+      forensicCounters.fireDidChangeSingle++;
+      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} single URI=${uris.toString(true)} time=${now}`);
     }
     this._onDidChangeFileDecorations.fire(uris);
   }
 
   refresh(): void {
-    this._log('refresh() fired');
+    const now = new Date().toISOString();
+    this._log(`[FORENSIC:Step4] refresh() → fireDidChange(undefined) time=${now}`);
     this._onDidChangeFileDecorations.fire(undefined);
   }
 

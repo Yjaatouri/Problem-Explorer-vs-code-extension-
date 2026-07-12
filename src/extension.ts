@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ProblemCache } from './cache/cacheLayer';
 import { DiagnosticsManager } from './diagnostics/diagnosticsManager';
-import { DecorationEngine } from './decoration/decorationEngine';
+import { DecorationEngine, dumpForensicReport } from './decoration/decorationEngine';
 import { FolderStatusManager } from './folder/folderStatusManager';
 import { ConfigManager } from './config/configManager';
 import { CommandManager } from './commands/commandManager';
@@ -11,6 +11,8 @@ import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
+
+let diagEventCount = 0;
 
 export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   const consoleLog = (msg: string): void => {
@@ -80,10 +82,13 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       }),
     );
 
-    log('registering FileDecorationProvider...');
+    log('[FORENSIC:Step7] registerFileDecorationProvider START');
     const regResult = vscode.window.registerFileDecorationProvider(decorationEngine);
     context.subscriptions.push(regResult);
-    log('FileDecorationProvider registered OK');
+    log('[FORENSIC:Step7] registerFileDecorationProvider OK — Disposable registered');
+    log('[FORENSIC:Step7] provider instance alive: ' + (decorationEngine ? 'YES' : 'NO'));
+    log('[FORENSIC:Step7] provider is FileDecorationProvider interface: ' + (typeof decorationEngine.provideFileDecoration === 'function' ? 'YES' : 'NO'));
+    log('[FORENSIC:Step7] provider onDidChangeFileDecorations is Event: ' + (typeof decorationEngine.onDidChangeFileDecorations === 'object' ? 'YES' : 'NO'));
 
     const notifyApi = (uris: vscode.Uri[]): void => {
       for (let i = 0; i < uris.length; i++) {
@@ -98,7 +103,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     const pendingUris = new Set<string>();
 
     const flushUpdates = debounce(() => {
-      log(`flushUpdates: pending=${pendingUris.size}`);
+      log(`[FORENSIC:Step4-prep] flushUpdates: pending=${pendingUris.size}`);
       for (const uriStr of pendingUris) {
         const uri = vscode.Uri.parse(uriStr);
         dirtyUris.add(uriStr);
@@ -112,9 +117,11 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
 
       if (dirtyUris.size > 0) {
         const uris = Array.from(dirtyUris, (s) => vscode.Uri.parse(s));
-        log(`fireDidChange: ${uris.length} URIs`);
+        log(`[FORENSIC:Step4-prep] fireDidChange: ${uris.length} URIs (${dirtyUris.size} total before clear)`);
         dirtyUris.clear();
         decorationEngine.fireDidChange(uris);
+      } else {
+        log(`[FORENSIC:Step4-prep] dirtyUris.size=0 → NOT firing fireDidChange`);
       }
       statusBarManager.update();
       trendTracker.takeSnapshot();
@@ -122,9 +129,22 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
 
     context.subscriptions.push(
       vscode.languages.onDidChangeDiagnostics((e) => {
-        log(`onDidChangeDiagnostics: ${e.uris.length} URIs`);
+        diagEventCount++;
+        log(`[FORENSIC:Step1] onDidChangeDiagnostics #${diagEventCount}: ${e.uris.length} URIs`);
+        for (let di = 0; di < Math.min(e.uris.length, 10); di++) {
+          log(`[FORENSIC:Step1]   URI[${di}]=${e.uris[di].toString(true)}`);
+          const ddx = vscode.languages.getDiagnostics(e.uris[di]);
+          log(`[FORENSIC:Step1]   URI[${di}] diagCount=${ddx.length}`);
+        }
+        if (e.uris.length > 10) {
+          log(`[FORENSIC:Step1]   ... and ${e.uris.length - 10} more URIs`);
+        }
         const changed = diagnosticsManager.processChanges(e);
-        log(`processChanges: ${changed.length}`);
+        log(`[FORENSIC:Step2] processChanges returned ${changed.length} changed URIs`);
+        const severityCounts = diagnosticsManager.getEventDiagnosticsCounts(e);
+        for (const sc of severityCounts) {
+          log(`[FORENSIC:Step2]   URI=${sc.uri} err=${sc.err} warn=${sc.warn} info=${sc.info} hint=${sc.hint}`);
+        }
         notifyApi(changed);
         for (let i = 0; i < changed.length; i++) {
           pendingUris.add(changed[i].toString());
@@ -176,20 +196,29 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     );
 
     if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
-      log(`fullScan: ${vscode.workspace.workspaceFolders!.length} folders`);
+      log(`[FORENSIC:Step1-init] fullScan START: ${vscode.workspace.workspaceFolders!.length} folders`);
+      const allDiags = vscode.languages.getDiagnostics();
+      log(`[FORENSIC:Step1-init] languages.getDiagnostics() returned ${allDiags.length} entries`);
+      for (let i = 0; i < Math.min(allDiags.length, 10); i++) {
+        const [u, d] = allDiags[i];
+        log(`[FORENSIC:Step1-init]   URI[${i}]=${u.toString(true)} diagCount=${d.length}`);
+      }
+      if (allDiags.length > 10) {
+        log(`[FORENSIC:Step1-init]   ... and ${allDiags.length - 10} more`);
+      }
       const changed = diagnosticsManager.fullScan();
-      log(`fullScan: ${changed.length} changed`);
+      log(`[FORENSIC:Step1-init] fullScan returned ${changed.length} changed URIs`);
       const changedFolders = folderStatusManager.rebuildAll();
-      log(`rebuildAll: ${changedFolders.length} folders`);
+      log(`[FORENSIC:Step1-init] rebuildAll returned ${changedFolders.length} folders`);
       notifyApi([...changed, ...changedFolders]);
       decorationEngine.refresh();
-      log('initial refresh() called');
+      log('[FORENSIC:Step4] initial refresh() called → fireDidChange(undefined)');
       statusBarManager.update();
-      log(`status bar: errors=${cache.computeTotals().errorCount}`);
+      log(`[FORENSIC:Step1-init] status bar: errors=${cache.computeTotals().errorCount} warnings=${cache.computeTotals().warningCount} info=${cache.computeTotals().infoCount}`);
     }
 
     const refreshTimeout = setTimeout(() => {
-      log('5s timeout refresh');
+      log('[FORENSIC:Step4] 5s timeout refresh');
       decorationEngine.refresh();
     }, 5000);
     context.subscriptions.push({ dispose: () => clearTimeout(refreshTimeout) });
@@ -202,8 +231,26 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       }),
     );
 
+// FORENSIC REPORT COMMAND
+    context.subscriptions.push(
+      vscode.commands.registerCommand('problemExplorer.forensicReport', () => {
+        const report = dumpForensicReport();
+        log(report);
+        log(`[FORENSIC:REPORT] diagEventCount=${diagEventCount}`);
+        vscode.window.showInformationMessage('Forensic report dumped to console (DevTools)');
+      }),
+    );
+
     log('===== ACTIVATE COMPLETE =====');
     vscode.window.showInformationMessage('Problem Explorer: ACTIVATED!');
+
+    // Auto-dump forensic report after 15s
+    const forensicTimeout = setTimeout(() => {
+      log('[FORENSIC] Auto-dumping forensic report after 15s...');
+      log(dumpForensicReport());
+      log(`[FORENSIC] diagEventCount=${diagEventCount}`);
+    }, 15000);
+    context.subscriptions.push({ dispose: () => clearTimeout(forensicTimeout) });
 
     return apiManager;
   } catch (err) {
