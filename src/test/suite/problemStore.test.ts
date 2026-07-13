@@ -195,4 +195,66 @@ suite('ProblemStore', () => {
     d.dispose();
     assert.strictEqual(fired, false);
   });
+
+  test('beginBatch/endBatch fires single batch event', () => {
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
+    store.beginBatch();
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    store.set(Uri.parse('file:///project/b.ts'), makeState());
+    store.endBatch();
+    d.dispose();
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'batch');
+  });
+
+  test('individual events suppressed during batch', () => {
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
+    store.beginBatch();
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    store.delete(Uri.parse('file:///project/b.ts'));
+    store.clear();
+    store.endBatch();
+    d.dispose();
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'batch');
+  });
+
+  test('endBatch without beginBatch does nothing', () => {
+    let fired = false;
+    const d = store.onDidChange(() => { fired = true; });
+    store.endBatch();
+    d.dispose();
+    assert.strictEqual(fired, false);
+  });
+
+  test('nested beginBatch/endBatch fires only on outer endBatch', () => {
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
+    store.beginBatch();
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    store.beginBatch();
+    store.set(Uri.parse('file:///project/b.ts'), makeState());
+    store.endBatch();
+    assert.strictEqual(events.length, 0);
+    store.set(Uri.parse('file:///project/c.ts'), makeState());
+    store.endBatch();
+    d.dispose();
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'batch');
+  });
+
+  test('fires individual events after batch ends', () => {
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
+    store.beginBatch();
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    store.endBatch();
+    store.set(Uri.parse('file:///project/b.ts'), makeState());
+    d.dispose();
+    assert.strictEqual(events.length, 2);
+    assert.strictEqual(events[0].kind, 'batch');
+    assert.strictEqual(events[1].kind, 'added');
+  });
 });

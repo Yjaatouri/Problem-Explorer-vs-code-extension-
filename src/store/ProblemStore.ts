@@ -7,16 +7,31 @@ import { normalizeUriKey } from '../core/uriKey';
 export class ProblemStore {
   private readonly storage = new Map<string, ProblemState>();
   private readonly _onDidChange = new EventEmitter<ProblemStoreChange>();
+  private batchDepth = 0;
 
   readonly onDidChange: Event<ProblemStoreChange> = this._onDidChange.event;
 
   constructor() {}
 
+  beginBatch(): void {
+    this.batchDepth++;
+  }
+
+  endBatch(): void {
+    if (this.batchDepth === 0) return;
+    this.batchDepth--;
+    if (this.batchDepth === 0) {
+      this._onDidChange.fire({ kind: 'batch' });
+    }
+  }
+
   set(uri: Uri, state: ProblemState): void {
     const key = normalizeUriKey(uri);
     const existed = this.storage.has(key);
     this.storage.set(key, state);
-    this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
+    if (this.batchDepth === 0) {
+      this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
+    }
   }
 
   get(uri: Uri): ProblemState | undefined {
@@ -29,13 +44,17 @@ export class ProblemStore {
       return false;
     }
     this.storage.delete(key);
-    this._onDidChange.fire({ kind: 'removed', uri });
+    if (this.batchDepth === 0) {
+      this._onDidChange.fire({ kind: 'removed', uri });
+    }
     return true;
   }
 
   clear(): void {
     this.storage.clear();
-    this._onDidChange.fire({ kind: 'cleared' });
+    if (this.batchDepth === 0) {
+      this._onDidChange.fire({ kind: 'cleared' });
+    }
   }
 
   has(uri: Uri): boolean {
