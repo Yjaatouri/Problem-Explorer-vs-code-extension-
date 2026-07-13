@@ -8,10 +8,15 @@ export class ProblemStore {
   private readonly storage = new Map<string, ProblemState>();
   private readonly _onDidChange = new EventEmitter<ProblemStoreChange>();
   private batchDepth = 0;
+  private version = 0;
 
   readonly onDidChange: Event<ProblemStoreChange> = this._onDidChange.event;
 
   constructor() {}
+
+  getVersion(): number {
+    return this.version;
+  }
 
   beginBatch(): void {
     this.batchDepth++;
@@ -29,6 +34,7 @@ export class ProblemStore {
     const key = normalizeUriKey(uri);
     const existed = this.storage.has(key);
     this.storage.set(key, state);
+    this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
     }
@@ -44,6 +50,7 @@ export class ProblemStore {
       return false;
     }
     this.storage.delete(key);
+    this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire({ kind: 'removed', uri });
     }
@@ -52,6 +59,7 @@ export class ProblemStore {
 
   clear(): void {
     this.storage.clear();
+    this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire({ kind: 'cleared' });
     }

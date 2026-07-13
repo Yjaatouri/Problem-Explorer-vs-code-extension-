@@ -257,4 +257,42 @@ suite('ProblemStore', () => {
     assert.strictEqual(events[0].kind, 'batch');
     assert.strictEqual(events[1].kind, 'added');
   });
+
+  test('getVersion starts at 0', () => {
+    assert.strictEqual(store.getVersion(), 0);
+  });
+
+  test('getVersion increments on set', () => {
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    assert.strictEqual(store.getVersion(), 1);
+    store.set(Uri.parse('file:///project/b.ts'), makeState());
+    assert.strictEqual(store.getVersion(), 2);
+  });
+
+  test('getVersion increments on delete', () => {
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    assert.strictEqual(store.getVersion(), 1);
+    store.delete(Uri.parse('file:///project/a.ts'));
+    assert.strictEqual(store.getVersion(), 2);
+  });
+
+  test('getVersion does not increment on no-op delete', () => {
+    store.delete(Uri.parse('file:///project/nonexistent.ts'));
+    assert.strictEqual(store.getVersion(), 0);
+  });
+
+  test('getVersion increments on clear', () => {
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    store.set(Uri.parse('file:///project/b.ts'), makeState());
+    store.clear();
+    assert.strictEqual(store.getVersion(), 3);
+  });
+
+  test('getVersion increments during batch', () => {
+    store.beginBatch();
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    store.set(Uri.parse('file:///project/b.ts'), makeState());
+    store.endBatch();
+    assert.strictEqual(store.getVersion(), 2);
+  });
 });
