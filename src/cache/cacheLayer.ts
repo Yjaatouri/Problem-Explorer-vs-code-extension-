@@ -231,16 +231,19 @@ export class ProblemCache {
   /**
    * Remove a URI from its folder's cache. If it was a folder aggregate,
    * the folder-key marker is also removed.
+   * @returns `true` if an entry existed and was removed, `false` otherwise.
    */
-  delete(uri: Uri, folderUri: Uri): void {
+  delete(uri: Uri, folderUri: Uri): boolean {
     const key = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
-    const had = this.folders.get(folderKey)?.has(key) ?? false;
+    const cache = this.folders.get(folderKey);
+    const had = cache?.has(key) ?? false;
     this.folderKeys.delete(key);
-    this.folders.get(normalizeUriKey(folderUri))?.delete(key);
+    cache?.delete(key);
     if (had) {
       forensicLog(`[FORENSIC:Step3] cache.DELETE: uriKey=${key} folderKey=${folderKey} time=${new Date().toISOString()}`);
     }
+    return had;
   }
 
   /** Remove all cached entries across every workspace folder */

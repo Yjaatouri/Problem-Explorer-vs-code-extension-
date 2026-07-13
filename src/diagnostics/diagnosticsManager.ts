@@ -5,25 +5,30 @@ import {
   Diagnostic,
   DiagnosticChangeEvent,
   languages,
+  window,
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
 import { toProblemStatus, applySeverityOverrides } from './severityMapper';
 import { ProblemStatus } from '../core/types';
 import { isIgnored, precompilePatterns } from '../performance/ignoreFilter';
-import { forensicLog } from '../forensicLogger';
 
 /** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
 export interface DiagnosticsDelegate {
   getAllDiagnostics(): [Uri, Diagnostic[]][];
   getUriDiagnostics(uri: Uri): Diagnostic[];
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
+  isActiveEditorUri(uri: Uri): boolean;
 }
 
 const defaultDelegate: DiagnosticsDelegate = {
   getAllDiagnostics: () => languages.getDiagnostics(),
   getUriDiagnostics: (uri: Uri) => languages.getDiagnostics(uri),
   getWorkspaceFolder: (uri: Uri) => workspace.getWorkspaceFolder(uri),
+  isActiveEditorUri: (uri: Uri) => {
+    const editor = window.activeTextEditor;
+    return editor ? editor.document.uri.toString() === uri.toString() : false;
+  },
 };
 
 /** Ingests VS Code diagnostic events, converts them to `ProblemStatus`, and writes to the cache */
@@ -31,7 +36,6 @@ export class DiagnosticsManager {
   private readonly cache: ProblemCache;
   private readonly delegate: DiagnosticsDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
-  private readonly pendingClear = new Map<string, NodeJS.Timeout>();
 
   /** Direct passthrough to `languages.onDidChangeDiagnostics` */
   readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
@@ -110,25 +114,22 @@ export class DiagnosticsManager {
       return;
     }
 
-    const uriKey = uri.toString();
-
-    // When diagnostics arrive as empty, cancel any pending clear (from old code)
-    const existingTimeout = this.pendingClear.get(uriKey);
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
-      this.pendingClear.delete(uriKey);
-    }
-
     if (diagnostics.length === 0) {
-      // TEMPORARY VERIFICATION TEST: Disable cache clearing entirely
-      // to prove that TypeScript's "clear then republish" pattern is the root cause.
-      // If badges persist, hypothesis is VERIFIED.
-      // If badges still disappear, hypothesis is DISPROVEN.
-      forensicLog(`[VERIFY] updateUri SKIP-CLEAR: uriKey=${uriKey} diagnostics.length=0 -- cache clearing DISABLED for test`);
+      // Only delete the cache entry when the zero-diagnostic event is for the
+      // active editor. Non-active files may report transient 0-diagnostics due
+      // to lazy TypeScript re-evaluation, ESLint batches, or multi-source races.
+      // When the user navigates back to the file, a fresh diagnostic event will
+      // re-create the cache entry.
+      if (!this.delegate.isActiveEditorUri(uri)) {
+        return;
+      }
+      if (this.cache.delete(uri, folder.uri)) {
+        changed.push(uri);
+      }
       return;
     }
 
-    // Non-empty diagnostics
+    // Non-empty diagnostics — map and update the cache normally
     const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
     const status = toProblemStatus(mapped);
     const didChange = this.cache.set(uri, status, folder.uri);
