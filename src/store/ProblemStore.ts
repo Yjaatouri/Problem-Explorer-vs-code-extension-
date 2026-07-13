@@ -77,4 +77,12 @@ export class ProblemStore {
     this.storage.clear();
     this._onDidChange.dispose();
   }
+
+  snapshot(): { readonly [key: string]: Readonly<ProblemState> } {
+    const copy: Record<string, ProblemState> = {};
+    for (const [key, value] of this.storage) {
+      copy[key] = Object.freeze({ ...value });
+    }
+    return Object.freeze(copy);
+  }
 }

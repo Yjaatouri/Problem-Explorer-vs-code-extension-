@@ -295,4 +295,45 @@ suite('ProblemStore', () => {
     store.endBatch();
     assert.strictEqual(store.getVersion(), 2);
   });
+
+  test('snapshot returns all entries', () => {
+    const a = Uri.parse('file:///project/a.ts');
+    const b = Uri.parse('file:///project/b.ts');
+    store.set(a, makeState({ uri: normalizeUriKey(a), errorCount: 1 }));
+    store.set(b, makeState({ uri: normalizeUriKey(b), errorCount: 2 }));
+    const snap = store.snapshot();
+    assert.strictEqual(Object.keys(snap).length, 2);
+    assert.strictEqual(snap[normalizeUriKey(a)].errorCount, 1);
+    assert.strictEqual(snap[normalizeUriKey(b)].errorCount, 2);
+  });
+
+  test('snapshot returns empty object for empty store', () => {
+    const snap = store.snapshot();
+    assert.deepStrictEqual(snap, {});
+  });
+
+  test('snapshot is immutable to external mutation', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.set(uri, makeState());
+    const snap = store.snapshot();
+    const key = normalizeUriKey(uri);
+    assert.throws(() => { (snap as any)[key] = null; }, TypeError);
+  });
+
+  test('snapshot state objects are immutable copies', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.set(uri, makeState());
+    const snap = store.snapshot();
+    const key = normalizeUriKey(uri);
+    assert.throws(() => { (snap[key] as any).errorCount = 99; }, TypeError);
+  });
+
+  test('snapshot does not reflect subsequent store mutations', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.set(uri, makeState({ errorCount: 1 }));
+    const snap = store.snapshot();
+    store.set(uri, makeState({ errorCount: 5 }));
+    const key = normalizeUriKey(uri);
+    assert.strictEqual(snap[key].errorCount, 1);
+  });
 });
