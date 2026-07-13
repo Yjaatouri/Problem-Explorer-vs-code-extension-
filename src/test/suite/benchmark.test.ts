@@ -5,7 +5,7 @@ import { LruCache } from '../../cache/lruCache';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
 import { aggregateStatuses } from '../../folder/propagationStrategy';
-import { ProblemSeverity, ProblemStatus } from '../../core/types';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 import { measure, formatResult } from '../../benchmark/benchmark';
 
 suite('Benchmarks', function () {
@@ -125,7 +125,7 @@ suite('Benchmarks', function () {
   });
 
   test('aggregateStatuses performance (10k entries)', () => {
-    const children: ProblemStatus[] = [];
+    const children: ProblemState[] = [];
     for (let i = 0; i < 10000; i++) {
       children.push({
         severity: i % 3 === 0 ? ProblemSeverity.Error : ProblemSeverity.Warning,

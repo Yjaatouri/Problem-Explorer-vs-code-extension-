@@ -1,6 +1,6 @@
 import { Event, EventEmitter, Uri } from 'vscode';
-import { ProblemState } from '../models/ProblemState';
 import { ProblemStoreChange } from '../models/ProblemStoreChange';
+import { ProblemState } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
 
 /**

@@ -2,14 +2,14 @@ import * as assert from 'assert';
 import { Uri, ThemeColor } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { DecorationEngine } from '../../decoration/decorationEngine';
-import { ProblemSeverity, ProblemStatus } from '../../core/types';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 import { COLORS, BADGE_LETTERS } from '../../core/constants';
 
 suite('DecorationEngine', () => {
   const rootUri = Uri.parse('file:///workspace');
   const fileUri = Uri.parse('file:///workspace/src/file.ts');
 
-  function s(severity: ProblemSeverity, overrides?: Partial<ProblemStatus>): ProblemStatus {
+  function s(severity: ProblemSeverity, overrides?: Partial<ProblemState>): ProblemState {
     return {
       severity,
       errorCount: overrides?.errorCount ?? (severity === ProblemSeverity.Error ? 1 : 0),

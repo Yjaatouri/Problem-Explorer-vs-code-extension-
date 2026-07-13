@@ -7,12 +7,12 @@ export enum ProblemSeverity {
 }
 
 /** Immutable value object representing the diagnostics summary for one file or folder */
-export interface ProblemStatus {
+export interface ProblemState {
   readonly severity: ProblemSeverity;
   readonly errorCount: number;
   readonly warningCount: number;
   readonly infoCount: number;
-  /** Number of files contributing to this status (1 for a single file, aggregated for folders) */
+  /** Number of files contributing to this state (1 for a single file, aggregated for folders) */
   readonly fileCount: number;
 }
 
@@ -34,4 +34,4 @@ export interface Config {
 }
 
 /** Convenience type for badge formatting — just the counts, no severity */
-export type SeverityCounts = Pick<ProblemStatus, 'errorCount' | 'warningCount' | 'infoCount'>;
+export type SeverityCounts = Pick<ProblemState, 'errorCount' | 'warningCount' | 'infoCount'>;

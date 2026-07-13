@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { FolderStatusManager, FolderWorkspace } from '../../folder/folderStatusManager';
-import { ProblemSeverity, ProblemStatus } from '../../core/types';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 
 suite('FolderStatusManager', () => {
   const rootUri = Uri.parse('file:///workspace');
@@ -38,7 +38,7 @@ suite('FolderStatusManager', () => {
     };
   }
 
-  function status(severity: ProblemSeverity, counts?: Partial<ProblemStatus>): ProblemStatus {
+  function status(severity: ProblemSeverity, counts?: Partial<ProblemState>): ProblemState {
     return {
       severity,
       errorCount: counts?.errorCount ?? (severity === ProblemSeverity.Error ? 1 : 0),

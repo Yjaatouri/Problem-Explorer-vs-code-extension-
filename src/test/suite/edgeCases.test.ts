@@ -6,12 +6,12 @@ import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../../diagnostics/diagnosticsManager';
 import { FolderStatusManager, FolderWorkspace } from '../../folder/folderStatusManager';
 import { isIgnored } from '../../performance/ignoreFilter';
-import { ProblemSeverity, ProblemStatus } from '../../core/types';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 
 suite('EdgeCases', () => {
   const rootUri = Uri.parse('file:///workspace');
 
-  function status(severity: ProblemSeverity): ProblemStatus {
+  function status(severity: ProblemSeverity): ProblemState {
     return {
       severity,
       errorCount: severity === ProblemSeverity.Error ? 1 : 0,

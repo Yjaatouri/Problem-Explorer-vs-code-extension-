@@ -3,7 +3,7 @@ import {
   DiagnosticSeverity,
   Uri,
 } from 'vscode';
-import { ProblemSeverity, ProblemStatus } from '../core/types';
+import { ProblemSeverity, ProblemState } from '../core/types';
 
 const SEVERITY_MAP: Record<DiagnosticSeverity, ProblemSeverity> = {
   [DiagnosticSeverity.Error]: ProblemSeverity.Error,
@@ -83,11 +83,11 @@ export function toProblemSeverity(diagnostics: readonly Diagnostic[]): ProblemSe
 }
 
 /**
- * Convert a raw `Diagnostic[]` array into an immutable `ProblemStatus` value,
+ * Convert a raw `Diagnostic[]` array into an immutable `ProblemState` value,
  * computing worst severity and summing counts by category.
  * Handles thousands of diagnostics efficiently with a single pass.
  */
-export function toProblemStatus(diagnostics: readonly Diagnostic[]): ProblemStatus {
+export function toProblemState(diagnostics: readonly Diagnostic[]): ProblemState {
   let errorCount = 0;
   let warningCount = 0;
   let infoCount = 0;

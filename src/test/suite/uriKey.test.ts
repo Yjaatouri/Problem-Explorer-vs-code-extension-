@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { normalizeUriKey } from '../../core/uriKey';
 import { ProblemCache } from '../../cache/cacheLayer';
-import { ProblemSeverity, ProblemStatus } from '../../core/types';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 
 suite('normalizeUriKey', () => {
   test('drive letter casing maps to the same key', () => {
@@ -30,7 +30,7 @@ suite('normalizeUriKey', () => {
 });
 
 suite('ProblemCache URI normalization', () => {
-  const status: ProblemStatus = {
+  const status: ProblemState = {
     severity: ProblemSeverity.Error,
     errorCount: 1,
     warningCount: 0,

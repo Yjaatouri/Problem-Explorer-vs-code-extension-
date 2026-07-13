@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { LruCache } from '../../cache/lruCache';
 import { ProblemCache } from '../../cache/cacheLayer';
-import { ProblemStatus, ProblemSeverity } from '../../core/types';
+import { ProblemState, ProblemSeverity } from '../../core/types';
 
 suite('LruCache', () => {
   test('get returns undefined for missing key', () => {
@@ -115,7 +115,7 @@ suite('ProblemCache', () => {
   const fileB = vscode.Uri.parse('file:///workspace/src/b.ts');
   const differentFolder = vscode.Uri.parse('file:///other/');
 
-  const statusError: ProblemStatus = {
+  const statusError: ProblemState = {
     severity: ProblemSeverity.Error,
     errorCount: 1,
     warningCount: 0,
@@ -123,7 +123,7 @@ suite('ProblemCache', () => {
     fileCount: 1,
   };
 
-  const statusWarning: ProblemStatus = {
+  const statusWarning: ProblemState = {
     severity: ProblemSeverity.Warning,
     errorCount: 0,
     warningCount: 1,

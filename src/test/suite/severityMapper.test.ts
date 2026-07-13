@@ -7,7 +7,7 @@ import {
   Uri,
 } from 'vscode';
 import { ProblemSeverity } from '../../core/types';
-import { toProblemSeverity, toProblemStatus, applySeverityOverrides } from '../../diagnostics/severityMapper';
+import { toProblemSeverity, toProblemState, applySeverityOverrides } from '../../diagnostics/severityMapper';
 
 function makeDiagnostic(severity: DiagnosticSeverity): Diagnostic {
   return new Diagnostic(
@@ -61,9 +61,9 @@ suite('severityMapper', () => {
     });
   });
 
-  suite('toProblemStatus', () => {
+  suite('toProblemState', () => {
     test('returns clean status for empty array', () => {
-      const result = toProblemStatus([]);
+      const result = toProblemState([]);
       assert.strictEqual(result.severity, ProblemSeverity.None);
       assert.strictEqual(result.errorCount, 0);
       assert.strictEqual(result.warningCount, 0);
@@ -76,7 +76,7 @@ suite('severityMapper', () => {
         makeDiagnostic(DiagnosticSeverity.Error),
         makeDiagnostic(DiagnosticSeverity.Error),
       ];
-      const result = toProblemStatus(diags);
+      const result = toProblemState(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Error);
       assert.strictEqual(result.errorCount, 3);
     });
@@ -86,7 +86,7 @@ suite('severityMapper', () => {
         makeDiagnostic(DiagnosticSeverity.Warning),
         makeDiagnostic(DiagnosticSeverity.Warning),
       ];
-      const result = toProblemStatus(diags);
+      const result = toProblemState(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Warning);
       assert.strictEqual(result.warningCount, 2);
     });
@@ -96,7 +96,7 @@ suite('severityMapper', () => {
         makeDiagnostic(DiagnosticSeverity.Information),
         makeDiagnostic(DiagnosticSeverity.Hint),
       ];
-      const result = toProblemStatus(diags);
+      const result = toProblemState(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Info);
       assert.strictEqual(result.infoCount, 1);
     });
@@ -110,7 +110,7 @@ suite('severityMapper', () => {
         makeDiagnostic(DiagnosticSeverity.Warning),
         makeDiagnostic(DiagnosticSeverity.Information),
       ];
-      const result = toProblemStatus(diags);
+      const result = toProblemState(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Error);
       assert.strictEqual(result.errorCount, 2);
       assert.strictEqual(result.warningCount, 3);
@@ -123,7 +123,7 @@ suite('severityMapper', () => {
         diags.push(makeDiagnostic(DiagnosticSeverity.Warning));
       }
       diags.push(makeDiagnostic(DiagnosticSeverity.Error));
-      const result = toProblemStatus(diags);
+      const result = toProblemState(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Error);
       assert.strictEqual(result.errorCount, 1);
       assert.strictEqual(result.warningCount, 10000);
@@ -135,7 +135,7 @@ suite('severityMapper', () => {
         makeDiagnostic(DiagnosticSeverity.Error),
         makeDiagnostic(DiagnosticSeverity.Warning),
       ];
-      const result = toProblemStatus(diags);
+      const result = toProblemState(diags);
       assert.strictEqual(result.severity, ProblemSeverity.Error);
     });
   });
@@ -204,10 +204,10 @@ suite('severityMapper', () => {
       assert.strictEqual(result, diags);
     });
 
-    test('toProblemStatus with overrides produces correct counts', () => {
+    test('toProblemState with overrides produces correct counts', () => {
       const diags = [makeError(), makeError(), makeWarning()];
       const mapped = applySeverityOverrides(pyUri, diags, { '.py': { Error: 'Warning' } });
-      const status = toProblemStatus(mapped);
+      const status = toProblemState(mapped);
       assert.strictEqual(status.errorCount, 0);
       assert.strictEqual(status.warningCount, 3);
       assert.strictEqual(status.severity, ProblemSeverity.Warning);

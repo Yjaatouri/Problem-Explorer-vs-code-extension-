@@ -10,11 +10,11 @@ import {
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
-import { Config, ProblemSeverity, ProblemStatus } from '../core/types';
+import { Config, ProblemSeverity, ProblemState } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
-import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
+import { toProblemState, applySeverityOverrides } from '../diagnostics/severityMapper';
 import { normalizeUriKey } from '../core/uriKey';
 import { forensicLog } from '../forensicLogger';
 
@@ -133,7 +133,7 @@ export class DecorationEngine implements FileDecorationProvider {
         }
         if (diagLen > 0) {
           const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
-          status = toProblemStatus(mapped);
+          status = toProblemState(mapped);
           this.cache.set(uri, status, folder.uri);
           forensicLog(`[FORENSIC:Step5-DEC] provideFileDecoration cache.set: uri=${uri.toString(true)} sev=${status.severity} err=${status.errorCount} warn=${status.warningCount} diagLen=${diagLen}`);
           this._log(`  cached NEW: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
@@ -206,7 +206,7 @@ export class DecorationEngine implements FileDecorationProvider {
     this._onDidChangeFileDecorations.fire(undefined);
   }
 
-  private toDecoration(status: ProblemStatus): FileDecoration | undefined {
+  private toDecoration(status: ProblemState): FileDecoration | undefined {
     let color: ThemeColor;
     let badge: string;
 
@@ -246,7 +246,7 @@ export class DecorationEngine implements FileDecorationProvider {
     };
   }
 
-  private formatTooltip(status: ProblemStatus): string {
+  private formatTooltip(status: ProblemState): string {
     const parts: string[] = [];
     if (status.errorCount > 0) {
       parts.push(`${status.errorCount} error${status.errorCount !== 1 ? 's' : ''}`);

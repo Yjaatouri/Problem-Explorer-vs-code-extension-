@@ -8,6 +8,6 @@ suite('Extension', () => {
     assert.ok(ext.isActive);
     const api = ext.exports;
     assert.ok(api);
-    assert.strictEqual(typeof api.getProblemStatus, 'function');
+    assert.strictEqual(typeof api.getProblemState, 'function');
   });
 });

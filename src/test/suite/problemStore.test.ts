@@ -1,25 +1,17 @@
 import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemStore } from '../../store/ProblemStore';
-import { ProblemSeverity } from '../../models/ProblemSeverity';
-import { ProblemSource } from '../../models/ProblemSource';
-import { ProblemState } from '../../models/ProblemState';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 import { ProblemStoreChange } from '../../models/ProblemStoreChange';
 import { normalizeUriKey } from '../../core/uriKey';
 
 function makeState(overrides?: Partial<ProblemState>): ProblemState {
-  const DEFAULT_URI = Uri.parse('file:///project/a.ts');
-  const DEFAULT_FOLDER = Uri.parse('file:///project');
   return {
-    uri: normalizeUriKey(DEFAULT_URI),
-    folderKey: normalizeUriKey(DEFAULT_FOLDER),
     severity: ProblemSeverity.Error,
     errorCount: 1,
     warningCount: 0,
     infoCount: 0,
     fileCount: 1,
-    source: ProblemSource.TypeScript,
-    updatedAt: Date.now(),
     ...overrides,
   };
 }
@@ -46,7 +38,7 @@ suite('ProblemStore', () => {
     const retrieved = store.get(uri);
     assert.ok(retrieved);
     assert.strictEqual(retrieved.severity, ProblemSeverity.Error);
-    assert.strictEqual(retrieved.source, ProblemSource.TypeScript);
+    assert.strictEqual(retrieved.errorCount, 1);
   });
 
   test('get returns undefined for missing key', () => {
@@ -82,8 +74,8 @@ suite('ProblemStore', () => {
   test('clear removes all entries', () => {
     const a = Uri.parse('file:///project/a.ts');
     const b = Uri.parse('file:///project/b.ts');
-    store.set(a, makeState({ uri: normalizeUriKey(a) }));
-    store.set(b, makeState({ uri: normalizeUriKey(b) }));
+    store.set(a, makeState());
+    store.set(b, makeState());
     assert.strictEqual(store.size(), 2);
     store.clear();
     assert.strictEqual(store.size(), 0);
@@ -102,15 +94,9 @@ suite('ProblemStore', () => {
 
   test('size reflects entry count', () => {
     assert.strictEqual(store.size(), 0);
-    store.set(
-      Uri.parse('file:///project/a.ts'),
-      makeState({ uri: normalizeUriKey(Uri.parse('file:///project/a.ts')) }),
-    );
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
     assert.strictEqual(store.size(), 1);
-    store.set(
-      Uri.parse('file:///project/b.ts'),
-      makeState({ uri: normalizeUriKey(Uri.parse('file:///project/b.ts')) }),
-    );
+    store.set(Uri.parse('file:///project/b.ts'), makeState());
     assert.strictEqual(store.size(), 2);
     store.delete(Uri.parse('file:///project/a.ts'));
     assert.strictEqual(store.size(), 1);
@@ -299,8 +285,8 @@ suite('ProblemStore', () => {
   test('snapshot returns all entries', () => {
     const a = Uri.parse('file:///project/a.ts');
     const b = Uri.parse('file:///project/b.ts');
-    store.set(a, makeState({ uri: normalizeUriKey(a), errorCount: 1 }));
-    store.set(b, makeState({ uri: normalizeUriKey(b), errorCount: 2 }));
+    store.set(a, makeState({ errorCount: 1 }));
+    store.set(b, makeState({ errorCount: 2 }));
     const snap = store.snapshot();
     assert.strictEqual(Object.keys(snap).length, 2);
     assert.strictEqual(snap[normalizeUriKey(a)].errorCount, 1);

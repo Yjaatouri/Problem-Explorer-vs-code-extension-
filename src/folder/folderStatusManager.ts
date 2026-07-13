@@ -1,6 +1,6 @@
 import { Uri, WorkspaceFolder, workspace } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
-import { ProblemStatus } from '../core/types';
+import { ProblemState } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
 import { aggregateStatuses } from './propagationStrategy';
 
@@ -30,7 +30,7 @@ export class FolderStatusManager {
   private readonly wf: FolderWorkspace;
 
   // parentKey → (childKey → childStatus)
-  private readonly childIndex = new Map<string, Map<string, ProblemStatus>>();
+  private readonly childIndex = new Map<string, Map<string, ProblemState>>();
 
   constructor(
     private readonly cache: ProblemCache,
@@ -137,7 +137,7 @@ export class FolderStatusManager {
   }
 
   /** Compute the aggregate status of all direct children from the index (O(directChildren)). */
-  private aggregateFromIndex(parentKey: string): ProblemStatus {
+  private aggregateFromIndex(parentKey: string): ProblemState {
     const index = this.childIndex.get(parentKey);
     if (!index || index.size === 0) {
       return { severity: 0, errorCount: 0, warningCount: 0, infoCount: 0, fileCount: 0 };
@@ -149,11 +149,11 @@ export class FolderStatusManager {
    * Compute the aggregate status of all **file** children under a folder
    * by scanning the cache (used by `rebuildAll` cold-start).
    */
-  recomputeFolderStatus(folderUri: Uri, workspaceFolderUri: Uri): ProblemStatus {
+  recomputeFolderStatus(folderUri: Uri, workspaceFolderUri: Uri): ProblemState {
     const folderStr = normalizeUriKey(folderUri);
     const prefix = folderStr + '/';
 
-    const children: ProblemStatus[] = [];
+    const children: ProblemState[] = [];
     for (const [key, status] of this.cache.getRawFileEntries(workspaceFolderUri)) {
       if (key !== folderStr && key.startsWith(prefix)) {
         children.push(status);
@@ -211,7 +211,7 @@ export class FolderStatusManager {
         // Populate this folder's children in the index
         const parentKey = dirStr;
         const parentPrefix = parentKey + '/';
-        const childMap = new Map<string, ProblemStatus>();
+        const childMap = new Map<string, ProblemState>();
         for (const [childStr, childStatus] of this.cache.getRawFileEntries(folderUri)) {
           if (childStr.startsWith(parentPrefix) && childStr !== parentKey) {
             const rest = childStr.slice(parentPrefix.length);
@@ -245,7 +245,7 @@ export class FolderStatusManager {
       }
       // Populate root's direct children in the index
       const rootPrefix = rootStr + '/';
-      const rootChildren = new Map<string, ProblemStatus>();
+      const rootChildren = new Map<string, ProblemState>();
       for (const [childStr, childStatus] of this.cache.getRawFileEntries(folderUri)) {
         if (childStr === rootStr) continue;
         if (childStr.startsWith(rootPrefix)) {

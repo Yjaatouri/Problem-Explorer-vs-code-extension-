@@ -9,8 +9,8 @@ import {
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
-import { toProblemStatus, applySeverityOverrides } from './severityMapper';
-import { ProblemStatus } from '../core/types';
+import { toProblemState, applySeverityOverrides } from './severityMapper';
+import { ProblemState } from '../core/types';
 import { isIgnored, precompilePatterns } from '../performance/ignoreFilter';
 
 /** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
@@ -31,7 +31,7 @@ const defaultDelegate: DiagnosticsDelegate = {
   },
 };
 
-/** Ingests VS Code diagnostic events, converts them to `ProblemStatus`, and writes to the cache */
+/** Ingests VS Code diagnostic events, converts them to `ProblemState`, and writes to the cache */
 export class DiagnosticsManager {
   private readonly cache: ProblemCache;
   private readonly delegate: DiagnosticsDelegate;
@@ -100,7 +100,7 @@ export class DiagnosticsManager {
   }
 
   /** Read the cached status for a URI. Returns `undefined` if not cached or not in a workspace folder. */
-  getStatus(uri: Uri): ProblemStatus | undefined {
+  getStatus(uri: Uri): ProblemState | undefined {
     const folder = this.delegate.getWorkspaceFolder(uri);
     if (!folder) {
       return undefined;
@@ -131,7 +131,7 @@ export class DiagnosticsManager {
 
     // Non-empty diagnostics — map and update the cache normally
     const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
-    const status = toProblemStatus(mapped);
+    const status = toProblemState(mapped);
     const didChange = this.cache.set(uri, status, folder.uri);
 
     if (didChange) {

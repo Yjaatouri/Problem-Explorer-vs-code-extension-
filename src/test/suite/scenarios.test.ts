@@ -2,9 +2,9 @@ import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { LruCache } from '../../cache/lruCache';
-import { ProblemStatus, ProblemSeverity } from '../../core/types';
+import { ProblemState, ProblemSeverity } from '../../core/types';
 import { aggregateStatuses } from '../../folder/propagationStrategy';
-import { toProblemStatus } from '../../diagnostics/severityMapper';
+import { toProblemState } from '../../diagnostics/severityMapper';
 
 suite('Scenarios', () => {
   const rootUri = Uri.parse('file:///workspace');
@@ -19,11 +19,11 @@ suite('Scenarios', () => {
 
   test('1000 files with random diagnostics', () => {
     const cache = new ProblemCache();
-    const statuses: ProblemStatus[] = [];
+    const statuses: ProblemState[] = [];
 
     for (let i = 0; i < 1000; i++) {
       const sev = randomSeverity();
-      const s: ProblemStatus = {
+      const s: ProblemState = {
         severity: sev,
         errorCount: sev === ProblemSeverity.Error ? Math.floor(Math.random() * 5) + 1 : 0,
         warningCount: sev === ProblemSeverity.Warning ? Math.floor(Math.random() * 5) + 1 : 0,
@@ -77,7 +77,7 @@ suite('Scenarios', () => {
       parts.push(`a`);
     }
     const deepDir = Uri.parse(`file:///workspace/${parts.join('/')}/file.ts`);
-    const status: ProblemStatus = {
+    const status: ProblemState = {
       severity: ProblemSeverity.Error,
       errorCount: 1,
       warningCount: 0,
@@ -88,7 +88,7 @@ suite('Scenarios', () => {
     assert.strictEqual(cache.get(deepDir, rootUri)?.severity, ProblemSeverity.Error);
   });
 
-  test('toProblemStatus handles 10000 diagnostics', () => {
+  test('toProblemState handles 10000 diagnostics', () => {
     const range = new (require('vscode').Range)(0, 0, 0, 1);
     const diags: import('vscode').Diagnostic[] = [];
     const severities = [
@@ -107,12 +107,12 @@ suite('Scenarios', () => {
       );
     }
     const start = performance.now();
-    const result = toProblemStatus(diags);
+    const result = toProblemState(diags);
     const elapsed = performance.now() - start;
     assert.strictEqual(result.severity, ProblemSeverity.Error);
     assert.strictEqual(result.errorCount, 2500);
     assert.strictEqual(result.warningCount, 2500);
     assert.strictEqual(result.infoCount, 2500);
-    assert.ok(elapsed < 50, `toProblemStatus took ${elapsed}ms (expected < 50ms)`);
+    assert.ok(elapsed < 50, `toProblemState took ${elapsed}ms (expected < 50ms)`);
   });
 });

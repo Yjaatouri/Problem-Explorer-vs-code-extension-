@@ -1,6 +1,6 @@
 import { Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
-import { ProblemStatus } from '../core/types';
+import { ProblemState } from '../core/types';
 
 /** Abstraction over `workspace.getWorkspaceFolder` for testability */
 export interface WorkspaceFolderDelegate {
@@ -12,20 +12,20 @@ const defaultDelegate: WorkspaceFolderDelegate = {
 };
 
 export interface ProblemExplorerAPI {
-  getProblemStatus(uri: Uri): ProblemStatus | undefined;
-  readonly onDidChangeProblemStatus: Event<ProblemStatusChangeEvent>;
+  getProblemState(uri: Uri): ProblemState | undefined;
+  readonly onDidChangeProblemState: Event<ProblemStateChangeEvent>;
 }
 
-export interface ProblemStatusChangeEvent {
+export interface ProblemStateChangeEvent {
   readonly uri: Uri;
-  readonly status: ProblemStatus | undefined;
+  readonly status: ProblemState | undefined;
 }
 
 /** Manages the public API exposed by `activate()` for other extensions */
 export class ApiManager implements ProblemExplorerAPI {
-  private readonly _onDidChangeProblemStatus = new EventEmitter<ProblemStatusChangeEvent>();
-  readonly onDidChangeProblemStatus: Event<ProblemStatusChangeEvent> =
-    this._onDidChangeProblemStatus.event;
+  private readonly _onDidChangeProblemState = new EventEmitter<ProblemStateChangeEvent>();
+  readonly onDidChangeProblemState: Event<ProblemStateChangeEvent> =
+    this._onDidChangeProblemState.event;
   private readonly wf: WorkspaceFolderDelegate;
 
   constructor(
@@ -36,7 +36,7 @@ export class ApiManager implements ProblemExplorerAPI {
   }
 
   /** Look up the cached problem status for a URI. Returns `undefined` if not cached or not in a workspace folder. */
-  getProblemStatus(uri: Uri): ProblemStatus | undefined {
+  getProblemState(uri: Uri): ProblemState | undefined {
     const folder = this.wf.getWorkspaceFolder(uri);
     if (!folder) {
       return undefined;
@@ -47,6 +47,6 @@ export class ApiManager implements ProblemExplorerAPI {
   /** Called by extension.ts when diagnostics change. Reads status from cache and emits the event. */
   notifyChanged(uri: Uri, folderUri: Uri): void {
     const status = this.cache.get(uri, folderUri);
-    this._onDidChangeProblemStatus.fire({ uri, status });
+    this._onDidChangeProblemState.fire({ uri, status });
   }
 }

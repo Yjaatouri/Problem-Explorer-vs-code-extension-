@@ -1,5 +1,5 @@
 import { Uri } from 'vscode';
-import { ProblemStatus, ProblemSeverity } from '../core/types';
+import { ProblemState, ProblemSeverity } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
 import { forensicLog } from '../forensicLogger';
 
@@ -8,7 +8,7 @@ export type IgnorePredicate = (uri: Uri) => boolean;
 
 /** Per-workspace-folder cache of file and folder diagnostics. No LRU eviction. */
 export class ProblemCache {
-  private readonly folders: Map<string, Map<string, ProblemStatus>>;
+  private readonly folders: Map<string, Map<string, ProblemState>>;
   private readonly folderKeys: Set<string>;
   private ignorePredicate: IgnorePredicate | undefined;
 
@@ -23,7 +23,7 @@ export class ProblemCache {
   }
 
   /** Look up a URI's cached status. Returns `undefined` if not cached or ignored. */
-  get(uri: Uri, folderUri: Uri): ProblemStatus | undefined {
+  get(uri: Uri, folderUri: Uri): ProblemState | undefined {
     const cache = this.folders.get(normalizeUriKey(folderUri));
     if (!cache) {
       return undefined;
@@ -37,7 +37,7 @@ export class ProblemCache {
    * when nothing was cached). Marks the entry as a file (not a folder aggregate).
    * @returns `true` if the value changed (or was newly inserted), `false` if unchanged or ignored.
    */
-  set(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
+  set(uri: Uri, status: ProblemState, folderUri: Uri): boolean {
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
     const now = new Date().toISOString();
@@ -96,7 +96,7 @@ export class ProblemCache {
    * folder has no problems).
    * @returns `true` if the value changed, `false` otherwise.
    */
-  setFolderAggregate(uri: Uri, status: ProblemStatus, folderUri: Uri): boolean {
+  setFolderAggregate(uri: Uri, status: ProblemState, folderUri: Uri): boolean {
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folderUri);
     const now = new Date().toISOString();
@@ -142,10 +142,10 @@ export class ProblemCache {
    * Returns raw normalized-URI string keys to avoid the cost of `Uri.parse`.
    * Prefer this over {@link getFileEntries} in hot paths.
    */
-  getRawFileEntries(folderUri: Uri): [string, ProblemStatus][] {
+  getRawFileEntries(folderUri: Uri): [string, ProblemState][] {
     const cache = this.folders.get(normalizeUriKey(folderUri));
     if (!cache) return [];
-    const result: [string, ProblemStatus][] = [];
+    const result: [string, ProblemState][] = [];
     for (const [key, status] of cache) {
       if (!this.isFolderKey(key)) {
         result.push([key, status]);
@@ -158,7 +158,7 @@ export class ProblemCache {
    * Iterate all cached entries under a folder (including folder aggregates).
    * Returns raw normalized-URI string keys to avoid the cost of `Uri.parse`.
    */
-  getRawEntries(folderUri: Uri): [string, ProblemStatus][] {
+  getRawEntries(folderUri: Uri): [string, ProblemState][] {
     const cache = this.folders.get(normalizeUriKey(folderUri));
     if (!cache) return [];
     return Array.from(cache);
@@ -168,7 +168,7 @@ export class ProblemCache {
    * Iterate all **file** entries under a folder (excludes folder aggregates).
    * Each entry is re-parsed into a `Uri` object — prefer {@link getRawFileEntries} in hot paths.
    */
-  getFileEntries(folderUri: Uri): [Uri, ProblemStatus][] {
+  getFileEntries(folderUri: Uri): [Uri, ProblemState][] {
     return this.getRawFileEntries(folderUri).map(([k, v]) => [Uri.parse(k), v]);
   }
 
@@ -209,7 +209,7 @@ export class ProblemCache {
     const oldPrefixSlash = oldPrefix + '/';
     const newPrefix = normalizeUriKey(newUri);
 
-    type Pending = { oldKey: string; newKey: string; status: ProblemStatus };
+    type Pending = { oldKey: string; newKey: string; status: ProblemState };
     const pending: Pending[] = [];
 
     for (const [key, status] of cache) {
@@ -273,12 +273,12 @@ export class ProblemCache {
    * Iterate all cached entries under a folder.
    * Each entry is re-parsed into a `Uri` object — prefer {@link getRawEntries} for hot paths.
    */
-  getEntries(folderUri: Uri): [Uri, ProblemStatus][] {
+  getEntries(folderUri: Uri): [Uri, ProblemState][] {
     return this.getRawEntries(folderUri).map(([k, v]) => [Uri.parse(k), v]);
   }
 
   /** Aggregate all **file** entries across every workspace folder into a single status (excludes folder aggregates) */
-  computeTotals(): ProblemStatus {
+  computeTotals(): ProblemState {
     let errorCount = 0;
     let warningCount = 0;
     let infoCount = 0;
@@ -310,7 +310,7 @@ export class ProblemCache {
   }
 }
 
-function hasChanged(a: ProblemStatus, b: ProblemStatus): boolean {
+function hasChanged(a: ProblemState, b: ProblemState): boolean {
   return (
     a.severity !== b.severity ||
     a.errorCount !== b.errorCount ||

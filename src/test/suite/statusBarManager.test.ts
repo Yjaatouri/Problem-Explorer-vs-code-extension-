@@ -2,12 +2,12 @@ import * as assert from 'assert';
 import { commands, Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { StatusBarManager } from '../../statusBar/statusBarManager';
-import { ProblemSeverity, ProblemStatus } from '../../core/types';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 
 suite('StatusBarManager', () => {
   const rootUri = Uri.parse('file:///workspace');
 
-  function statusError(e: number, w = 0, i = 0): ProblemStatus {
+  function statusError(e: number, w = 0, i = 0): ProblemState {
     return {
       severity: e > 0 ? ProblemSeverity.Error : w > 0 ? ProblemSeverity.Warning : ProblemSeverity.Info,
       errorCount: e,

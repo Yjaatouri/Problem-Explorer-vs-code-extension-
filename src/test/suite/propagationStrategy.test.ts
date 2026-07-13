@@ -1,9 +1,9 @@
 import * as assert from 'assert';
-import { ProblemSeverity, ProblemStatus } from '../../core/types';
+import { ProblemSeverity, ProblemState } from '../../core/types';
 import { aggregateStatuses } from '../../folder/propagationStrategy';
 
 suite('aggregateStatuses', () => {
-  function s(severity: ProblemSeverity, overrides?: Partial<ProblemStatus>): ProblemStatus {
+  function s(severity: ProblemSeverity, overrides?: Partial<ProblemState>): ProblemState {
     return {
       severity,
       errorCount: overrides?.errorCount ?? (severity === ProblemSeverity.Error ? 1 : 0),
@@ -93,7 +93,7 @@ suite('aggregateStatuses', () => {
   });
 
   test('large number of children', () => {
-    const children: ProblemStatus[] = [];
+    const children: ProblemState[] = [];
     for (let i = 0; i < 100; i++) {
       children.push(s(ProblemSeverity.Error, { errorCount: 2 }));
     }
