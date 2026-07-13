@@ -7,7 +7,6 @@ import {
   languages,
   ThemeColor,
   Uri,
-  WorkspaceFolder,
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
@@ -17,6 +16,7 @@ import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
 import { toProblemStatus, applySeverityOverrides } from '../diagnostics/severityMapper';
 import { normalizeUriKey } from '../core/uriKey';
+import { forensicLog } from '../forensicLogger';
 
 // ----- FORENSIC COUNTERS -----
 export const forensicCounters = {
@@ -57,29 +57,18 @@ export function dumpForensicReport(): string {
   return lines.join('\n');
 }
 
-export interface WorkspaceFolderDelegate {
-  getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
-}
-
-const defaultDelegate: WorkspaceFolderDelegate = {
-  getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
-};
-
 export class DecorationEngine implements FileDecorationProvider {
   private readonly _onDidChangeFileDecorations = new EventEmitter<Uri | Uri[] | undefined>();
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
-  private readonly wf: WorkspaceFolderDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
   private config: Config | undefined;
   private readonly _log: (msg: string) => void;
 
   constructor(
     private readonly cache: ProblemCache,
-    wf?: WorkspaceFolderDelegate,
     log?: (msg: string) => void,
   ) {
-    this.wf = wf ?? defaultDelegate;
     this._log = log ?? (() => { /* no-op */ });
   }
 
@@ -101,7 +90,7 @@ export class DecorationEngine implements FileDecorationProvider {
     const now = new Date().toISOString();
     const fsPath = uri.fsPath;
     const configEnabled = this.config?.enabled ?? true;
-    const folder = this.wf.getWorkspaceFolder(uri);
+    const folder = workspace.getWorkspaceFolder(uri);
 
     const explorerUriStr = uri.toString(true);
 
@@ -125,32 +114,33 @@ export class DecorationEngine implements FileDecorationProvider {
 
     this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} cacheHit=${!!cacheStatus} diagLen=${diagLen} cacheSeverity=${cacheStatus?.severity ?? 'none'} uriKey=${uriKey}`);
 
-      try {
-        if (this.config && !this.config.enabled) {
+    try {
+      if (this.config && !this.config.enabled) {
+        forensicCounters.returnUndefined++;
+        forensicCounters.reasonDisabled++;
+        this._log('  -> RETURN: disabled by config');
+        return undefined;
+      }
+
+      let status = this.cache.get(uri, folder.uri);
+
+      if (!status) {
+        if (ignored) {
           forensicCounters.returnUndefined++;
-          forensicCounters.reasonDisabled++;
-          this._log('  -> RETURN: disabled by config');
+          forensicCounters.reasonIgnored++;
+          this._log('  -> RETURN: ignored by pattern');
           return undefined;
         }
-
-        let status = this.cache.get(uri, folder.uri);
-
-        if (!status) {
-          if (ignored) {
-            forensicCounters.returnUndefined++;
-            forensicCounters.reasonIgnored++;
-            this._log('  -> RETURN: ignored by pattern');
-            return undefined;
-          }
-          if (diagLen > 0) {
-            const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
-            status = toProblemStatus(mapped);
-            this.cache.set(uri, status, folder.uri);
-            this._log(`  cached NEW: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
-          }
-        } else {
-          this._log(`  cache HIT: sev=${status.severity}`);
+        if (diagLen > 0) {
+          const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
+          status = toProblemStatus(mapped);
+          this.cache.set(uri, status, folder.uri);
+          forensicLog(`[FORENSIC:Step5-DEC] provideFileDecoration cache.set: uri=${uri.toString(true)} sev=${status.severity} err=${status.errorCount} warn=${status.warningCount} diagLen=${diagLen}`);
+          this._log(`  cached NEW: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
         }
+      } else {
+        this._log(`  cache HIT: sev=${status.severity}`);
+      }
 
       if (!status || status.severity === ProblemSeverity.None) {
         forensicCounters.returnUndefined++;

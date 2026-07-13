@@ -1,6 +1,7 @@
 import { Uri } from 'vscode';
 import { ProblemStatus, ProblemSeverity } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
+import { forensicLog } from '../forensicLogger';
 
 /** Predicate that returns `true` when a URI should be excluded from the cache */
 export type IgnorePredicate = (uri: Uri) => boolean;
@@ -49,7 +50,7 @@ export class ProblemCache {
     if (this.ignorePredicate?.(uri)) {
       // Still log ignored case
       if (hadBefore) {
-        console.log(`[PE ${now}] [FORENSIC:Step3] cache.set IGNORED: uriKey=${uriKey} folderKey=${folderKey} time=${now} oldSeverity=${oldStatus?.severity} ignored=true`);
+        forensicLog(`[FORENSIC:Step3] cache.set IGNORED: uriKey=${uriKey} folderKey=${folderKey} time=${now} oldSeverity=${oldStatus?.severity} ignored=true`);
       }
       return false;
     }
@@ -61,7 +62,7 @@ export class ProblemCache {
       const had = cache?.has(uriKey) ?? false;
       cache?.delete(uriKey);
       if (had || hadBefore) {
-        console.log(`[PE ${now}] [FORENSIC:Step3] cache.set DELETE None: uriKey=${uriKey} folderKey=${folderKey} time=${now} hadBefore=${hadBefore} oldSeverity=${oldStatus?.severity} newSeverity=None`);
+        forensicLog(`[FORENSIC:Step3] cache.set DELETE None: uriKey=${uriKey} folderKey=${folderKey} time=${now} hadBefore=${hadBefore} oldSeverity=${oldStatus?.severity} newSeverity=None`);
       }
       return had;
     }
@@ -73,18 +74,18 @@ export class ProblemCache {
       cache = new Map();
       this.folders.set(folderKey, cache);
       cache.set(uriKey, status);
-      console.log(`[PE ${now}] [FORENSIC:Step3] cache.set INSERT NEW: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount} fileCount=${status.fileCount} oldSeverity=none`);
+      forensicLog(`[FORENSIC:Step3] cache.set INSERT NEW: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount} fileCount=${status.fileCount} oldSeverity=none`);
       return true;
     }
 
     const old = cache.get(uriKey);
     if (old !== undefined && !hasChanged(old, status)) {
-      console.log(`[PE ${now}] [FORENSIC:Step3] cache.set NO CHANGE: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity}`);
+      forensicLog(`[FORENSIC:Step3] cache.set NO CHANGE: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity}`);
       return false;
     }
 
     cache.set(uriKey, status);
-    console.log(`[PE ${now}] [FORENSIC:Step3] cache.set UPDATE: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount} fileCount=${status.fileCount} oldSeverity=${old?.severity ?? 'none'}`);
+    forensicLog(`[FORENSIC:Step3] cache.set UPDATE: uriKey=${uriKey} folderKey=${folderKey} time=${now} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount} fileCount=${status.fileCount} oldSeverity=${old?.severity ?? 'none'}`);
     return true;
   }
 
@@ -233,8 +234,13 @@ export class ProblemCache {
    */
   delete(uri: Uri, folderUri: Uri): void {
     const key = normalizeUriKey(uri);
+    const folderKey = normalizeUriKey(folderUri);
+    const had = this.folders.get(folderKey)?.has(key) ?? false;
     this.folderKeys.delete(key);
     this.folders.get(normalizeUriKey(folderUri))?.delete(key);
+    if (had) {
+      forensicLog(`[FORENSIC:Step3] cache.DELETE: uriKey=${key} folderKey=${folderKey} time=${new Date().toISOString()}`);
+    }
   }
 
   /** Remove all cached entries across every workspace folder */

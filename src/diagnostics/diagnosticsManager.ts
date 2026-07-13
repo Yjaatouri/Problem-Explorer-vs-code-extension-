@@ -11,6 +11,7 @@ import { ProblemCache } from '../cache/cacheLayer';
 import { toProblemStatus, applySeverityOverrides } from './severityMapper';
 import { ProblemStatus } from '../core/types';
 import { isIgnored, precompilePatterns } from '../performance/ignoreFilter';
+import { forensicLog } from '../forensicLogger';
 
 /** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
 export interface DiagnosticsDelegate {
@@ -30,6 +31,7 @@ export class DiagnosticsManager {
   private readonly cache: ProblemCache;
   private readonly delegate: DiagnosticsDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
+  private readonly pendingClear = new Map<string, NodeJS.Timeout>();
 
   /** Direct passthrough to `languages.onDidChangeDiagnostics` */
   readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
@@ -108,6 +110,25 @@ export class DiagnosticsManager {
       return;
     }
 
+    const uriKey = uri.toString();
+
+    // When diagnostics arrive as empty, cancel any pending clear (from old code)
+    const existingTimeout = this.pendingClear.get(uriKey);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      this.pendingClear.delete(uriKey);
+    }
+
+    if (diagnostics.length === 0) {
+      // TEMPORARY VERIFICATION TEST: Disable cache clearing entirely
+      // to prove that TypeScript's "clear then republish" pattern is the root cause.
+      // If badges persist, hypothesis is VERIFIED.
+      // If badges still disappear, hypothesis is DISPROVEN.
+      forensicLog(`[VERIFY] updateUri SKIP-CLEAR: uriKey=${uriKey} diagnostics.length=0 -- cache clearing DISABLED for test`);
+      return;
+    }
+
+    // Non-empty diagnostics
     const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
     const status = toProblemStatus(mapped);
     const didChange = this.cache.set(uri, status, folder.uri);

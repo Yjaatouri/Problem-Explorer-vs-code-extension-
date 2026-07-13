@@ -8,6 +8,7 @@ import { CommandManager } from './commands/commandManager';
 import { WorkspaceManager } from './workspace/workspaceManager';
 import { StatusBarManager } from './statusBar/statusBarManager';
 import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
+import { initForensicLogger, forensicLog } from './forensicLogger';
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { debounce } from './performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from './core/constants';
@@ -36,12 +37,16 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     outputChannel?.appendLine(`[${new Date().toISOString()}] ${msg}`);
   };
 
+  // Initialize forensic logger to route through this log function
+  initForensicLogger(log);
+  forensicLog('===== FORENSIC LOGGER INITIALIZED =====');
+
   try {
     log('Creating core services...');
 
     const cache = new ProblemCache();
     const diagnosticsManager = new DiagnosticsManager(cache);
-    const decorationEngine = new DecorationEngine(cache, undefined, log);
+    const decorationEngine = new DecorationEngine(cache, log);
     const folderStatusManager = new FolderStatusManager(cache);
     const configManager = new ConfigManager();
     const commandManager = new CommandManager(
@@ -68,8 +73,6 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       const config = configManager.getConfig();
       diagnosticsManager.setSeverityOverrides(config.severityOverrides);
       diagnosticsManager.setIgnorePatterns(config.ignorePatterns);
-      decorationEngine.setSeverityOverrides(config.severityOverrides);
-      decorationEngine.setConfig(config);
     };
     applyConfig();
     log('config applied: enabled=' + configManager.getConfig().enabled);
@@ -78,7 +81,6 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       configManager.onDidChangeConfig(() => {
         log('config changed');
         applyConfig();
-        decorationEngine.refresh();
       }),
     );
 
@@ -217,11 +219,29 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       log(`[FORENSIC:Step1-init] status bar: errors=${cache.computeTotals().errorCount} warnings=${cache.computeTotals().warningCount} info=${cache.computeTotals().infoCount}`);
     }
 
-    const refreshTimeout = setTimeout(() => {
-      log('[FORENSIC:Step4] 5s timeout refresh');
-      decorationEngine.refresh();
-    }, 5000);
-    context.subscriptions.push({ dispose: () => clearTimeout(refreshTimeout) });
+    // Poll until TypeScript produces non-zero diagnostics, then do a forced fullScan + refresh
+    let pollAttempts = 0;
+    const pollInterval = setInterval(() => {
+      pollAttempts++;
+      const totalDiags = vscode.languages.getDiagnostics();
+      let totalCount = 0;
+      for (let i = 0; i < totalDiags.length; i++) {
+        totalCount += totalDiags[i][1].length;
+      }
+      log(`[INIT-POLL] attempt=${pollAttempts} totalDiags=${totalCount}`);
+      if (totalCount > 0 || pollAttempts >= 10) {
+        clearInterval(pollInterval);
+        const changed = diagnosticsManager.fullScan();
+        log(`[INIT-POLL] late fullScan: ${changed.length} changed`);
+        const changedFolders = folderStatusManager.rebuildAll();
+        log(`[INIT-POLL] late rebuildAll: ${changedFolders.length} folders`);
+        notifyApi([...changed, ...changedFolders]);
+        decorationEngine.refresh();
+        statusBarManager.update();
+        log(`[INIT-POLL] status bar: errors=${cache.computeTotals().errorCount} warnings=${cache.computeTotals().warningCount} info=${cache.computeTotals().infoCount}`);
+      }
+    }, 2000);
+    context.subscriptions.push({ dispose: () => clearInterval(pollInterval) });
 
     // TEST COMMAND - shows notification immediately
     context.subscriptions.push(
