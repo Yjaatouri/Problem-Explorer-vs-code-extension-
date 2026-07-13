@@ -1,19 +1,22 @@
 import { Event, EventEmitter, Uri } from 'vscode';
 import { ProblemState } from '../models/ProblemState';
+import { ProblemStoreChange } from '../models/ProblemStoreChange';
 import { normalizeUriKey } from '../core/uriKey';
 
 /** Central in-memory database for all project problems. */
 export class ProblemStore {
   private readonly storage = new Map<string, ProblemState>();
-  private readonly _onDidChange = new EventEmitter<Uri | undefined>();
+  private readonly _onDidChange = new EventEmitter<ProblemStoreChange>();
 
-  readonly onDidChange: Event<Uri | undefined> = this._onDidChange.event;
+  readonly onDidChange: Event<ProblemStoreChange> = this._onDidChange.event;
 
   constructor() {}
 
   set(uri: Uri, state: ProblemState): void {
-    this.storage.set(normalizeUriKey(uri), state);
-    this._onDidChange.fire(uri);
+    const key = normalizeUriKey(uri);
+    const existed = this.storage.has(key);
+    this.storage.set(key, state);
+    this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
   }
 
   get(uri: Uri): ProblemState | undefined {
@@ -21,16 +24,18 @@ export class ProblemStore {
   }
 
   delete(uri: Uri): boolean {
-    const removed = this.storage.delete(normalizeUriKey(uri));
-    if (removed) {
-      this._onDidChange.fire(uri);
+    const key = normalizeUriKey(uri);
+    if (!this.storage.has(key)) {
+      return false;
     }
-    return removed;
+    this.storage.delete(key);
+    this._onDidChange.fire({ kind: 'removed', uri });
+    return true;
   }
 
   clear(): void {
     this.storage.clear();
-    this._onDidChange.fire(undefined);
+    this._onDidChange.fire({ kind: 'cleared' });
   }
 
   has(uri: Uri): boolean {

@@ -4,6 +4,7 @@ import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemSeverity } from '../../models/ProblemSeverity';
 import { ProblemSource } from '../../models/ProblemSource';
 import { ProblemState } from '../../models/ProblemState';
+import { ProblemStoreChange } from '../../models/ProblemStoreChange';
 import { normalizeUriKey } from '../../core/uriKey';
 
 function makeState(overrides?: Partial<ProblemState>): ProblemState {
@@ -121,25 +122,39 @@ suite('ProblemStore', () => {
     assert.strictEqual(store.size(), 0);
   });
 
-  test('set fires onDidChange with the uri', () => {
+  test('set fires added event for new entry', () => {
     const uri = Uri.parse('file:///project/a.ts');
-    let received: Uri | undefined;
-    const d = store.onDidChange((e) => { received = e; });
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
     store.set(uri, makeState());
     d.dispose();
-    assert.ok(received);
-    assert.strictEqual(received!.toString(), uri.toString());
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'added');
+    assert.strictEqual((events[0] as any).uri?.toString(), uri.toString());
   });
 
-  test('delete fires onDidChange with the uri', () => {
+  test('set fires updated event for existing entry', () => {
     const uri = Uri.parse('file:///project/a.ts');
     store.set(uri, makeState());
-    let received: Uri | undefined;
-    const d = store.onDidChange((e) => { received = e; });
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
+    store.set(uri, makeState({ errorCount: 2 }));
+    d.dispose();
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'updated');
+    assert.strictEqual((events[0] as any).uri?.toString(), uri.toString());
+  });
+
+  test('delete fires removed event', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.set(uri, makeState());
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
     store.delete(uri);
     d.dispose();
-    assert.ok(received);
-    assert.strictEqual(received!.toString(), uri.toString());
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'removed');
+    assert.strictEqual((events[0] as any).uri?.toString(), uri.toString());
   });
 
   test('delete on non-existent key does not fire', () => {
@@ -151,25 +166,24 @@ suite('ProblemStore', () => {
     assert.strictEqual(fired, false);
   });
 
-  test('clear fires onDidChange with undefined', () => {
+  test('clear fires cleared event', () => {
     store.set(Uri.parse('file:///project/a.ts'), makeState());
-    let received: Uri | undefined = 'sentinel' as any;
-    const d = store.onDidChange((e) => { received = e; });
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
     store.clear();
     d.dispose();
-    assert.strictEqual(received, undefined);
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'cleared');
   });
 
   test('multiple set operations fire multiple events', () => {
     const uris = [Uri.parse('file:///project/a.ts'), Uri.parse('file:///project/b.ts')];
-    const received: string[] = [];
-    const d = store.onDidChange((e) => { if (e) received.push(e.toString()); });
+    const kinds: string[] = [];
+    const d = store.onDidChange((e) => kinds.push(e.kind));
     store.set(uris[0], makeState());
     store.set(uris[1], makeState());
     d.dispose();
-    assert.strictEqual(received.length, 2);
-    assert.strictEqual(received[0], uris[0].toString());
-    assert.strictEqual(received[1], uris[1].toString());
+    assert.deepStrictEqual(kinds, ['added', 'added']);
   });
 
   test('dispose stops firing onDidChange', () => {
