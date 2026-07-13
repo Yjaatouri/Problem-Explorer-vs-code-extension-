@@ -120,4 +120,65 @@ suite('ProblemStore', () => {
     store.dispose();
     assert.strictEqual(store.size(), 0);
   });
+
+  test('set fires onDidChange with the uri', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    let received: Uri | undefined;
+    const d = store.onDidChange((e) => { received = e; });
+    store.set(uri, makeState());
+    d.dispose();
+    assert.ok(received);
+    assert.strictEqual(received!.toString(), uri.toString());
+  });
+
+  test('delete fires onDidChange with the uri', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.set(uri, makeState());
+    let received: Uri | undefined;
+    const d = store.onDidChange((e) => { received = e; });
+    store.delete(uri);
+    d.dispose();
+    assert.ok(received);
+    assert.strictEqual(received!.toString(), uri.toString());
+  });
+
+  test('delete on non-existent key does not fire', () => {
+    const uri = Uri.parse('file:///project/nonexistent.ts');
+    let fired = false;
+    const d = store.onDidChange(() => { fired = true; });
+    store.delete(uri);
+    d.dispose();
+    assert.strictEqual(fired, false);
+  });
+
+  test('clear fires onDidChange with undefined', () => {
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    let received: Uri | undefined = 'sentinel' as any;
+    const d = store.onDidChange((e) => { received = e; });
+    store.clear();
+    d.dispose();
+    assert.strictEqual(received, undefined);
+  });
+
+  test('multiple set operations fire multiple events', () => {
+    const uris = [Uri.parse('file:///project/a.ts'), Uri.parse('file:///project/b.ts')];
+    const received: string[] = [];
+    const d = store.onDidChange((e) => { if (e) received.push(e.toString()); });
+    store.set(uris[0], makeState());
+    store.set(uris[1], makeState());
+    d.dispose();
+    assert.strictEqual(received.length, 2);
+    assert.strictEqual(received[0], uris[0].toString());
+    assert.strictEqual(received[1], uris[1].toString());
+  });
+
+  test('dispose stops firing onDidChange', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    let fired = false;
+    const d = store.onDidChange(() => { fired = true; });
+    store.dispose();
+    store.set(uri, makeState());
+    d.dispose();
+    assert.strictEqual(fired, false);
+  });
 });
