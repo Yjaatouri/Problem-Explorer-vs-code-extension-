@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { LruCache } from '../../cache/lruCache';
-import { DecorationEngine, WorkspaceFolderDelegate } from '../../decoration/decorationEngine';
+import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../../diagnostics/diagnosticsManager';
 import { FolderStatusManager, FolderWorkspace } from '../../folder/folderStatusManager';
 import { isIgnored } from '../../performance/ignoreFilter';
@@ -29,6 +29,7 @@ suite('EdgeCases', () => {
         getAllDiagnostics: () => [],
         getUriDiagnostics: () => [],
         getWorkspaceFolder: () => undefined,
+        isActiveEditorUri: () => false,
       };
       const mgr = new DiagnosticsManager(new ProblemCache(), delegate);
       const uri = Uri.parse('file:///workspace/src/file.ts');
@@ -36,11 +37,8 @@ suite('EdgeCases', () => {
     });
 
     test('DecorationEngine.provideFileDecoration returns undefined without workspace folder', () => {
-      const wf: WorkspaceFolderDelegate = {
-        getWorkspaceFolder: () => undefined,
-      };
       const cache = new ProblemCache();
-      const engine = new DecorationEngine(cache, wf);
+      const engine = new DecorationEngine(cache);
       const result = engine.provideFileDecoration(Uri.parse('file:///workspace/file.ts'), {} as any);
       assert.strictEqual(result, undefined);
     });
@@ -132,10 +130,7 @@ suite('EdgeCases', () => {
     });
 
     test('DecorationEngine returns undefined for non-file URI (no workspace folder matches)', () => {
-      const wf: WorkspaceFolderDelegate = {
-        getWorkspaceFolder: () => undefined,
-      };
-      const engine = new DecorationEngine(new ProblemCache(), wf);
+      const engine = new DecorationEngine(new ProblemCache());
       const result = engine.provideFileDecoration(Uri.parse('untitled:///Untitled-1.ts'), {} as any);
       assert.strictEqual(result, undefined);
     });

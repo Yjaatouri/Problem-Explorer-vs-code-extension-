@@ -28,9 +28,7 @@ suite('Benchmarks', function () {
 
   test('provideFileDecoration lookup < 1µs (target)', () => {
     const cache = new ProblemCache();
-    const engine = new DecorationEngine(cache, {
-      getWorkspaceFolder: mockWorkspaceFolder,
-    });
+    const engine = new DecorationEngine(cache);
 
     const fileUri = Uri.parse('file:///workspace/src/file.ts');
     cache.set(fileUri, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootUri);
@@ -57,6 +55,7 @@ suite('Benchmarks', function () {
       getAllDiagnostics: () => entries,
       getUriDiagnostics: () => [],
       getWorkspaceFolder: mockWorkspaceFolder,
+      isActiveEditorUri: () => false,
     });
 
     const result = measure('fullScan (10k files)', () => {
@@ -110,6 +109,7 @@ suite('Benchmarks', function () {
         return found ? found[1] : [];
       },
       getWorkspaceFolder: mockWorkspaceFolder,
+      isActiveEditorUri: () => false,
     });
 
     const result = measure('processChanges (1000 events)', () => {

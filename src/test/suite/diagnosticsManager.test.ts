@@ -21,6 +21,7 @@ suite('DiagnosticsManager', () => {
         }
         return undefined;
       },
+      isActiveEditorUri: () => false,
     };
   }
 
@@ -99,6 +100,7 @@ suite('DiagnosticsManager', () => {
         uri.toString().startsWith(folderUri.toString())
           ? { uri: folderUri, name: 'workspace', index: 0 }
           : undefined,
+      isActiveEditorUri: () => false,
     };
     const cache = new ProblemCache();
     const manager = new DiagnosticsManager(cache, delegate);
@@ -123,6 +125,7 @@ suite('DiagnosticsManager', () => {
         uri.toString().startsWith(folderUri.toString())
           ? { uri: folderUri, name: 'workspace', index: 0 }
           : undefined,
+      isActiveEditorUri: () => false,
     };
     const cache = new ProblemCache();
     const manager = new DiagnosticsManager(cache, delegate);
@@ -133,8 +136,8 @@ suite('DiagnosticsManager', () => {
     const event = { uris: [fileA] };
     const changed = manager.processChanges(event);
 
-    assert.strictEqual(changed.length, 1);
-    assert.strictEqual(cache.get(fileA, folderUri), undefined);
+    assert.strictEqual(changed.length, 0);
+    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.Error);
   });
 
   test('getStatus returns cached status', () => {

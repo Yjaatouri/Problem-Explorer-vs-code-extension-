@@ -1,25 +1,13 @@
 import * as assert from 'assert';
 import { Uri, ThemeColor } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
-import { DecorationEngine, WorkspaceFolderDelegate } from '../../decoration/decorationEngine';
+import { DecorationEngine } from '../../decoration/decorationEngine';
 import { ProblemSeverity, ProblemStatus } from '../../core/types';
 import { COLORS, BADGE_LETTERS } from '../../core/constants';
 
 suite('DecorationEngine', () => {
   const rootUri = Uri.parse('file:///workspace');
   const fileUri = Uri.parse('file:///workspace/src/file.ts');
-
-  function makeMockWorkspace(): WorkspaceFolderDelegate {
-    return {
-      getWorkspaceFolder: (uri) => {
-        const str = uri.toString();
-        if (str === rootUri.toString() || str.startsWith(rootUri.toString() + '/')) {
-          return { uri: rootUri, name: 'workspace', index: 0 };
-        }
-        return undefined;
-      },
-    };
-  }
 
   function s(severity: ProblemSeverity, overrides?: Partial<ProblemStatus>): ProblemStatus {
     return {
@@ -32,13 +20,11 @@ suite('DecorationEngine', () => {
   }
 
   let cache: ProblemCache;
-  let wf: WorkspaceFolderDelegate;
   let engine: DecorationEngine;
 
   setup(() => {
     cache = new ProblemCache();
-    wf = makeMockWorkspace();
-    engine = new DecorationEngine(cache, wf);
+    engine = new DecorationEngine(cache);
   });
 
   test('provideFileDecoration returns undefined for file outside workspace', () => {
