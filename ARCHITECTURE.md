@@ -2,50 +2,47 @@
 
 ## Overview
 
-Problem Explorer overlays diagnostic information (errors, warnings, info) directly onto files and folders in the VS Code Explorer view using the `FileDecorationProvider` API. It reads diagnostics from `languages.getDiagnostics()`, aggregates them into a normalized cache, and renders badges/colors through file decorations.
+Problem Explorer overlays diagnostic information (errors, warnings, info) directly onto files and folders in the VS Code Explorer view using the `FileDecorationProvider` API. It reads diagnostics from `languages.getDiagnostics()`, normalizes them into `ProblemStore` (the single source of truth), and renders badges/colors through file decorations.
 
 ---
 
 ## Architecture Diagram
 
 ```
-  Source Layer (Phase 3+)
+  Source Layer
   ┌───────────────────────────────────────────────┐
-  │  VS Diagnostics   ESLint   Python   C++   ...  │
-  │  Workspace Scanner  (one provider per source)  │
+  │  VS Diagnostics Provider    ESLint   Python    │
+  │  (wraps languages.onDidChangeDiagnostics)      │
   └───────────────────────┬───────────────────────┘
-                          │
+                          │ writes ProblemState
                           v
-  Provider Layer (Phase 2)
-  ┌───────────────────────────────────────────────┐
-  │  IProblemProvider (interface)                  │
-  │  BaseProblemProvider (base class)              │
-  │  CacheProblemProvider (wraps ProblemCache)     │
-  │  StoreProblemProvider (wraps ProblemStore)     │
-  │  ProviderManager (register/start/stop/refresh) │
-  └───────────────────────┬───────────────────────┘
-                          │
-                          v
-  Store Layer (Phase 1)
+  Store Layer  (Phase 1 — Single Source of Truth)
   ┌───────────────────────────────────────────────┐
   │  ProblemStore  ───  Map<uri, ProblemState>     │
   │  Events: added/updated/removed/cleared/batch   │
-  └───────────────────────┬───────────────────────┘
-                          │
-                          v
-  Controller Layer (Phase 3+)
+  └────────┬──────────────────────┬───────────────┘
+           │ reads                │ reads
+           v                      v
+  ┌────────────────┐    ┌──────────────────────────┐
+  │ DecorationEngine│    │ FolderStatusManager      │
+  │ (FileDecoration │    │ (folder aggregation via  │
+  │  Provider)      │    │  aggregateStatuses())    │
+  └────────┬───────┘    └────────┬─────────────────┘
+           │                     │
+           v                     v
+  ┌────────────────┐    ┌──────────────────────────┐
+  │ VS Code        │    │ ApiManager                │
+  │ File Explorer  │    │ (public API for other     │
+  │ (badge + color)│    │  extensions)              │
+  └────────────────┘    └──────────────────────────┘
+
+  Legacy Sync (writes only — no production reads)
   ┌───────────────────────────────────────────────┐
-  │  DecorationController  StatusBarController    │
-  │  FolderPropagationController  ApiController   │
-  └───────────────────────┬───────────────────────┘
-                          │
-                          v
-  Current Code (Phase 0 — direct path, not yet migrated)
-  ┌───────────────────────────────────────────────┐
-  │  DiagnosticsManager → ProblemCache            │
-  │  FolderStatusManager → ProblemCache           │
-  │  DecorationEngine → ProblemCache              │
-  │  ApiManager → ProblemCache                    │
+  │  ProblemCache (2-level Map, LRU eviction)      │
+  │  Written by: Provider, FolderStatusManager     │
+  │  Remaining reads: DiagnosticsManager.getStatus │
+  │                   CacheProblemProvider         │
+  │                   (both dead code, never called)│
   └───────────────────────────────────────────────┘
 ```
 
@@ -64,23 +61,29 @@ Problem Explorer overlays diagnostic information (errors, warnings, info) direct
 ### DiagnosticsManager (`src/diagnostics/diagnosticsManager.ts`)
 - Subscribes to `languages.onDidChangeDiagnostics`.
 - Ingests `Diagnostic[]` per URI and converts to `ProblemState` via `toProblemState()`.
-- Writes results into `ProblemCache`.
+- Writes results into `ProblemCache` (legacy path).
 - Guards against transient zero-diagnostic clears (active-editor check).
+
+### VSDiagnosticsProvider (`src/providers/VSDiagnosticsProvider.ts`) — Phase 3
+- Wraps `languages.onDidChangeDiagnostics` as an `IProblemProvider`.
+- On diagnostic change: computes `ProblemState` from raw diagnostics via `applySeverityOverrides` + `toProblemState`, then writes to `ProblemStore` (source of truth) and `ProblemCache` (legacy sync).
 
 ### ProblemCache (`src/cache/cacheLayer.ts`)
 - Two-level `Map<folderKey, Map<uriKey, ProblemState>>`.
 - Stores file-level and synthetic folder-aggregate entries.
 - Supports `set`, `get`, `delete`, `clear`, `getEntries`, `computeTotals`.
 - LRU eviction for large workspaces.
+- **Write-only in production** — no active component reads from cache. Remaining `get()` calls are in dead code (`DiagnosticsManager.getStatus`, `CacheProblemProvider`).
 
 ### FolderStatusManager (`src/folder/folderStatusManager.ts`)
 - Builds a virtual folder tree from file URIs.
 - Propagates worst child severity up to parent folders using `aggregateStatuses()`.
-- Creates folder-aggregate entries in the cache.
+- Reads file entries from `ProblemStore.snapshot()` and writes folder aggregates to both ProblemStore and ProblemCache.
 
 ### DecorationEngine (`src/decoration/decorationEngine.ts`)
 - Implements `FileDecorationProvider.provideFileDecoration`.
-- Reads from `ProblemCache` for synchronous URI-to-decoration lookup.
+- Reads from `ProblemStore` for synchronous URI-to-decoration lookup.
+- Falls back to `languages.getDiagnostics(uri)` live query if ProblemStore misses (self-healing).
 - Fires `onDidChangeFileDecorations` to invalidate decorations on change.
 - Formats tooltip text ("3 errors, 5 warnings across 12 files").
 
@@ -90,15 +93,15 @@ Problem Explorer overlays diagnostic information (errors, warnings, info) direct
 
 ### ApiManager (`src/api/problemExplorerApi.ts`)
 - Exposes the public API surface for other extensions: `getProblemState(uri)`, `onDidChangeProblemState`.
-- Bridges between internal cache and external consumers.
+- Reads from `ProblemStore` (no longer touches ProblemCache).
 
 ### ProblemStore (`src/store/ProblemStore.ts`) — Phase 1
+- **Single source of truth** for all decoration, folder, and API reads.
 - Synchronous in-memory database: `Map<string, ProblemState>`.
 - Discriminated-union events (`added`, `updated`, `removed`, `cleared`, `batch`).
 - Batch mutations via `beginBatch()` / `endBatch()`.
 - Monotonic version counter (`getVersion()`).
 - Frozen `snapshot()` for read-only external access.
-- **Not yet wired** into the active extension — currently the future core.
 
 ### Provider Layer (`src/providers/`, `src/services/ProviderManager.ts`) — Phase 2
 
@@ -123,15 +126,11 @@ Problem Explorer overlays diagnostic information (errors, warnings, info) direct
 - `startAll()` / `stopAll()` / `refreshAll()` / `dispose()`
 - All operations are guarded against use-after-dispose.
 
-**Future providers (all feed ProblemStore, never decorations):**
+**Providers (all feed ProblemStore, never decorations):**
 
 | Provider | Source | Description |
 |---|---|---|
-| VS Diagnostics | `languages.onDidChangeDiagnostics` | Maps VS Code diagnostic events into ProblemState (migration of current DiagnosticsManager logic). |
-| Workspace Scanner | `workspace.onDidChangeWorkspaceFolders` | Scans workspace structure to seed folder aggregates. |
-| ESLint | ESLint output channel / API | Reads ESLint diagnostics (already published as VS Code diagnostics, but may need custom mapping). |
-| Python | Python extension API | Reads Pylint / mypy / Pyright diagnostics routed through the store. |
-| C++ | C++ extension API | Reads clang-tidy / MSVC diagnostics from the C++ extension. |
+| VS Diagnostics | `languages.onDidChangeDiagnostics` | Maps VS Code diagnostic events into ProblemState. Writes to both ProblemStore and ProblemCache (Phase 4 — active). |
 
 ### Models (`src/models/`)
 - `ProblemStoreChange.ts` — event discriminated union for store consumers.
@@ -149,54 +148,37 @@ Problem Explorer overlays diagnostic information (errors, warnings, info) direct
 
 ## Data Flow
 
-### Current (Phase 0 — direct cache path)
+### Live Data Flow (Phase 4 — ProblemStore is source of truth, Cache is legacy sync)
 
 ```
 1. User types / file saves
          |
 2. VS Code fires onDidChangeDiagnostics(uris)
          |
-3. DiagnosticsManager.updateUri(uri) called for each changed URI
+3. VSDiagnosticsProvider.onDiagnosticsChanged(uris) — IProblemProvider
          |
-4. -> delegate.getUriDiagnostics(uri) returns Diagnostic[]
+4. For each changed URI:
+   -> delegate.getUriDiagnostics(uri) returns Diagnostic[]
+   -> applySeverityOverrides(uri, diagnostics, severityOverrides)
    -> toProblemState(diagnostics) returns ProblemState
          |
-5. Single-file path:
-   -> cache.set(uri, state, folderUri) stores file entry
-   -> cache.delete(uri, folderUri) if diagnostics empty (active-editor guard)
+5. Write to ProblemStore.set(uri, state)  ← single source of truth
+   Write to ProblemCache.set(uri, state, folderUri)  ← legacy sync
          |
 6. Folder propagation:
-   -> FolderStatusManager recomputes folder aggregates
-   -> cache.setFolderAggregate(folderUri, aggregate, workspaceFolderUri)
+   -> FolderStatusManager reads snapshot from ProblemStore
+   -> aggregateStatuses() computes folder aggregates
+   -> Writes aggregates to ProblemStore and ProblemCache
          |
-7. DecorationEngine reacts via cache events:
+7. Decoration reads from ProblemStore:
    -> onDidChangeFileDecorations.fire(changedUris)
    -> VS Code calls provideFileDecoration(uri) for each visible URI
-   -> Cache lookup → badge + color → FileDecoration
+   -> ProblemStore.get(uri) → badge + color → FileDecoration
+   -> Self-healing: if ProblemStore misses, queries live diagnostics and backfills
          |
-8. Badge formatter:
-   -> getBadge(severity, counts, style) → string badge
-   -> formatTooltip(state) → string tooltip
-```
-
-### Target (Phase 3+ — provider → store → controller)
-
-```
-1. Source fires (VS Code diagnostics, ESLint, file watcher, etc.)
-         |
-2. Corresponding Provider ingests the data
-         |
-3. Provider writes to ProblemStore.set(uri, state) / .delete(uri)
-         |
-4. ProblemStore fires onDidChange({ kind: 'added' | 'updated' | 'removed' })
-         |
-5. Controllers react:
-   -> DecorationController: queues decoration invalidation
-   -> StatusBarController: recomputes totals
-   -> FolderPropagationController: recomputes folder aggregates
-   -> ApiController: forwards to external API subscribers
-         |
-6. VS Code calls provideFileDecoration(uri) → DecorationEngine reads from ProblemStore
+8. ApiManager reads from ProblemStore:
+   -> notifyChanged() emits { uri, status } via ProblemStore.get(uri)
+   -> getProblemState(uri) reads from ProblemStore
 ```
 
 ---
@@ -221,32 +203,41 @@ Problem Explorer overlays diagnostic information (errors, warnings, info) direct
 |---|---|---|
 | Extension activation | Phase 0 | Complete |
 | ConfigManager | Phase 0 | Complete |
-| ProblemCache | Phase 0 | Complete |
-| DiagnosticsManager | Phase 0 | Complete (with active-editor guard) |
-| DecorationEngine | Phase 0 | Complete |
-| FolderStatusManager | Phase 0 | Complete |
+| ProblemCache | Phase 0 | Complete (legacy, write-only in production) |
+| DiagnosticsManager | Phase 0 | Complete (active-editor guard, writes only) |
+| DecorationEngine | Phase 4 | Complete (reads from ProblemStore) |
+| FolderStatusManager | Phase 4 | Complete (reads from ProblemStore) |
+| ApiManager | Phase 4 | Complete (reads from ProblemStore) |
 | WorkspaceManager | Phase 0 | Complete |
-| ApiManager | Phase 0 | Complete |
 | BadgeFormatter | Phase 0 | Complete |
 | ColorProvider | Phase 0 | Complete |
 | SeverityMapper | Phase 0 | Complete |
 | PropagationStrategy | Phase 0 | Complete |
 | IgnoreFilter | Phase 0 | Complete |
 | TrendTracker | Phase 0 | Complete |
-| **ProblemStore** | **Phase 1** | **Complete (not yet wired)** |
+| **ProblemStore** | **Phase 1** | **Complete (single source of truth, wired)** |
 | **IProblemProvider** | **Phase 2** | **Complete** |
 | **BaseProblemProvider** | **Phase 2** | **Complete** |
 | **ProviderManager** | **Phase 2** | **Complete** |
-| **VS Diagnostics Provider** | **Phase 3** | **Not started** |
-| **Workspace Scanner Provider** | **Phase 3** | **Not started** |
-| **Controllers** | **Phase 3** | **Not started** |
+| **VSDiagnosticsProvider** | **Phase 3** | **Complete (active, writes to ProblemStore)** |
+
+### Future Providers (not yet implemented)
+
+| Provider | Source | Status |
+|---|---|---|
+| Workspace Scanner | `workspace.onDidChangeWorkspaceFolders` | Not started |
+| ESLint | ESLint output channel / API | Not started |
+| Python | Python extension API | Not started |
+| C++ | C++ extension API | Not started |
 
 ---
 
 ## Version History
 
 | Tag | Description |
-|---|---|
+|---|---|---|
 | `v0.4.1` | Pre-MVC snapshot. All Phase 0 components complete. |
-| `v0.5.0-alpha.1` | Phase 1 complete. ProblemStore built with models, events, batches, versioning, snapshots. Not yet wired into extension. |
-| `architecture-v2-phase2` | Phase 2 in progress. Provider layer: IProblemProvider, BaseProblemProvider, CacheProblemProvider, StoreProblemProvider, ProviderManager. |
+| `v0.5.0-alpha.1` | Phase 1 complete. ProblemStore built with models, events, batches, versioning, snapshots. |
+| `v0.5.0-alpha.2` | Phase 2 complete. Provider layer: IProblemProvider, BaseProblemProvider, ProviderManager. |
+| `v0.5.0-alpha.3` | Phase 3 complete. VSDiagnosticsProvider active. ProblemStore wired as single source of truth. |
+| `architecture-v2-phase4` | Phase 4 complete. All remaining cache reads migrated to ProblemStore. ProblemCache is legacy write-only sink. |
