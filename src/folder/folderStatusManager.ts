@@ -1,5 +1,4 @@
 import { Uri, WorkspaceFolder, workspace } from 'vscode';
-import { ProblemCache } from '../cache/cacheLayer';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
@@ -34,7 +33,6 @@ export class FolderStatusManager {
   private readonly childIndex = new Map<string, Map<string, ProblemState>>();
 
   constructor(
-    private readonly cache: ProblemCache,
     private readonly problemStore: ProblemStore,
     wf?: FolderWorkspace,
   ) {
@@ -86,7 +84,7 @@ export class FolderStatusManager {
       const status = this.aggregateFromIndex(parentKey);
       const parentUri = Uri.parse(parentKey);
       this.problemStore.set(parentUri, status);
-      if (this.cache.setFolderAggregate(parentUri, status, parentFolder.uri)) {
+      if (this.problemStore.setFolderAggregate(parentUri, status)) {
         changed.push(parentUri);
       }
 
@@ -117,7 +115,7 @@ export class FolderStatusManager {
 
     const rootStatus = this.aggregateFromIndex(rootStr);
     this.problemStore.set(folder.uri, rootStatus);
-    if (this.cache.setFolderAggregate(folder.uri, rootStatus, folder.uri)) {
+    if (this.problemStore.setFolderAggregate(folder.uri, rootStatus)) {
       changed.push(folder.uri);
     }
 
@@ -210,7 +208,7 @@ export class FolderStatusManager {
         const dirUri = Uri.parse(dirStr);
         const status = this.recomputeFolderStatus(dirUri, folderUri);
         this.problemStore.set(dirUri, status);
-        if (this.cache.setFolderAggregate(dirUri, status, folderUri)) {
+        if (this.problemStore.setFolderAggregate(dirUri, status)) {
           changed.push(dirUri);
         }
         const parentKey = dirStr;
@@ -243,7 +241,7 @@ export class FolderStatusManager {
 
       const rootStatus = this.recomputeFolderStatus(folderUri, folderUri);
       this.problemStore.set(folderUri, rootStatus);
-      if (this.cache.setFolderAggregate(folderUri, rootStatus, folderUri)) {
+      if (this.problemStore.setFolderAggregate(folderUri, rootStatus)) {
         changed.push(folderUri);
       }
       const rootChildren = new Map<string, ProblemState>();
