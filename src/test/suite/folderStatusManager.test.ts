@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
+import { ProblemStore } from '../../store/ProblemStore';
 import { FolderStatusManager, FolderWorkspace } from '../../folder/folderStatusManager';
 import { ProblemSeverity, ProblemState } from '../../core/types';
 
@@ -55,7 +56,7 @@ suite('FolderStatusManager', () => {
   setup(() => {
     cache = new ProblemCache();
     wf = makeWorkspace([rootUri]);
-    manager = new FolderStatusManager(cache, wf);
+    manager = new FolderStatusManager(cache, new ProblemStore(), wf);
   });
 
   suite('recomputeFolderStatus', () => {
@@ -194,7 +195,7 @@ suite('FolderStatusManager', () => {
           return undefined;
         },
       };
-      const dynamicManager = new FolderStatusManager(cache, dynamicWf);
+      const dynamicManager = new FolderStatusManager(cache, new ProblemStore(), dynamicWf);
 
       // No folders initially — rebuildAll should produce nothing
       assert.strictEqual(dynamicManager.rebuildAll().length, 0);

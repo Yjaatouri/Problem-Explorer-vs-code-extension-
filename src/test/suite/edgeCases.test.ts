@@ -49,7 +49,7 @@ suite('EdgeCases', () => {
         workspaceFolders: [],
         getWorkspaceFolder: () => undefined,
       };
-      const mgr = new FolderStatusManager(new ProblemCache(), wf);
+      const mgr = new FolderStatusManager(new ProblemCache(), new ProblemStore(), wf);
       const changed = mgr.updateAncestors(Uri.parse('file:///workspace/file.ts'));
       assert.strictEqual(changed.length, 0);
     });
@@ -59,7 +59,7 @@ suite('EdgeCases', () => {
         workspaceFolders: [],
         getWorkspaceFolder: () => undefined,
       };
-      const mgr = new FolderStatusManager(new ProblemCache(), wf);
+      const mgr = new FolderStatusManager(new ProblemCache(), new ProblemStore(), wf);
       const changed = mgr.rebuildAll();
       assert.strictEqual(changed.length, 0);
     });
@@ -112,7 +112,7 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, wf);
+      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
       const child = Uri.parse('file:///workspace/测试/src/file.ts');
       cache.set(child, status(ProblemSeverity.Error), rootUri);
       const changed = mgr.updateAncestors(child);
@@ -199,7 +199,7 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, wf);
+      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
       const fileA = Uri.parse('file:///workspace/src/a.ts');
       const fileB = Uri.parse('file:///workspace/src/b.ts');
       cache.set(fileA, status(ProblemSeverity.Error), rootUri);
@@ -240,7 +240,7 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, wf);
+      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
       const oldDir = Uri.parse('file:///workspace/src/a');
       const newDir = Uri.parse('file:///workspace/src/b');
       const fileA = Uri.parse('file:///workspace/src/a/file.ts');
@@ -269,7 +269,7 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, wf);
+      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
       const oldFile = Uri.parse('file:///workspace/src/a.ts');
       const newFile = Uri.parse('file:///workspace/src/b.ts');
 
@@ -295,7 +295,7 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, wf);
+      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
       const fileInFolderA = Uri.parse('file:///workspace/src/a/file.ts');
 
       cache.set(fileInFolderA, status(ProblemSeverity.Error), rootUri);

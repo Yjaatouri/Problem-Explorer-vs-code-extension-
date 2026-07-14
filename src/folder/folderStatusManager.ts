@@ -1,5 +1,6 @@
 import { Uri, WorkspaceFolder, workspace } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
 import { aggregateStatuses } from './propagationStrategy';
@@ -34,6 +35,7 @@ export class FolderStatusManager {
 
   constructor(
     private readonly cache: ProblemCache,
+    private readonly problemStore: ProblemStore,
     wf?: FolderWorkspace,
   ) {
     this.wf = wf ?? defaultWorkspace;
@@ -69,7 +71,7 @@ export class FolderStatusManager {
 
       let index = this.childIndex.get(parentKey);
 
-      const childStatus = this.cache.get(childUri, parentFolder.uri);
+      const childStatus = this.problemStore.get(childUri);
       if (childStatus) {
         if (!index) {
           index = new Map();
@@ -83,6 +85,7 @@ export class FolderStatusManager {
       // Recompute the folder aggregate from its index entries
       const status = this.aggregateFromIndex(parentKey);
       const parentUri = Uri.parse(parentKey);
+      this.problemStore.set(parentUri, status);
       if (this.cache.setFolderAggregate(parentUri, status, parentFolder.uri)) {
         changed.push(parentUri);
       }
@@ -101,7 +104,7 @@ export class FolderStatusManager {
     // Root folder
     let rootIndex = this.childIndex.get(rootStr);
     const rootChildUri = Uri.parse(fileKey);
-    const rootChildStatus = this.cache.get(rootChildUri, folder.uri);
+    const rootChildStatus = this.problemStore.get(rootChildUri);
     if (rootChildStatus) {
       if (!rootIndex) {
         rootIndex = new Map();
@@ -113,6 +116,7 @@ export class FolderStatusManager {
     }
 
     const rootStatus = this.aggregateFromIndex(rootStr);
+    this.problemStore.set(folder.uri, rootStatus);
     if (this.cache.setFolderAggregate(folder.uri, rootStatus, folder.uri)) {
       changed.push(folder.uri);
     }
@@ -149,14 +153,15 @@ export class FolderStatusManager {
    * Compute the aggregate status of all **file** children under a folder
    * by scanning the cache (used by `rebuildAll` cold-start).
    */
-  recomputeFolderStatus(folderUri: Uri, workspaceFolderUri: Uri): ProblemState {
+  recomputeFolderStatus(folderUri: Uri, _workspaceFolderUri: Uri): ProblemState {
     const folderStr = normalizeUriKey(folderUri);
     const prefix = folderStr + '/';
 
     const children: ProblemState[] = [];
-    for (const [key, status] of this.cache.getRawFileEntries(workspaceFolderUri)) {
+    const all = this.problemStore.snapshot();
+    for (const [key, status] of Object.entries(all)) {
       if (key !== folderStr && key.startsWith(prefix)) {
-        children.push(status);
+        children.push(status as ProblemState);
       }
     }
     return aggregateStatuses(children);
@@ -166,53 +171,52 @@ export class FolderStatusManager {
   rebuildAll(): Uri[] {
     const changed: Uri[] = [];
 
-    // Rebuild the child index from scratch
     this.childIndex.clear();
+
+    const allEntries = this.problemStore.snapshot();
 
     for (const folder of this.wf.workspaceFolders) {
       const folderUri = folder.uri;
       const rootStr = normalizeUriKey(folderUri);
-      const entries = this.cache.getRawFileEntries(folderUri);
+      const rootPrefix = rootStr + '/';
 
-      // Discover all intermediate folders from file paths
+      const entries: Array<[string, ProblemState]> = [];
+      for (const [key, status] of Object.entries(allEntries)) {
+        if (key === rootStr || key.startsWith(rootPrefix)) {
+          entries.push([key, status as ProblemState]);
+        }
+      }
+
       const folders = new Set<string>();
       for (const [uriStr] of entries) {
-        if (uriStr === rootStr) {
-          continue;
-        }
+        if (uriStr === rootStr) continue;
         const uri = Uri.parse(uriStr);
         let current = Uri.joinPath(uri, '..');
         let currentStr = normalizeUriKey(current);
-        if (currentStr === rootStr || currentStr === uriStr) {
-          continue;
-        }
+        if (currentStr === rootStr || currentStr === uriStr) continue;
         while (currentStr !== rootStr) {
           folders.add(currentStr);
           const next = Uri.joinPath(current, '..');
           const nextStr = normalizeUriKey(next);
-          if (nextStr === currentStr) {
-            break;
-          }
+          if (nextStr === currentStr) break;
           current = next;
           currentStr = nextStr;
         }
       }
 
-      // Build index entries for each intermediate folder
-      // Populate bottom-up so children are available when computing parents
       const sortedFolders = Array.from(folders).sort((a, b) => b.length - a.length);
 
       for (const dirStr of sortedFolders) {
         const dirUri = Uri.parse(dirStr);
         const status = this.recomputeFolderStatus(dirUri, folderUri);
+        this.problemStore.set(dirUri, status);
         if (this.cache.setFolderAggregate(dirUri, status, folderUri)) {
           changed.push(dirUri);
         }
-        // Populate this folder's children in the index
         const parentKey = dirStr;
         const parentPrefix = parentKey + '/';
         const childMap = new Map<string, ProblemState>();
-        for (const [childStr, childStatus] of this.cache.getRawFileEntries(folderUri)) {
+        for (const [childStr, childStatus] of entries) {
           if (childStr.startsWith(parentPrefix) && childStr !== parentKey) {
             const rest = childStr.slice(parentPrefix.length);
             if (!rest.includes('/')) {
@@ -220,13 +224,12 @@ export class FolderStatusManager {
             }
           }
         }
-        // Also include subfolder aggregates as direct children
         for (const subDir of sortedFolders) {
           if (subDir === dirStr) continue;
           if (subDir.startsWith(parentPrefix)) {
             const rest = subDir.slice(parentPrefix.length);
             if (!rest.includes('/')) {
-              const subStatus = this.cache.get(Uri.parse(subDir), folderUri);
+              const subStatus = this.problemStore.get(Uri.parse(subDir));
               if (subStatus) {
                 childMap.set(subDir, subStatus);
               }
@@ -238,15 +241,13 @@ export class FolderStatusManager {
         }
       }
 
-      // Root folder
       const rootStatus = this.recomputeFolderStatus(folderUri, folderUri);
+      this.problemStore.set(folderUri, rootStatus);
       if (this.cache.setFolderAggregate(folderUri, rootStatus, folderUri)) {
         changed.push(folderUri);
       }
-      // Populate root's direct children in the index
-      const rootPrefix = rootStr + '/';
       const rootChildren = new Map<string, ProblemState>();
-      for (const [childStr, childStatus] of this.cache.getRawFileEntries(folderUri)) {
+      for (const [childStr, childStatus] of entries) {
         if (childStr === rootStr) continue;
         if (childStr.startsWith(rootPrefix)) {
           const rest = childStr.slice(rootPrefix.length);
@@ -259,7 +260,7 @@ export class FolderStatusManager {
         if (subDir.startsWith(rootPrefix)) {
           const rest = subDir.slice(rootPrefix.length);
           if (!rest.includes('/')) {
-            const subStatus = this.cache.get(Uri.parse(subDir), folderUri);
+            const subStatus = this.problemStore.get(Uri.parse(subDir));
             if (subStatus) {
               rootChildren.set(subDir, subStatus);
             }
