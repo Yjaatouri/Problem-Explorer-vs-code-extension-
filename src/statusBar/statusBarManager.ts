@@ -5,15 +5,15 @@ import {
   StatusBarItem,
   window,
 } from 'vscode';
-import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 
 export class StatusBarManager implements Disposable {
   private readonly item: StatusBarItem;
-  private readonly cache: ProblemCache;
+  private readonly store: ProblemStore;
   private enabled = true;
 
-  constructor(cache: ProblemCache) {
-    this.cache = cache;
+  constructor(store: ProblemStore) {
+    this.store = store;
     this.item = window.createStatusBarItem(StatusBarAlignment.Left, 0);
     this.item.name = 'Problem Explorer';
     this.item.command = 'problemExplorer.showStatus';
@@ -26,7 +26,7 @@ export class StatusBarManager implements Disposable {
       return;
     }
 
-    const totals = this.cache.computeTotals();
+    const totals = this.store.computeTotals();
     const hasAny = totals.errorCount + totals.warningCount + totals.infoCount > 0;
 
     if (!hasAny) {

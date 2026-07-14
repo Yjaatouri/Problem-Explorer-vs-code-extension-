@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as sinon from 'sinon';
-import { ProblemCache } from '../../cache/cacheLayer';
+import { ProblemStore } from '../../store/ProblemStore';
 import { TrendTracker, StorageProvider } from '../../trend/trendTracker';
 import { ProblemSeverity } from '../../core/types';
 
@@ -19,14 +19,14 @@ class InMemoryStorage implements StorageProvider {
 }
 
 suite('TrendTracker', () => {
-  let cache: ProblemCache;
+  let store: ProblemStore;
   let storage: InMemoryStorage;
   let tracker: TrendTracker;
 
   setup(() => {
-    cache = new ProblemCache();
+    store = new ProblemStore();
     storage = new InMemoryStorage();
-    tracker = new TrendTracker(cache, storage, {
+    tracker = new TrendTracker(store, storage, {
       intervalMs: 10000,
       maxSnapshots: 5,
       storageKey: 'test.trend',
@@ -43,15 +43,14 @@ suite('TrendTracker', () => {
     });
 
     test('single snapshot captures current totals', () => {
-      const root = cacheKey('file:///root');
-      const file = cacheKey('file:///root/file.ts');
-      cache.set(file, {
+      const file = Uri.parse('file:///root/file.ts');
+      store.set(file, {
         severity: ProblemSeverity.Error,
         errorCount: 3,
         warningCount: 2,
         infoCount: 1,
         fileCount: 1,
-      }, root);
+      });
       tracker.takeSnapshot();
       const history = tracker.getHistory();
       assert.strictEqual(history.length, 1);
@@ -69,7 +68,7 @@ suite('TrendTracker', () => {
     });
 
     test('history is trimmed to maxSnapshots', () => {
-      tracker = new TrendTracker(cache, storage, {
+      tracker = new TrendTracker(store, storage, {
         intervalMs: 10000,
         maxSnapshots: 3,
         storageKey: 'test.trend',
@@ -101,7 +100,7 @@ suite('TrendTracker', () => {
     test('periodic snapshots accumulate over time', () => {
       const clock = sinon.useFakeTimers();
       try {
-        tracker = new TrendTracker(cache, storage, {
+        tracker = new TrendTracker(store, storage, {
           intervalMs: 1000,
           maxSnapshots: 10,
           storageKey: 'test.trend',
@@ -123,19 +122,18 @@ suite('TrendTracker', () => {
 
   suite('persistence', () => {
     test('history survives tracker instance recreation', () => {
-      const root = cacheKey('file:///root');
-      const file = cacheKey('file:///root/file.ts');
-      cache.set(file, {
+      const file = Uri.parse('file:///root/file.ts');
+      store.set(file, {
         severity: ProblemSeverity.Error,
         errorCount: 5,
         warningCount: 0,
         infoCount: 0,
         fileCount: 1,
-      }, root);
+      });
       tracker.takeSnapshot();
       assert.strictEqual(tracker.getHistory()[0].errorCount, 5);
 
-      const tracker2 = new TrendTracker(cache, storage, {
+      const tracker2 = new TrendTracker(store, storage, {
         intervalMs: 10000,
         maxSnapshots: 5,
         storageKey: 'test.trend',
@@ -148,7 +146,4 @@ suite('TrendTracker', () => {
   });
 });
 
-/** Helper to create a URI with a known string */
-function cacheKey(s: string): import('vscode').Uri {
-  return { scheme: 'file', path: s.replace('file://', ''), toString: () => s } as any;
-}
+import { Uri } from 'vscode';

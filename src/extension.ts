@@ -55,10 +55,10 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       folderStatusManager,
       configManager,
     );
-    const statusBarManager = new StatusBarManager(cache);
+    const statusBarManager = new StatusBarManager(problemStore);
     const apiManager = new ApiManager(problemStore);
     const trendTracker = new TrendTracker(
-      cache,
+      problemStore,
       new MementoStorageProvider(context.globalState),
     );
     trendTracker.start();
@@ -157,6 +157,79 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       vscode.commands.registerCommand('problemExplorer.test', () => {
         log('TEST COMMAND RUN');
         vscode.window.showInformationMessage('Problem Explorer: TEST COMMAND WORKS!');
+      }),
+    );
+
+    // EXPERIMENT COMMAND - runs diagnostics experiments (dev only)
+    context.subscriptions.push(
+      vscode.commands.registerCommand('problemExplorer.runExperiment', async () => {
+        log('EXPERIMENT COMMAND RUN');
+        const outputChannel = vscode.window.createOutputChannel('Problem Explorer Experiments');
+        outputChannel.show();
+        function elog(msg: string) { outputChannel.appendLine(`[experiment] ${msg}`); }
+
+        // Phase 0: Check ALL diagnostics in workspace
+        elog('=== Phase 0: All diagnostics in workspace ===');
+        const allDiag = vscode.languages.getDiagnostics();
+        elog(`Total diagnostic entries in workspace: ${allDiag.length}`);
+        for (const [uri, diags] of allDiag) {
+          elog(`  ${uri.toString().substring(0, 80)}: ${diags.length} diagnostics`);
+          for (const d of diags.slice(0, 3)) {
+            elog(`    [${d.source}] ${d.message.substring(0, 100)}`);
+          }
+        }
+
+        // Phase 1: Create a temp file with intentional TypeScript errors
+        elog('');
+        elog('=== Phase 1: create temp file with errors ===');
+        const tempFile = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '__temp_error_test__.ts');
+        await vscode.workspace.fs.writeFile(tempFile, Buffer.from(
+          'const x: number = "not a number";\n' +
+          'function foo(a: number): string { return a; }\n' +
+          'console.log(x, foo);\n'
+        ));
+        elog(`Temp file created: ${tempFile.toString()}`);
+
+        // Check before open
+        const beforeTemp = vscode.languages.getDiagnostics(tempFile);
+        elog(`Temp file diagnostics BEFORE open: ${beforeTemp.length}`);
+
+        // Open in editor tab
+        const tempDoc = await vscode.workspace.openTextDocument(tempFile);
+        await vscode.window.showTextDocument(tempDoc);
+        elog('Temp file opened in editor, waiting 4s...');
+        await new Promise((r) => setTimeout(r, 4000));
+
+        const afterTemp = vscode.languages.getDiagnostics(tempFile);
+        elog(`Temp file diagnostics AFTER open: ${afterTemp.length}`);
+        for (const d of afterTemp) {
+          elog(`  [${d.source}] ${d.message} (severity=${d.severity})`);
+        }
+
+        // Phase 2: Check known file broken-calculator.ts after everything
+        elog('');
+        elog('=== Phase 2: broken-calculator.ts ===');
+        const broken = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'broken-calculator.ts');
+        const brokenDiag = vscode.languages.getDiagnostics(broken);
+        elog(`broken-calculator.ts diagnostics: ${brokenDiag.length}`);
+        for (const d of brokenDiag) {
+          elog(`  [${d.source}] ${d.message}`);
+        }
+
+        // Phase 3: Re-check ALL diagnostics in workspace
+        elog('');
+        elog('=== Phase 3: All diagnostics in workspace (after test) ===');
+        const allDiag2 = vscode.languages.getDiagnostics();
+        elog(`Total diagnostic entries: ${allDiag2.length}`);
+        for (const [uri, diags] of allDiag2) {
+          elog(`  ${uri.toString().substring(0, 80)}: ${diags.length}`);
+        }
+
+        // Clean up temp file
+        try { await vscode.workspace.fs.delete(tempFile); } catch {}
+        elog('');
+        elog('=== EXPERIMENT COMPLETE ===');
+        vscode.window.showInformationMessage('Experiment complete — check output channel');
       }),
     );
 

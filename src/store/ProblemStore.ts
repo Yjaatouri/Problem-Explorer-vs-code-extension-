@@ -1,6 +1,6 @@
 import { Event, EventEmitter, Uri } from 'vscode';
 import { ProblemStoreChange } from '../models/ProblemStoreChange';
-import { ProblemState } from '../core/types';
+import { ProblemState, ProblemSeverity } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
 
 /**
@@ -8,7 +8,12 @@ import { normalizeUriKey } from '../core/uriKey';
  *
  * ## Responsibilities
  * - Stores one `ProblemState` per unique URI via `normalizeUriKey`.
+ * - Tracks folder-aggregate entries separately from file entries so
+ *   `computeTotals()` can sum file entries only (folder aggregates are
+ *   derived from files and would double-count).
  * - Provides CRUD operations (`set`/`get`/`delete`/`clear`/`has`/`size`).
+ * - Provides folder-aggregate operations (`setFolderAggregate`/`isFolderAggregate`).
+ * - Provides aggregate totals via `computeTotals()`.
  * - Emits typed change events so consumers (UI providers, API layer) stay in sync.
  * - Supports batch mutations that coalesce into a single `{ kind: 'batch' }` event.
  * - Maintains a monotonically increasing version counter (`getVersion`)
@@ -50,6 +55,7 @@ import { normalizeUriKey } from '../core/uriKey';
  */
 export class ProblemStore {
   private readonly storage = new Map<string, ProblemState>();
+  private readonly folderKeys = new Set<string>();
   private readonly _onDidChange = new EventEmitter<ProblemStoreChange>();
   private batchDepth = 0;
   private version = 0;
@@ -84,7 +90,8 @@ export class ProblemStore {
   }
 
   /**
-   * Insert or update state for a URI.
+   * Insert or update state for a URI (file entry).
+   * Clears any stale folder-aggregate marker for this key.
    * Fires `added` or `updated` event (unless inside a batch).
    * Increments the version counter.
    */
@@ -92,10 +99,38 @@ export class ProblemStore {
     const key = normalizeUriKey(uri);
     const existed = this.storage.has(key);
     this.storage.set(key, state);
+    this.folderKeys.delete(key);
     this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
     }
+  }
+
+  /**
+   * Insert or update a folder-aggregate state for a URI.
+   * Marks the key as a folder aggregate so `computeTotals()` can skip it
+   * (folder aggregates are derived from file entries; summing them would
+   * double-count).
+   * @returns `true` if the value changed or was newly inserted.
+   */
+  setFolderAggregate(uri: Uri, state: ProblemState): boolean {
+    const key = normalizeUriKey(uri);
+    const old = this.storage.get(key);
+    const existed = this.storage.has(key);
+    this.storage.set(key, state);
+    this.folderKeys.add(key);
+    this.version++;
+    if (this.batchDepth === 0) {
+      this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
+    }
+    return old === undefined ? true : this.hasChanged(old, state);
+  }
+
+  /**
+   * Check whether a URI is a folder-aggregate entry.
+   */
+  isFolderAggregate(uri: Uri): boolean {
+    return this.folderKeys.has(normalizeUriKey(uri));
   }
 
   /**
@@ -116,6 +151,7 @@ export class ProblemStore {
       return false;
     }
     this.storage.delete(key);
+    this.folderKeys.delete(key);
     this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire({ kind: 'removed', uri });
@@ -129,6 +165,7 @@ export class ProblemStore {
    */
   clear(): void {
     this.storage.clear();
+    this.folderKeys.clear();
     this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire({ kind: 'cleared' });
@@ -150,10 +187,45 @@ export class ProblemStore {
   }
 
   /**
+   * Aggregate all **file** entries (excluding folder aggregates) across the store.
+   * Folder aggregates are skipped because their counts are derived from file
+   * entries — summing them again would double-count.
+   */
+  computeTotals(): ProblemState {
+    let errorCount = 0;
+    let warningCount = 0;
+    let infoCount = 0;
+    let fileCount = 0;
+    let maxSeverity = ProblemSeverity.None;
+
+    for (const [key, status] of this.storage) {
+      if (this.folderKeys.has(key)) {
+        continue;
+      }
+      if (status.severity > maxSeverity) {
+        maxSeverity = status.severity;
+      }
+      errorCount += status.errorCount;
+      warningCount += status.warningCount;
+      infoCount += status.infoCount;
+      fileCount += status.fileCount;
+    }
+
+    return {
+      severity: maxSeverity,
+      errorCount,
+      warningCount,
+      infoCount,
+      fileCount,
+    };
+  }
+
+  /**
    * Clear all state, dispose the event emitter. No mutations allowed after this.
    */
   dispose(): void {
     this.storage.clear();
+    this.folderKeys.clear();
     this._onDidChange.dispose();
   }
 
@@ -168,5 +240,15 @@ export class ProblemStore {
       copy[key] = Object.freeze({ ...value });
     }
     return Object.freeze(copy);
+  }
+
+  private hasChanged(a: ProblemState, b: ProblemState): boolean {
+    return (
+      a.severity !== b.severity ||
+      a.errorCount !== b.errorCount ||
+      a.warningCount !== b.warningCount ||
+      a.infoCount !== b.infoCount ||
+      a.fileCount !== b.fileCount
+    );
   }
 }

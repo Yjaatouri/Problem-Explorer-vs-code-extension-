@@ -1,5 +1,5 @@
 import { Memento } from 'vscode';
-import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 import { TREND_STORAGE_KEY, TREND_INTERVAL_MS, MAX_TREND_SNAPSHOTS } from '../core/constants';
 
 export interface TrendSnapshot {
@@ -28,7 +28,7 @@ export class TrendTracker {
   private readonly storage: StorageProvider;
 
   constructor(
-    private readonly cache: ProblemCache,
+    private readonly store: ProblemStore,
     storage?: StorageProvider,
     options?: {
       maxSnapshots?: number;
@@ -44,7 +44,7 @@ export class TrendTracker {
 
   /** Take an immediate snapshot of current diagnostic totals and persist it. */
   takeSnapshot(): void {
-    const totals = this.cache.computeTotals();
+    const totals = this.store.computeTotals();
     const history = this.getHistory();
     history.push({
       timestamp: Date.now(),
