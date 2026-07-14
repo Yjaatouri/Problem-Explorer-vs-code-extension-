@@ -10,6 +10,7 @@ import { StatusBarManager } from './statusBar/statusBarManager';
 import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
 import { initForensicLogger, forensicLog } from './forensicLogger';
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
+import { ProblemStore } from './store/ProblemStore';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 
 export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
@@ -42,6 +43,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     log('Creating core services...');
 
     const cache = new ProblemCache();
+    const problemStore = new ProblemStore();
     const diagnosticsManager = new DiagnosticsManager(cache);
     const decorationEngine = new DecorationEngine(cache, log);
     const folderStatusManager = new FolderStatusManager(cache);
@@ -74,6 +76,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       statusBarManager,
       trendTracker,
       cache,
+      problemStore,
       log,
     );
     vsDiagnosticsProvider.start();
@@ -110,6 +113,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
           cache.delete(uri, folder.uri);
           cache.deletePrefix(uri, folder.uri);
           folderStatusManager.clearIndexPrefix(uri);
+          problemStore.delete(uri);
           vsDiagnosticsProvider.markPending(uri);
         }
         if (e.files.length > 0) { vsDiagnosticsProvider.flush(); }
@@ -124,6 +128,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
           if (!folder) continue;
           cache.movePrefix(oldUri, newUri, folder.uri);
           folderStatusManager.clearIndexPrefix(oldUri);
+          problemStore.delete(oldUri);
           vsDiagnosticsProvider.markPending(oldUri);
           vsDiagnosticsProvider.markPending(newUri);
         }
@@ -138,6 +143,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       statusBarManager.registerCommand(),
       configManager,
       workspaceManager,
+      problemStore,
       { dispose: () => { trendTracker.stop(); vsDiagnosticsProvider.dispose(); } },
     );
 

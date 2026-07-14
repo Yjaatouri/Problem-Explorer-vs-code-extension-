@@ -6,6 +6,7 @@ import { DecorationEngine } from '../decoration/decorationEngine';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 import { TrendTracker } from '../trend/trendTracker';
 import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
@@ -26,6 +27,7 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly statusBarManager: StatusBarManager,
     private readonly trendTracker: TrendTracker,
     private readonly cache: ProblemCache,
+    private readonly problemStore: ProblemStore,
     private readonly log: (msg: string) => void,
   ) {
     super();
@@ -37,6 +39,17 @@ public get eventCount(): number { return this.diagEventCount; }
 
   flush(): void {
     this.flushUpdates?.();
+  }
+
+  private syncToProblemStore(uri: vscode.Uri): void {
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder) return;
+    const state = this.cache.get(uri, folder.uri);
+    if (state) {
+      this.problemStore.set(uri, state);
+    } else {
+      this.problemStore.delete(uri);
+    }
   }
 
   protected onStart(): void {
@@ -94,6 +107,7 @@ public get eventCount(): number { return this.diagEventCount; }
       notifyApi(changed);
       for (let i = 0; i < changed.length; i++) {
         this.pendingUris.add(changed[i].toString());
+        this.syncToProblemStore(changed[i]);
       }
       if (changed.length > 0) {
         this.flushUpdates?.();
@@ -125,6 +139,9 @@ public get eventCount(): number { return this.diagEventCount; }
           this.apiManager.notifyChanged(initialUris[i], folder.uri);
         }
       }
+      for (let i = 0; i < changed.length; i++) {
+        this.syncToProblemStore(changed[i]);
+      }
       this.decorationEngine.refresh();
       this.log('[FORENSIC:Step4] initial refresh() called → fireDidChange(undefined)');
       this.statusBarManager.update();
@@ -152,6 +169,9 @@ public get eventCount(): number { return this.diagEventCount; }
           if (folder) {
             this.apiManager.notifyChanged(pollUris[i], folder.uri);
           }
+        }
+        for (let i = 0; i < changed.length; i++) {
+          this.syncToProblemStore(changed[i]);
         }
         this.decorationEngine.refresh();
         this.statusBarManager.update();
