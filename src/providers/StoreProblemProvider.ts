@@ -1,14 +1,11 @@
-import { Event, Uri } from 'vscode';
+import { Uri } from 'vscode';
 import { ProblemSeverity, ProblemState } from '../core/types';
 import { ProblemStore } from '../store/ProblemStore';
-import { IProblemProvider } from './IProblemProvider';
-import { ProblemStoreChange } from '../models/ProblemStoreChange';
+import { BaseProblemProvider } from './BaseProblemProvider';
 
-export class StoreProblemProvider implements IProblemProvider {
-  readonly onDidChange: Event<ProblemStoreChange>;
-
+export class StoreProblemProvider extends BaseProblemProvider {
   constructor(private readonly store: ProblemStore) {
-    this.onDidChange = store.onDidChange;
+    super();
   }
 
   getState(uri: Uri, _folderUri: Uri): ProblemState | undefined {

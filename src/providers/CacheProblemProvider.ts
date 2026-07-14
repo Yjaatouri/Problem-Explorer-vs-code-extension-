@@ -1,15 +1,12 @@
-import { Event, EventEmitter, Uri } from 'vscode';
+import { Uri } from 'vscode';
 import { ProblemState } from '../core/types';
 import { ProblemCache } from '../cache/cacheLayer';
-import { IProblemProvider } from './IProblemProvider';
-import { ProblemStoreChange } from '../models/ProblemStoreChange';
+import { BaseProblemProvider } from './BaseProblemProvider';
 
-export class CacheProblemProvider implements IProblemProvider {
-  private readonly _onDidChange = new EventEmitter<ProblemStoreChange>();
-
-  readonly onDidChange: Event<ProblemStoreChange> = this._onDidChange.event;
-
-  constructor(private readonly cache: ProblemCache) {}
+export class CacheProblemProvider extends BaseProblemProvider {
+  constructor(private readonly cache: ProblemCache) {
+    super();
+  }
 
   getState(uri: Uri, folderUri: Uri): ProblemState | undefined {
     return this.cache.get(uri, folderUri);
@@ -25,9 +22,5 @@ export class CacheProblemProvider implements IProblemProvider {
 
   snapshot(): Record<string, ProblemState> {
     return {};
-  }
-
-  dispose(): void {
-    this._onDidChange.dispose();
   }
 }
