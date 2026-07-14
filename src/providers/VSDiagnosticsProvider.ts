@@ -9,6 +9,7 @@ import { ProblemCache } from '../cache/cacheLayer';
 import { ProblemStore } from '../store/ProblemStore';
 import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
+import { toProblemState, applySeverityOverrides } from '../diagnostics/severityMapper';
 import { BaseProblemProvider } from './BaseProblemProvider';
 
 export class VSDiagnosticsProvider extends BaseProblemProvider {
@@ -44,9 +45,12 @@ public get eventCount(): number { return this.diagEventCount; }
   private syncToProblemStore(uri: vscode.Uri): void {
     const folder = vscode.workspace.getWorkspaceFolder(uri);
     if (!folder) return;
-    const state = this.cache.get(uri, folder.uri);
-    if (state) {
+    const diagnostics = vscode.languages.getDiagnostics(uri);
+    if (diagnostics.length > 0) {
+      const mapped = applySeverityOverrides(uri, diagnostics, this.diagnosticsManager.severityOverridesValue);
+      const state = toProblemState(mapped);
       this.problemStore.set(uri, state);
+      this.cache.set(uri, state, folder.uri);
     } else {
       this.problemStore.delete(uri);
     }

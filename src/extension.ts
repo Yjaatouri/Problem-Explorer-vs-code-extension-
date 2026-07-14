@@ -56,7 +56,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       configManager,
     );
     const statusBarManager = new StatusBarManager(cache);
-    const apiManager = new ApiManager(cache);
+    const apiManager = new ApiManager(problemStore);
     const trendTracker = new TrendTracker(
       cache,
       new MementoStorageProvider(context.globalState),

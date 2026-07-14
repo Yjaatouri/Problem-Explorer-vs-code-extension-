@@ -1,5 +1,5 @@
 import { Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
-import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState } from '../core/types';
 
 /** Abstraction over `workspace.getWorkspaceFolder` for testability */
@@ -29,7 +29,7 @@ export class ApiManager implements ProblemExplorerAPI {
   private readonly wf: WorkspaceFolderDelegate;
 
   constructor(
-    private readonly cache: ProblemCache,
+    private readonly problemStore: ProblemStore,
     wf?: WorkspaceFolderDelegate,
   ) {
     this.wf = wf ?? defaultDelegate;
@@ -41,12 +41,12 @@ export class ApiManager implements ProblemExplorerAPI {
     if (!folder) {
       return undefined;
     }
-    return this.cache.get(uri, folder.uri);
+    return this.problemStore.get(uri);
   }
 
-  /** Called by extension.ts when diagnostics change. Reads status from cache and emits the event. */
-  notifyChanged(uri: Uri, folderUri: Uri): void {
-    const status = this.cache.get(uri, folderUri);
+  /** Called by extension.ts when diagnostics change. Reads status from ProblemStore and emits the event. */
+  notifyChanged(uri: Uri, _folderUri: Uri): void {
+    const status = this.problemStore.get(uri);
     this._onDidChangeProblemState.fire({ uri, status });
   }
 }

@@ -37,6 +37,10 @@ export class DiagnosticsManager {
   private readonly delegate: DiagnosticsDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
 
+  get severityOverridesValue(): Record<string, Record<string, string>> | undefined {
+    return this.severityOverrides;
+  }
+
   /** Direct passthrough to `languages.onDidChangeDiagnostics` */
   readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
 
