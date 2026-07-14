@@ -187,6 +187,38 @@ export class ProblemStore {
   }
 
   /**
+   * Delete all entries whose normalized key starts with the given prefix.
+   * Fires a single `prefixDeleted` event if any entries were removed.
+   * @returns number of entries deleted
+   */
+  deleteByPrefix(prefix: string): number {
+    let count = 0;
+    const prefixSlash = prefix + '/';
+    const keysToDelete: string[] = [];
+
+    for (const key of this.storage.keys()) {
+      if (key === prefix || key.startsWith(prefixSlash)) {
+        keysToDelete.push(key);
+      }
+    }
+
+    for (const key of keysToDelete) {
+      this.storage.delete(key);
+      this.folderKeys.delete(key);
+      count++;
+    }
+
+    if (count > 0) {
+      this.version++;
+      if (this.batchDepth === 0) {
+        this._onDidChange.fire({ kind: 'prefixDeleted', prefix });
+      }
+    }
+
+    return count;
+  }
+
+  /**
    * Aggregate all **file** entries (excluding folder aggregates) across the store.
    * Folder aggregates are skipped because their counts are derived from file
    * entries — summing them again would double-count.

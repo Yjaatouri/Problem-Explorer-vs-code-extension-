@@ -4,10 +4,11 @@ import {
   WorkspaceFolder,
   workspace,
 } from 'vscode';
-import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 import { DiagnosticsManager } from '../diagnostics/diagnosticsManager';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { DecorationEngine } from '../decoration/decorationEngine';
+import { normalizeUriKey } from '../core/uriKey';
 
 /** Abstraction over `workspace.workspaceFolders` and folder change events for testability */
 export interface WorkspaceDelegate {
@@ -35,7 +36,7 @@ export class WorkspaceManager implements Disposable {
   private readonly disposable: Disposable;
 
   constructor(
-    private readonly cache: ProblemCache,
+    private readonly store: ProblemStore,
     private readonly diagnosticsManager: DiagnosticsManager,
     private readonly folderStatusManager: FolderStatusManager,
     private readonly decorationEngine: DecorationEngine,
@@ -58,7 +59,7 @@ export class WorkspaceManager implements Disposable {
 
   private handleChange(event: WorkspaceFoldersChangeEvent): void {
     for (let i = 0; i < event.removed.length; i++) {
-      this.cache.clearFolder(event.removed[i].uri);
+      this.store.deleteByPrefix(normalizeUriKey(event.removed[i].uri));
     }
 
     if (event.added.length > 0) {

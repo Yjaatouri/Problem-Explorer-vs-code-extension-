@@ -5,4 +5,5 @@ export type ProblemStoreChange =
   | { kind: 'updated'; uri: Uri }
   | { kind: 'removed'; uri: Uri }
   | { kind: 'cleared' }
-  | { kind: 'batch' };
+  | { kind: 'batch' }
+  | { kind: 'prefixDeleted'; prefix: string };

@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import { Uri, WorkspaceFolder } from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
 import { FolderStatusManager } from '../../folder/folderStatusManager';
@@ -50,12 +49,12 @@ suite('WorkspaceManager', () => {
   }
 
   test('getWorkspaceFolders returns initial folders', () => {
-    const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache);
-    const fm = new FolderStatusManager(cache, new ProblemStore());
-    const de = new DecorationEngine(cache, new ProblemStore());
+    const store = new ProblemStore();
+    const dm = new DiagnosticsManager(new ProblemCache(), store);
+    const fm = new FolderStatusManager(new ProblemCache(), store);
+    const de = new DecorationEngine(new ProblemCache(), store);
     const { delegate } = makeMockDelegate([rootA, rootB]);
-    const wm = new WorkspaceManager(cache, dm, fm, de, delegate);
+    const wm = new WorkspaceManager(store, dm, fm, de, delegate);
 
     const folders = wm.getWorkspaceFolders();
     assert.strictEqual(folders.length, 2);
@@ -64,57 +63,61 @@ suite('WorkspaceManager', () => {
   });
 
   test('returns empty array when no folders', () => {
-    const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache);
-    const fm = new FolderStatusManager(cache, new ProblemStore());
-    const de = new DecorationEngine(cache, new ProblemStore());
+    const store = new ProblemStore();
+    const dm = new DiagnosticsManager(new ProblemCache(), store);
+    const fm = new FolderStatusManager(new ProblemCache(), store);
+    const de = new DecorationEngine(new ProblemCache(), store);
     const { delegate } = makeMockDelegate([]);
-    const wm = new WorkspaceManager(cache, dm, fm, de, delegate);
+    const wm = new WorkspaceManager(store, dm, fm, de, delegate);
 
     assert.strictEqual(wm.getWorkspaceFolders().length, 0);
   });
 
-  test('clears cache for removed folder', () => {
+  test('clears store for removed folder', () => {
+    const store = new ProblemStore();
     const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache);
-    const fm = new FolderStatusManager(cache, new ProblemStore());
-    const de = new DecorationEngine(cache, new ProblemStore());
+    const dm = new DiagnosticsManager(cache, store);
+    const fm = new FolderStatusManager(cache, store);
+    const de = new DecorationEngine(cache, store);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
 
-    cache.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootA);
-    assert.strictEqual(cache.getFolderSize(rootA), 1);
+    store.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 });
+    assert.strictEqual(store.get(fileA)?.severity, 3);
 
-    new WorkspaceManager(cache, dm, fm, de, delegate);
+    new WorkspaceManager(store, dm, fm, de, delegate);
     const removed = [makeFolder(rootB, 1)];
     listeners[0]({ added: [], removed } as WorkspaceFoldersChangeEvent);
 
-    assert.strictEqual(cache.getFolderSize(rootA), 1);
+    // The removed folder was rootB, not rootA. RootA entry should remain.
+    assert.strictEqual(store.get(fileA)?.severity, 3);
   });
 
   test('clears correct folder on multi-root removal', () => {
+    const store = new ProblemStore();
     const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache);
-    const fm = new FolderStatusManager(cache, new ProblemStore());
-    const de = new DecorationEngine(cache, new ProblemStore());
+    const dm = new DiagnosticsManager(cache, store);
+    const fm = new FolderStatusManager(cache, store);
+    const de = new DecorationEngine(cache, store);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
 
-    cache.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootA);
-    cache.set(Uri.parse('file:///workspace/b/other.ts'), { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootB);
-    assert.strictEqual(cache.getFolderSize(rootA), 1);
-    assert.strictEqual(cache.getFolderSize(rootB), 1);
+    store.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 });
+    store.set(Uri.parse('file:///workspace/b/other.ts'), { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 });
+    assert.strictEqual(store.has(fileA), true);
+    assert.strictEqual(store.has(Uri.parse('file:///workspace/b/other.ts')), true);
 
-    new WorkspaceManager(cache, dm, fm, de, delegate);
+    new WorkspaceManager(store, dm, fm, de, delegate);
     listeners[0]({ added: [], removed: [makeFolder(rootB, 1)] } as WorkspaceFoldersChangeEvent);
 
-    assert.strictEqual(cache.getFolderSize(rootA), 1);
-    assert.strictEqual(cache.getFolderSize(rootB), 0);
+    assert.strictEqual(store.has(fileA), true);
+    assert.strictEqual(store.has(Uri.parse('file:///workspace/b/other.ts')), false);
   });
 
   test('on folder added runs fullScan', () => {
+    const store = new ProblemStore();
     const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache);
-    const fm = new FolderStatusManager(cache, new ProblemStore());
-    const de = new DecorationEngine(cache, new ProblemStore());
+    const dm = new DiagnosticsManager(cache, store);
+    const fm = new FolderStatusManager(cache, store);
+    const de = new DecorationEngine(cache, store);
 
     let fullScanCalled = false;
     const originalFullScan = dm.fullScan.bind(dm);
@@ -124,7 +127,7 @@ suite('WorkspaceManager', () => {
     };
 
     const { delegate, listeners } = makeMockDelegate([]);
-    new WorkspaceManager(cache, dm, fm, de, delegate);
+    new WorkspaceManager(store, dm, fm, de, delegate);
 
     listeners[0]({
       added: [makeFolder(rootA, 0)],
@@ -134,3 +137,5 @@ suite('WorkspaceManager', () => {
     assert.strictEqual(fullScanCalled, true);
   });
 });
+
+import { ProblemCache } from '../../cache/cacheLayer';

@@ -63,7 +63,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     );
     trendTracker.start();
     const workspaceManager = new WorkspaceManager(
-      cache,
+      problemStore,
       diagnosticsManager,
       folderStatusManager,
       decorationEngine,
