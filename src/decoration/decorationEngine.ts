@@ -105,7 +105,7 @@ export class DecorationEngine implements FileDecorationProvider {
     }
 
     const ignored = isIgnored(uri, this.config?.ignorePatterns);
-    const cacheStatus = this.cache.get(uri, folder.uri);
+    const storeStatus = this.problemStore.get(uri);
     const diagnostics = languages.getDiagnostics(uri);
     const diagLen = diagnostics.length;
     const uriKey = normalizeUriKey(uri);
@@ -114,7 +114,7 @@ export class DecorationEngine implements FileDecorationProvider {
     // Step 8: URI consistency log
     this._log(`[FORENSIC:Step8] URI consistency: explorerUri=${uri.toString(true)} fsPath=${fsPath} uriKey=${uriKey} folderKey=${folderKey} scheme=${uri.scheme} authority=${uri.authority}`);
 
-    this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} cacheHit=${!!cacheStatus} diagLen=${diagLen} cacheSeverity=${cacheStatus?.severity ?? 'none'} uriKey=${uriKey}`);
+    this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} cacheHit=${!!storeStatus} diagLen=${diagLen} cacheSeverity=${storeStatus?.severity ?? 'none'} uriKey=${uriKey}`);
 
     try {
       if (this.config && !this.config.enabled) {
