@@ -9,6 +9,7 @@ import {
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 import { toProblemState, applySeverityOverrides } from './severityMapper';
 import { ProblemState } from '../core/types';
 import { isIgnored, precompilePatterns } from '../performance/ignoreFilter';
@@ -31,9 +32,10 @@ const defaultDelegate: DiagnosticsDelegate = {
   },
 };
 
-/** Ingests VS Code diagnostic events, converts them to `ProblemState`, and writes to the cache */
+/** Ingests VS Code diagnostic events, converts them to `ProblemState`, and writes to both cache and store */
 export class DiagnosticsManager {
   private readonly cache: ProblemCache;
+  private readonly store: ProblemStore;
   private readonly delegate: DiagnosticsDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
 
@@ -44,8 +46,9 @@ export class DiagnosticsManager {
   /** Direct passthrough to `languages.onDidChangeDiagnostics` */
   readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
 
-  constructor(cache: ProblemCache, delegate?: DiagnosticsDelegate) {
+  constructor(cache: ProblemCache, store: ProblemStore, delegate?: DiagnosticsDelegate) {
     this.cache = cache;
+    this.store = store;
     this.delegate = delegate ?? defaultDelegate;
     this.onDidDiagnosticsChange = languages.onDidChangeDiagnostics;
   }
@@ -103,13 +106,13 @@ export class DiagnosticsManager {
     return result;
   }
 
-  /** Read the cached status for a URI. Returns `undefined` if not cached or not in a workspace folder. */
+  /** Read the status for a URI. Returns `undefined` if not in store or not in a workspace folder. */
   getStatus(uri: Uri): ProblemState | undefined {
     const folder = this.delegate.getWorkspaceFolder(uri);
     if (!folder) {
       return undefined;
     }
-    return this.cache.get(uri, folder.uri);
+    return this.store.get(uri);
   }
 
   private updateUri(uri: Uri, diagnostics: Diagnostic[], changed: Uri[]): void {
@@ -119,26 +122,29 @@ export class DiagnosticsManager {
     }
 
     if (diagnostics.length === 0) {
-      // Only delete the cache entry when the zero-diagnostic event is for the
+      // Only delete the entry when the zero-diagnostic event is for the
       // active editor. Non-active files may report transient 0-diagnostics due
       // to lazy TypeScript re-evaluation, ESLint batches, or multi-source races.
       // When the user navigates back to the file, a fresh diagnostic event will
-      // re-create the cache entry.
+      // re-create the entry.
       if (!this.delegate.isActiveEditorUri(uri)) {
         return;
       }
-      if (this.cache.delete(uri, folder.uri)) {
+      const cacheChanged = this.cache.delete(uri, folder.uri);
+      const storeChanged = this.store.delete(uri);
+      if (cacheChanged || storeChanged) {
         changed.push(uri);
       }
       return;
     }
 
-    // Non-empty diagnostics — map and update the cache normally
+    // Non-empty diagnostics — map and update both cache and store
     const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
     const status = toProblemState(mapped);
-    const didChange = this.cache.set(uri, status, folder.uri);
+    const cacheChanged = this.cache.set(uri, status, folder.uri);
+    const storeChanged = this.store.set(uri, status);
 
-    if (didChange) {
+    if (cacheChanged || storeChanged) {
       changed.push(uri);
     }
   }
