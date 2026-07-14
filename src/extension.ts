@@ -11,6 +11,7 @@ import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
 import { initForensicLogger, forensicLog } from './forensicLogger';
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { ProblemStore } from './store/ProblemStore';
+import { ProviderManager } from './services/ProviderManager';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 
 export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
@@ -79,7 +80,10 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       problemStore,
       log,
     );
-    vsDiagnosticsProvider.start();
+
+    const providerManager = new ProviderManager();
+    providerManager.register('vsDiagnostics', vsDiagnosticsProvider);
+    providerManager.startAll();
 
     const applyConfig = (): void => {
       const config = configManager.getConfig();
@@ -144,7 +148,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       configManager,
       workspaceManager,
       problemStore,
-      { dispose: () => { trendTracker.stop(); vsDiagnosticsProvider.dispose(); } },
+      providerManager,
+      { dispose: () => { trendTracker.stop(); } },
     );
 
     // TEST COMMAND - shows notification immediately
