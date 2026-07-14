@@ -46,7 +46,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     const cache = new ProblemCache();
     const problemStore = new ProblemStore();
     const diagnosticsManager = new DiagnosticsManager(cache);
-    const decorationEngine = new DecorationEngine(cache, log);
+    const decorationEngine = new DecorationEngine(cache, problemStore, log);
     const folderStatusManager = new FolderStatusManager(cache);
     const configManager = new ConfigManager();
     const commandManager = new CommandManager(

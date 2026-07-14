@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { Uri, Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
+import { ProblemStore } from '../../store/ProblemStore';
 import { LruCache } from '../../cache/lruCache';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
@@ -28,10 +29,13 @@ suite('Benchmarks', function () {
 
   test('provideFileDecoration lookup < 1µs (target)', () => {
     const cache = new ProblemCache();
-    const engine = new DecorationEngine(cache);
+    const store = new ProblemStore();
+    const engine = new DecorationEngine(cache, store);
 
     const fileUri = Uri.parse('file:///workspace/src/file.ts');
-    cache.set(fileUri, { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootUri);
+    const state = { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 };
+    store.set(fileUri, state);
+    cache.set(fileUri, state, rootUri);
 
     const result = measure('provideFileDecoration', () => {
       engine.provideFileDecoration(fileUri, {} as any);

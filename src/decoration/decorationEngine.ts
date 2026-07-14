@@ -10,6 +10,7 @@ import {
   workspace,
 } from 'vscode';
 import { ProblemCache } from '../cache/cacheLayer';
+import { ProblemStore } from '../store/ProblemStore';
 import { Config, ProblemSeverity, ProblemState } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
@@ -67,6 +68,7 @@ export class DecorationEngine implements FileDecorationProvider {
 
   constructor(
     private readonly cache: ProblemCache,
+    private readonly problemStore: ProblemStore,
     log?: (msg: string) => void,
   ) {
     this._log = log ?? (() => { /* no-op */ });
@@ -122,7 +124,7 @@ export class DecorationEngine implements FileDecorationProvider {
         return undefined;
       }
 
-      let status = this.cache.get(uri, folder.uri);
+      let status = this.problemStore.get(uri);
 
       if (!status) {
         if (ignored) {
@@ -134,6 +136,7 @@ export class DecorationEngine implements FileDecorationProvider {
         if (diagLen > 0) {
           const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
           status = toProblemState(mapped);
+          this.problemStore.set(uri, status);
           this.cache.set(uri, status, folder.uri);
           forensicLog(`[FORENSIC:Step5-DEC] provideFileDecoration cache.set: uri=${uri.toString(true)} sev=${status.severity} err=${status.errorCount} warn=${status.warningCount} diagLen=${diagLen}`);
           this._log(`  cached NEW: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
