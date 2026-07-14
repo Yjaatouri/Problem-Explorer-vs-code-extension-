@@ -73,6 +73,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       decorationEngine,
       statusBarManager,
       trendTracker,
+      cache,
       log,
     );
     vsDiagnosticsProvider.start();
@@ -137,66 +138,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       statusBarManager.registerCommand(),
       configManager,
       workspaceManager,
-      { dispose: () => { trendTracker.stop(); } },
+      { dispose: () => { trendTracker.stop(); vsDiagnosticsProvider.dispose(); } },
     );
-
-    if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
-      log(`[FORENSIC:Step1-init] fullScan START: ${vscode.workspace.workspaceFolders!.length} folders`);
-      const allDiags = vscode.languages.getDiagnostics();
-      log(`[FORENSIC:Step1-init] languages.getDiagnostics() returned ${allDiags.length} entries`);
-      for (let i = 0; i < Math.min(allDiags.length, 10); i++) {
-        const [u, d] = allDiags[i];
-        log(`[FORENSIC:Step1-init]   URI[${i}]=${u.toString(true)} diagCount=${d.length}`);
-      }
-      if (allDiags.length > 10) {
-        log(`[FORENSIC:Step1-init]   ... and ${allDiags.length - 10} more`);
-      }
-      const changed = diagnosticsManager.fullScan();
-      log(`[FORENSIC:Step1-init] fullScan returned ${changed.length} changed URIs`);
-      const changedFolders = folderStatusManager.rebuildAll();
-      log(`[FORENSIC:Step1-init] rebuildAll returned ${changedFolders.length} folders`);
-      const initialUris = [...changed, ...changedFolders];
-      for (let i = 0; i < initialUris.length; i++) {
-        const folder = vscode.workspace.getWorkspaceFolder(initialUris[i]);
-        if (folder) {
-          apiManager.notifyChanged(initialUris[i], folder.uri);
-        }
-      }
-      decorationEngine.refresh();
-      log('[FORENSIC:Step4] initial refresh() called → fireDidChange(undefined)');
-      statusBarManager.update();
-      log(`[FORENSIC:Step1-init] status bar: errors=${cache.computeTotals().errorCount} warnings=${cache.computeTotals().warningCount} info=${cache.computeTotals().infoCount}`);
-    }
-
-    // Poll until TypeScript produces non-zero diagnostics, then do a forced fullScan + refresh
-    let pollAttempts = 0;
-    const pollInterval = setInterval(() => {
-      pollAttempts++;
-      const totalDiags = vscode.languages.getDiagnostics();
-      let totalCount = 0;
-      for (let i = 0; i < totalDiags.length; i++) {
-        totalCount += totalDiags[i][1].length;
-      }
-      log(`[INIT-POLL] attempt=${pollAttempts} totalDiags=${totalCount}`);
-      if (totalCount > 0 || pollAttempts >= 10) {
-        clearInterval(pollInterval);
-        const changed = diagnosticsManager.fullScan();
-        log(`[INIT-POLL] late fullScan: ${changed.length} changed`);
-        const changedFolders = folderStatusManager.rebuildAll();
-        log(`[INIT-POLL] late rebuildAll: ${changedFolders.length} folders`);
-        const pollUris = [...changed, ...changedFolders];
-        for (let i = 0; i < pollUris.length; i++) {
-          const folder = vscode.workspace.getWorkspaceFolder(pollUris[i]);
-          if (folder) {
-            apiManager.notifyChanged(pollUris[i], folder.uri);
-          }
-        }
-        decorationEngine.refresh();
-        statusBarManager.update();
-        log(`[INIT-POLL] status bar: errors=${cache.computeTotals().errorCount} warnings=${cache.computeTotals().warningCount} info=${cache.computeTotals().infoCount}`);
-      }
-    }, 2000);
-    context.subscriptions.push({ dispose: () => clearInterval(pollInterval) });
 
     // TEST COMMAND - shows notification immediately
     context.subscriptions.push(

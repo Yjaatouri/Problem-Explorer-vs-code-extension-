@@ -5,6 +5,7 @@ import { ApiManager } from '../api/problemExplorerApi';
 import { DecorationEngine } from '../decoration/decorationEngine';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 import { TrendTracker } from '../trend/trendTracker';
+import { ProblemCache } from '../cache/cacheLayer';
 import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
@@ -24,6 +25,7 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly decorationEngine: DecorationEngine,
     private readonly statusBarManager: StatusBarManager,
     private readonly trendTracker: TrendTracker,
+    private readonly cache: ProblemCache,
     private readonly log: (msg: string) => void,
   ) {
     super();
@@ -100,6 +102,63 @@ public get eventCount(): number { return this.diagEventCount; }
 
     this.registerDisposable(disposable);
     this.registerDisposable({ dispose: () => this.flushUpdates?.cancel() });
+
+    if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
+      this.log(`[FORENSIC:Step1-init] fullScan START: ${vscode.workspace.workspaceFolders!.length} folders`);
+      const allDiags = vscode.languages.getDiagnostics();
+      this.log(`[FORENSIC:Step1-init] languages.getDiagnostics() returned ${allDiags.length} entries`);
+      for (let i = 0; i < Math.min(allDiags.length, 10); i++) {
+        const [u, d] = allDiags[i];
+        this.log(`[FORENSIC:Step1-init]   URI[${i}]=${u.toString(true)} diagCount=${d.length}`);
+      }
+      if (allDiags.length > 10) {
+        this.log(`[FORENSIC:Step1-init]   ... and ${allDiags.length - 10} more`);
+      }
+      const changed = this.diagnosticsManager.fullScan();
+      this.log(`[FORENSIC:Step1-init] fullScan returned ${changed.length} changed URIs`);
+      const changedFolders = this.folderStatusManager.rebuildAll();
+      this.log(`[FORENSIC:Step1-init] rebuildAll returned ${changedFolders.length} folders`);
+      const initialUris = [...changed, ...changedFolders];
+      for (let i = 0; i < initialUris.length; i++) {
+        const folder = vscode.workspace.getWorkspaceFolder(initialUris[i]);
+        if (folder) {
+          this.apiManager.notifyChanged(initialUris[i], folder.uri);
+        }
+      }
+      this.decorationEngine.refresh();
+      this.log('[FORENSIC:Step4] initial refresh() called → fireDidChange(undefined)');
+      this.statusBarManager.update();
+      this.log(`[FORENSIC:Step1-init] status bar: errors=${this.cache.computeTotals().errorCount} warnings=${this.cache.computeTotals().warningCount} info=${this.cache.computeTotals().infoCount}`);
+    }
+
+    let pollAttempts = 0;
+    const pollInterval = setInterval(() => {
+      pollAttempts++;
+      const totalDiags = vscode.languages.getDiagnostics();
+      let totalCount = 0;
+      for (let i = 0; i < totalDiags.length; i++) {
+        totalCount += totalDiags[i][1].length;
+      }
+      this.log(`[INIT-POLL] attempt=${pollAttempts} totalDiags=${totalCount}`);
+      if (totalCount > 0 || pollAttempts >= 10) {
+        clearInterval(pollInterval);
+        const changed = this.diagnosticsManager.fullScan();
+        this.log(`[INIT-POLL] late fullScan: ${changed.length} changed`);
+        const changedFolders = this.folderStatusManager.rebuildAll();
+        this.log(`[INIT-POLL] late rebuildAll: ${changedFolders.length} folders`);
+        const pollUris = [...changed, ...changedFolders];
+        for (let i = 0; i < pollUris.length; i++) {
+          const folder = vscode.workspace.getWorkspaceFolder(pollUris[i]);
+          if (folder) {
+            this.apiManager.notifyChanged(pollUris[i], folder.uri);
+          }
+        }
+        this.decorationEngine.refresh();
+        this.statusBarManager.update();
+        this.log(`[INIT-POLL] status bar: errors=${this.cache.computeTotals().errorCount} warnings=${this.cache.computeTotals().warningCount} info=${this.cache.computeTotals().infoCount}`);
+      }
+    }, 2000);
+    this.registerDisposable({ dispose: () => clearInterval(pollInterval) });
   }
 
   protected onRefresh(): void {
