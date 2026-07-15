@@ -14,6 +14,7 @@ import { ProblemStore } from './store/ProblemStore';
 import { ProviderManager } from './services/ProviderManager';
 import { DiagnosticProviderManager } from './providers/DiagnosticProviderManager';
 import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
+import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 
 export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
@@ -60,11 +61,14 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
 }, log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
+    const tscProvider = new TscDiagnosticProvider(problemStore);
     const commandManager = new CommandManager(
       diagProvider,
       decorationEngine,
       folderStatusManager,
       configManager,
+      tscProvider,
+      log,
     );
     const statusBarManager = new StatusBarManager(problemStore);
     const apiManager = new ApiManager(problemStore);
@@ -159,6 +163,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       configManager,
       workspaceManager,
       problemStore,
+      tscProvider,
       diagProviderManager,
       providerManager,
       { dispose: () => { trendTracker.stop(); } },

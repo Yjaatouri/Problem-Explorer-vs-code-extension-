@@ -45,8 +45,18 @@
         "category": "Problem Explorer"
       },
       {
+        "command": "problemExplorer.scanTypeScript",
+        "title": "Scan TypeScript Project (tsc --noEmit)",
+        "category": "Problem Explorer"
+      },
+      {
         "command": "problemExplorer.test",
         "title": "Test Problem Explorer",
+        "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.runExperiment",
+        "title": "Run Diagnostics Experiment (openTextDocument)",
         "category": "Problem Explorer"
       }
     ],

@@ -6,6 +6,7 @@ export const SETTINGS_SECTION = 'problemExplorer';
 export const COMMANDS = {
   REFRESH: 'problemExplorer.refresh',
   TOGGLE: 'problemExplorer.toggle',
+  SCAN_TS: 'problemExplorer.scanTypeScript',
 } as const;
 
 export const COLORS = {
