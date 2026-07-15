@@ -123,7 +123,7 @@ suite('FolderStatusManager', () => {
     });
 
     test('no-op if no children changed', () => {
-      // No file entry in store — equivalent to cache.set(None) which deletes the entry
+      // No file entry in store means ancestors are unchanged
       const changed = manager.updateAncestors(fileA);
 
       assert.strictEqual(changed.length, 0);

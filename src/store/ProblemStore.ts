@@ -113,7 +113,7 @@ export class ProblemStore {
    * double-count).
    *
    * A `None`-severity aggregate is deleted instead (no entry when the
-   * folder has no problems), matching the old `ProblemCache` contract.
+    * folder has no problems).
    * @returns `true` if the value changed, was newly inserted, or was deleted.
    */
   setFolderAggregate(uri: Uri, state: ProblemState): boolean {
