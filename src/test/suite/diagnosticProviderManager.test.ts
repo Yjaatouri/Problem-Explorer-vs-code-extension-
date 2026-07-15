@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { Uri, EventEmitter } from 'vscode';
-import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
+import { DiagnosticProviderManager, ProviderState, ProviderInfo } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { ProblemStore } from '../../store/ProblemStore';
 
@@ -323,5 +323,241 @@ suite('DiagnosticProviderManager', () => {
 
     assert.strictEqual(p.isDisposed, true);
     assert.strictEqual(manager.size, 0);
+  });
+
+  test('register with metadata stores priority and capabilities', () => {
+    const p = new MockProvider('p1', store);
+    manager.register('p1', p, { priority: 10, capabilities: ['diagnostics', 'realtime'] });
+    const info = manager.getInfo('p1');
+    assert.ok(info);
+    assert.strictEqual(info!.metadata.priority, 10);
+    assert.deepStrictEqual(info!.metadata.capabilities, ['diagnostics', 'realtime']);
+  });
+
+  test('register without metadata defaults priority 0 and empty capabilities', () => {
+    manager.register('p1', new MockProvider('p1', store));
+    const info = manager.getInfo('p1');
+    assert.ok(info);
+    assert.strictEqual(info!.metadata.priority, 0);
+    assert.deepStrictEqual(info!.metadata.capabilities, []);
+  });
+
+  test('getProviderState returns idle after registration', () => {
+    manager.register('p1', new MockProvider('p1', store));
+    assert.strictEqual(manager.getProviderState('p1'), ProviderState.idle);
+  });
+
+  test('getProviderState returns undefined for unknown provider', () => {
+    assert.strictEqual(manager.getProviderState('nope'), undefined);
+  });
+
+  test('setProviderState updates state and fires event', () => {
+    manager.register('p1', new MockProvider('p1', store));
+    let fired: { name: string; oldState: ProviderState; newState: ProviderState } | undefined;
+    manager.onDidChangeProviderState((e) => { fired = e; });
+    manager.setProviderState('p1', ProviderState.error);
+    assert.strictEqual(fired!.name, 'p1');
+    assert.strictEqual(fired!.oldState, ProviderState.idle);
+    assert.strictEqual(fired!.newState, ProviderState.error);
+    assert.strictEqual(manager.getProviderState('p1'), ProviderState.error);
+  });
+
+  test('setProviderState does not fire event for same state', () => {
+    manager.register('p1', new MockProvider('p1', store));
+    let fireCount = 0;
+    manager.onDidChangeProviderState(() => { fireCount++; });
+    manager.setProviderState('p1', ProviderState.idle);
+    assert.strictEqual(fireCount, 0);
+  });
+
+  test('setProviderState is no-op for unknown provider', () => {
+    let fireCount = 0;
+    manager.onDidChangeProviderState(() => { fireCount++; });
+    manager.setProviderState('nope', ProviderState.running);
+    assert.strictEqual(fireCount, 0);
+  });
+
+  test('initializeAll sets state to idle after success', async () => {
+    manager.register('p1', new MockProvider('p1', store));
+    await manager.initializeAll();
+    assert.strictEqual(manager.getProviderState('p1'), ProviderState.idle);
+  });
+
+  test('initializeAll sets state to error on failure', async () => {
+    manager.register('bad', new FailingProvider('bad'));
+    await manager.initializeAll();
+    assert.strictEqual(manager.getProviderState('bad'), ProviderState.error);
+  });
+
+  test('startAll sets state to running', () => {
+    manager.register('p1', new MockProvider('p1', store));
+    manager.startAll();
+    assert.strictEqual(manager.getProviderState('p1'), ProviderState.running);
+  });
+
+  test('startAll sets state to error on failure', () => {
+    manager.register('bad', new FailingProvider('bad'));
+    manager.startAll();
+    assert.strictEqual(manager.getProviderState('bad'), ProviderState.error);
+  });
+
+  test('stopAll sets state to idle for running providers', () => {
+    manager.register('p1', new MockProvider('p1', store));
+    manager.startAll();
+    manager.stopAll();
+    assert.strictEqual(manager.getProviderState('p1'), ProviderState.idle);
+  });
+
+  test('startAll respects priority ordering (high first)', () => {
+    const high = new MockProvider('high', store);
+    const low = new MockProvider('low', store);
+    manager.register('low', low, { priority: 1 });
+    manager.register('high', high, { priority: 100 });
+    manager.startAll();
+    assert.strictEqual(high.isStarted, true);
+    assert.strictEqual(low.isStarted, true);
+  });
+
+  test('priority ordering: higher priority starts first', () => {
+    const startOrder: string[] = [];
+    class OrderProvider extends MockProvider {
+      start(): void { super.start(); startOrder.push(this.name); }
+    }
+    const low = new OrderProvider('low', store);
+    const mid = new OrderProvider('mid', store);
+    const high = new OrderProvider('high', store);
+    manager.register('low', low, { priority: 1 });
+    manager.register('high', high, { priority: 100 });
+    manager.register('mid', mid, { priority: 50 });
+    manager.startAll();
+    assert.deepStrictEqual(startOrder, ['high', 'mid', 'low']);
+  });
+
+  test('stopAll reverses priority order', () => {
+    const stopOrder: string[] = [];
+    class OrderProvider extends MockProvider {
+      stop(): void { super.stop(); stopOrder.push(this.name); }
+    }
+    const low = new OrderProvider('low', store);
+    const high = new OrderProvider('high', store);
+    manager.register('low', low, { priority: 1 });
+    manager.register('high', high, { priority: 100 });
+    manager.startAll();
+    stopOrder.length = 0;
+    manager.stopAll();
+    assert.deepStrictEqual(stopOrder, ['low', 'high']);
+  });
+
+  test('all() returns all providers with info', () => {
+    manager.register('a', new MockProvider('a', store));
+    manager.register('b', new MockProvider('b', store), { priority: 5 });
+    const all = manager.all();
+    assert.strictEqual(all.length, 2);
+    const names = all.map((e) => e.name).sort();
+    assert.deepStrictEqual(names, ['a', 'b']);
+  });
+
+  test('all() throws after dispose', () => {
+    manager.dispose();
+    assert.throws(() => manager.all(), /disposed/);
+  });
+
+  test('getByState filters by state', () => {
+    manager.register('a', new MockProvider('a', store));
+    manager.register('b', new FailingProvider('b'));
+    manager.startAll();
+    const running = manager.getByState(ProviderState.running);
+    const errors = manager.getByState(ProviderState.error);
+    assert.strictEqual(running.length, 1);
+    assert.strictEqual(running[0].name, 'a');
+    assert.strictEqual(errors.length, 1);
+    assert.strictEqual(errors[0].name, 'b');
+  });
+
+  test('getByCapability filters by capability', () => {
+    manager.register('a', new MockProvider('a', store), { capabilities: ['diagnostics', 'realtime'] });
+    manager.register('b', new MockProvider('b', store), { capabilities: ['tsc-scan'] });
+    manager.register('c', new MockProvider('c', store), { capabilities: ['diagnostics'] });
+
+    const diagnostics = manager.getByCapability('diagnostics');
+    const realtime = manager.getByCapability('realtime');
+    const tscScan = manager.getByCapability('tsc-scan');
+    const none = manager.getByCapability('nonexistent');
+
+    assert.strictEqual(diagnostics.length, 2);
+    assert.strictEqual(realtime.length, 1);
+    assert.strictEqual(realtime[0].name, 'a');
+    assert.strictEqual(tscScan.length, 1);
+    assert.strictEqual(tscScan[0].name, 'b');
+    assert.strictEqual(none.length, 0);
+  });
+
+  test('hasCapability returns true for advertised capability', () => {
+    manager.register('a', new MockProvider('a', store), { capabilities: ['diagnostics'] });
+    assert.strictEqual(manager.hasCapability('a', 'diagnostics'), true);
+    assert.strictEqual(manager.hasCapability('a', 'tsc-scan'), false);
+    assert.strictEqual(manager.hasCapability('nonexistent', 'diagnostics'), false);
+  });
+
+  test('onDidRegister fires with provider info', () => {
+    let fired: ProviderInfo | undefined;
+    manager.onDidRegister((e) => { fired = e; });
+    manager.register('a', new MockProvider('a', store), { priority: 5, capabilities: ['x'] });
+    assert.ok(fired);
+    assert.strictEqual(fired!.name, 'a');
+    assert.strictEqual(fired!.metadata.priority, 5);
+    assert.strictEqual(fired!.state, ProviderState.idle);
+  });
+
+  test('onDidUnregister fires on unregister', () => {
+    let firedName: string | undefined;
+    manager.onDidUnregister((e) => { firedName = e.name; });
+    manager.register('a', new MockProvider('a', store));
+    manager.unregister('a');
+    assert.strictEqual(firedName, 'a');
+  });
+
+  test('onDidUpdateAll aggregates events from all providers', () => {
+    let allUris: Uri[] | undefined;
+    manager.onDidUpdateAll((uris) => { allUris = uris; });
+
+    const p1 = new MockProvider('p1', store);
+    const p2 = new MockProvider('p2', store);
+    manager.register('p1', p1);
+    manager.register('p2', p2);
+
+    const uri = Uri.parse('file:///test.ts');
+    (p1 as any)._onDidUpdate.fire([uri]);
+    assert.deepStrictEqual(allUris, [uri]);
+
+    (p2 as any)._onDidUpdate.fire([uri]);
+    assert.deepStrictEqual(allUris, [uri]);
+  });
+
+  test('getInfo returns undefined for unknown provider', () => {
+    assert.strictEqual(manager.getInfo('nope'), undefined);
+  });
+
+  test('getInfo throws after dispose', () => {
+    manager.dispose();
+    assert.throws(() => manager.getInfo('x'), /disposed/);
+  });
+
+  test('getProviderState throws after dispose', () => {
+    manager.dispose();
+    assert.throws(() => manager.getProviderState('x'), /disposed/);
+  });
+
+  test('unregister disposes provider update subscription', () => {
+    const p = new MockProvider('p1', store);
+    manager.register('p1', p);
+    let updateCount = 0;
+    manager.onDidUpdateAll(() => { updateCount++; });
+    p.refresh();
+    const countBefore = updateCount;
+    manager.unregister('p1');
+    p.callOrder = [];
+    assert.strictEqual(manager.size, 0);
+    assert.strictEqual(updateCount, countBefore);
   });
 });

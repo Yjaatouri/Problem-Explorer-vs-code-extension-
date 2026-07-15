@@ -99,7 +99,14 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     );
 
     const diagProviderManager = new DiagnosticProviderManager();
-    diagProviderManager.register('vscode', diagProvider);
+    diagProviderManager.register('vscode', diagProvider, {
+      priority: 10,
+      capabilities: ['diagnostics', 'realtime'],
+    });
+    diagProviderManager.register('tsc', tscProvider, {
+      priority: 5,
+      capabilities: ['diagnostics', 'tsc-scan'],
+    });
     diagProviderManager.initializeAll();
     diagProviderManager.startAll();
     diagProvider.startInitPoll();
