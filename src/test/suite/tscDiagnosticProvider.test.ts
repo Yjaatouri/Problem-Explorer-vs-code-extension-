@@ -63,8 +63,8 @@ class FakeTscRunnerDelegate implements TscRunnerDelegate {
       stderr: {
         on: (_event: 'data', _listener: (chunk: string) => void) => {},
       },
-      on: (_event: 'close', listener: (code: number | null) => void) => {
-        closeListeners.push(listener);
+      on: (_event: 'close' | 'error', listener: ((code: number | null) => void) | ((err: Error) => void)) => {
+        if (_event === 'close') { closeListeners.push(listener as (code: number | null) => void); }
       },
       kill: () => {},
     };

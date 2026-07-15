@@ -3,14 +3,17 @@ import { TscRunner, TscProcess, TscRunnerDelegate, TscRunResult } from '../../ty
 
 type DataListener = (chunk: string) => void;
 type CloseListener = (code: number | null) => void;
+type ErrorListener = (err: Error) => void;
 
 function fakeProcess(overrides: {
   exitCode?: number | null;
   stdoutData?: string;
   stderrData?: string;
   closeDelayMs?: number;
+  errorOnSpawn?: boolean;
 }): TscProcess {
   const closeListeners: CloseListener[] = [];
+  const errorListeners: ErrorListener[] = [];
   const stdoutListeners: DataListener[] = [];
   const stderrListeners: DataListener[] = [];
 
@@ -29,15 +32,23 @@ function fakeProcess(overrides: {
         }
       },
     },
-    on: (event: 'close', listener: CloseListener) => {
+    on: (event: 'close' | 'error', listener: CloseListener | ErrorListener) => {
       if (event === 'close') {
-        closeListeners.push(listener);
+        closeListeners.push(listener as CloseListener);
+      } else if (event === 'error') {
+        errorListeners.push(listener as ErrorListener);
       }
     },
     kill: () => {},
   };
 
   setImmediate(() => {
+    if (overrides.errorOnSpawn) {
+      for (const listener of errorListeners) {
+        listener(new Error('ENOENT: spawn node ENOENT'));
+      }
+      return;
+    }
     if (overrides.stdoutData) {
       for (const listener of stdoutListeners) {
         listener(overrides.stdoutData);
@@ -245,11 +256,78 @@ suite('TscRunner', () => {
       stderr: '',
       executionTimeMs: 100,
       cancelled: false,
+      timedOut: false,
       tsconfigPath: '/workspace/tsconfig.json',
     };
     assert.strictEqual(result.exitCode, 0);
     assert.strictEqual(result.cancelled, false);
+    assert.strictEqual(result.timedOut, false);
     assert.strictEqual(result.executionTimeMs, 100);
+  });
+
+  test('handles spawn error event', async () => {
+    const delegate = makeDelegate(fakeProcess({ errorOnSpawn: true }));
+    const runner = new TscRunner(delegate);
+
+    const result = await runner.run({
+      typescriptPath: '/workspace/node_modules/typescript',
+      tsconfigPath: '/workspace/tsconfig.json',
+    });
+
+    assert.ok(result.error);
+    assert.ok(result.error!.includes('ENOENT'));
+    assert.strictEqual(result.timedOut, false);
+    assert.strictEqual(result.cancelled, false);
+  });
+
+  test('handles spawn throw', async () => {
+    const delegate: TscRunnerDelegate = {
+      spawn: () => { throw new Error('ENOENT: spawn node ENOENT'); },
+    };
+    const runner = new TscRunner(delegate);
+
+    const result = await runner.run({
+      typescriptPath: '/workspace/node_modules/typescript',
+      tsconfigPath: '/workspace/tsconfig.json',
+    });
+
+    assert.ok(result.error);
+    assert.ok(result.error!.includes('ENOENT'));
+  });
+
+  test('times out after timeoutMs', async () => {
+    const delegate = makeDelegate(fakeProcess({
+      exitCode: 0,
+      closeDelayMs: 50000,
+    }));
+    const runner = new TscRunner(delegate);
+
+    const result = await runner.run({
+      typescriptPath: '/workspace/node_modules/typescript',
+      tsconfigPath: '/workspace/tsconfig.json',
+      timeoutMs: 50,
+    });
+
+    assert.strictEqual(result.timedOut, true);
+    assert.ok(result.error);
+    assert.ok(result.error!.includes('Timeout'));
+  });
+
+  test('does not time out when process completes before timeout', async () => {
+    const delegate = makeDelegate(fakeProcess({
+      exitCode: 0,
+      closeDelayMs: 5,
+    }));
+    const runner = new TscRunner(delegate);
+
+    const result = await runner.run({
+      typescriptPath: '/workspace/node_modules/typescript',
+      tsconfigPath: '/workspace/tsconfig.json',
+      timeoutMs: 5000,
+    });
+
+    assert.strictEqual(result.timedOut, false);
+    assert.strictEqual(result.exitCode, 0);
   });
 
   test('import TscRunner is a class', () => {

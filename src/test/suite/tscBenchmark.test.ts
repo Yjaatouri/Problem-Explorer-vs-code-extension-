@@ -21,7 +21,9 @@ function makeTscProcess(output: string, exitCode: number, delayMs: number): TscP
   return {
     stdout: { on: (_e: 'data', l: (chunk: string) => void) => { dataListeners.push(l); } },
     stderr: { on: (_e: 'data', _l: (chunk: string) => void) => {} },
-    on: (_e: 'close', l: (code: number | null) => void) => { closeListeners.push(l); },
+    on: (_e: 'close' | 'error', l: ((code: number | null) => void) | ((err: Error) => void)) => {
+      if (_e === 'close') { closeListeners.push(l as (code: number | null) => void); }
+    },
     kill: () => {},
   };
 }
