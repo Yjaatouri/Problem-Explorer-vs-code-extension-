@@ -1,4 +1,4 @@
-import { Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
+import { Disposable, Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState } from '../core/types';
 
@@ -22,7 +22,7 @@ export interface ProblemStateChangeEvent {
 }
 
 /** Manages the public API exposed by `activate()` for other extensions */
-export class ApiManager implements ProblemExplorerAPI {
+export class ApiManager implements ProblemExplorerAPI, Disposable {
   private readonly _onDidChangeProblemState = new EventEmitter<ProblemStateChangeEvent>();
   readonly onDidChangeProblemState: Event<ProblemStateChangeEvent> =
     this._onDidChangeProblemState.event;
@@ -48,5 +48,9 @@ export class ApiManager implements ProblemExplorerAPI {
   notifyChanged(uri: Uri, _folderUri: Uri): void {
     const status = this.problemStore.get(uri);
     this._onDidChangeProblemState.fire({ uri, status });
+  }
+
+  dispose(): void {
+    this._onDidChangeProblemState.dispose();
   }
 }

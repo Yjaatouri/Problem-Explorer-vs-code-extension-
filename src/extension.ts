@@ -166,6 +166,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       tscProvider,
       diagProviderManager,
       providerManager,
+      decorationEngine,
+      apiManager,
       { dispose: () => { trendTracker.stop(); } },
     );
 

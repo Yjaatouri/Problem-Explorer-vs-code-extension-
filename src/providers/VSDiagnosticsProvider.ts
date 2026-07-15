@@ -27,7 +27,7 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly log: (msg: string) => void,
   ) {
     super();
-    this.provider.onDidUpdate((changed: vscode.Uri[]) => {
+    this.registerDisposable(this.provider.onDidUpdate((changed: vscode.Uri[]) => {
       this.diagEventCount++;
       this.log(`[FORENSIC:Step2] onDidUpdate: ${changed.length} changed URIs`);
       this.notifyApi(changed);
@@ -37,7 +37,7 @@ public get eventCount(): number { return this.diagEventCount; }
       if (changed.length > 0) {
         this.flushUpdates?.();
       }
-    });
+    }));
   }
 
   private notifyApi(uris: vscode.Uri[]): void {

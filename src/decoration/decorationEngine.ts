@@ -1,5 +1,6 @@
 import {
   CancellationToken,
+  Disposable,
   Event,
   EventEmitter,
   FileDecoration,
@@ -15,11 +16,6 @@ import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
 import { normalizeUriKey } from '../core/uriKey';
-
-/** Delegate interface for workspace folder lookups (enables testability) */
-export interface DecorationEngineDelegate {
-  getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
-}
 
 // ----- FORENSIC COUNTERS -----
 export const forensicCounters = {
@@ -68,7 +64,7 @@ const defaultDecorationDelegate: DecorationEngineDelegate = {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 };
 
-export class DecorationEngine implements FileDecorationProvider {
+export class DecorationEngine implements FileDecorationProvider, Disposable {
   private readonly _onDidChangeFileDecorations = new EventEmitter<Uri | Uri[] | undefined>();
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
@@ -200,6 +196,10 @@ export class DecorationEngine implements FileDecorationProvider {
     const now = new Date().toISOString();
     this._log(`[FORENSIC:Step4] refresh() → fireDidChange(undefined) time=${now}`);
     this._onDidChangeFileDecorations.fire(undefined);
+  }
+
+  dispose(): void {
+    this._onDidChangeFileDecorations.dispose();
   }
 
   private toDecoration(status: ProblemState): FileDecoration | undefined {
