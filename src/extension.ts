@@ -61,7 +61,11 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
 }, log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
-    const tscProvider = new TscDiagnosticProvider(problemStore);
+    const tscProvider = new TscDiagnosticProvider(
+      problemStore,
+      undefined, undefined, undefined,
+      configManager.getConfig().typescript.timeout,
+    );
     const commandManager = new CommandManager(
       diagProvider,
       decorationEngine,
@@ -108,14 +112,29 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       const config = configManager.getConfig();
       diagProvider.setSeverityOverrides(config.severityOverrides);
       diagProvider.setIgnorePatterns(config.ignorePatterns);
+      tscProvider.updateConfig(config.typescript);
     };
     applyConfig();
-    log('config applied: enabled=' + configManager.getConfig().enabled);
+    const tscCfg = configManager.getConfig().typescript;
+    log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled);
 
+    if (tscCfg.enabled && tscCfg.scanOnStartup) {
+      log('[TSC] scanOnStartup enabled — triggering initial scan');
+      tscProvider.refresh();
+    }
+
+    let prevTscEnabled = tscCfg.enabled;
     context.subscriptions.push(
       configManager.onDidChangeConfig(() => {
         log('config changed');
+        const prev = prevTscEnabled;
         applyConfig();
+        const curr = configManager.getConfig().typescript;
+        prevTscEnabled = curr.enabled;
+        if (curr.enabled && !prev) {
+          log('[TSC] Scan enabled via config change — triggering scan');
+          tscProvider.refresh();
+        }
       }),
     );
 

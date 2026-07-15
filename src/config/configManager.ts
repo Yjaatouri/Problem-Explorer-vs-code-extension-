@@ -5,7 +5,7 @@ import {
   EventEmitter,
   workspace,
 } from 'vscode';
-import { Config } from '../core/types';
+import { Config, TscConfig } from '../core/types';
 import { SETTINGS_SECTION } from '../core/constants';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
@@ -63,6 +63,18 @@ export class ConfigManager implements Disposable {
       warningColor: cfg.get<string | undefined>('warningColor', undefined),
       infoColor: cfg.get<string | undefined>('infoColor', undefined),
       severityOverrides: cfg.get<Record<string, Record<string, string>> | undefined>('severityOverrides', undefined),
+      typescript: this.readTscConfig(cfg),
+    };
+  }
+
+  private readTscConfig(cfg: { get<T>(key: string, defaultValue?: T): T }): TscConfig {
+    return {
+      enabled: cfg.get<boolean>('typescript.enabled', true),
+      autoScan: cfg.get<boolean>('typescript.autoScan', true),
+      scanOnStartup: cfg.get<boolean>('typescript.scanOnStartup', true),
+      timeout: cfg.get<number>('typescript.timeout', 120000),
+      useWorkspaceVersion: cfg.get<boolean>('typescript.useWorkspaceVersion', true),
+      maxConcurrentScans: cfg.get<number>('typescript.maxConcurrentScans', 1),
     };
   }
 }

@@ -215,6 +215,39 @@
               }
             }
           }
+        },
+        "problemExplorer.typescript.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable TypeScript scanning via tsc --noEmit"
+        },
+        "problemExplorer.typescript.autoScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan TypeScript projects when files change"
+        },
+        "problemExplorer.typescript.scanOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan TypeScript projects when the extension activates"
+        },
+        "problemExplorer.typescript.timeout": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 5000,
+          "description": "Timeout in milliseconds for each tsc --noEmit invocation"
+        },
+        "problemExplorer.typescript.useWorkspaceVersion": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the workspace's installed TypeScript version instead of VS Code's built-in"
+        },
+        "problemExplorer.typescript.maxConcurrentScans": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum number of concurrent tsc scans (currently limited to 1)"
         }
       }
     }

@@ -16,6 +16,15 @@ export interface ProblemState {
   readonly fileCount: number;
 }
 
+export interface TscConfig {
+  readonly enabled: boolean;
+  readonly autoScan: boolean;
+  readonly scanOnStartup: boolean;
+  readonly timeout: number;
+  readonly useWorkspaceVersion: boolean;
+  readonly maxConcurrentScans: number;
+}
+
 /** Shape of the `problemExplorer.*` user settings at runtime */
 export interface Config {
   readonly enabled: boolean;
@@ -31,6 +40,7 @@ export interface Config {
    * Example: `{ ".py": { "Error": "Warning" } }` demotes Python errors to warnings.
    */
   readonly severityOverrides: Record<string, Record<string, string>> | undefined;
+  readonly typescript: TscConfig;
 }
 
 /** Convenience type for badge formatting — just the counts, no severity */

@@ -334,7 +334,7 @@ suite('TscDiagnosticProvider', () => {
     const provider = makeProvider({ tscDelayMs: 20 });
     // runScan with no delay means both get rejected but pendingRefresh is set
     const first = provider.runScan();
-    // While scanning, trigger second ÔÇö should set pendingRefresh
+    // While scanning, trigger second ï¿½ï¿½ï¿½ should set pendingRefresh
     const second = provider.runScan();
     await Promise.all([first, second]);
     // The pending refresh should have fired and completed
@@ -365,7 +365,6 @@ suite('TscDiagnosticProvider', () => {
     };
     assert.strictEqual(t.totalMs, 100);
   });
-});
 
   test('currentProject is undefined before scan', () => {
     const provider = makeProvider();
@@ -379,3 +378,25 @@ suite('TscDiagnosticProvider', () => {
     assert.strictEqual(provider.currentProject, undefined);
     provider.dispose();
   });
+
+  test('enabled is true by default', () => {
+    const provider = makeProvider();
+    assert.strictEqual(provider.enabled, true);
+    provider.dispose();
+  });
+
+  test('updateConfig changes enabled and timeout', () => {
+    const provider = makeProvider();
+    provider.updateConfig({ enabled: false, autoScan: true, scanOnStartup: false, timeout: 5000, useWorkspaceVersion: false, maxConcurrentScans: 1 });
+    assert.strictEqual(provider.enabled, false);
+    provider.dispose();
+  });
+
+  test('disabled scan returns empty', async () => {
+    const provider = makeProvider();
+    provider.updateConfig({ enabled: false, autoScan: true, scanOnStartup: false, timeout: 120000, useWorkspaceVersion: true, maxConcurrentScans: 1 });
+    const result = await provider.runScan();
+    assert.strictEqual(result.length, 0);
+    provider.dispose();
+  });
+});

@@ -59,9 +59,14 @@ const defaultDelegate: ProjectResolverDelegate = {
 
 export class ProjectResolver {
   private readonly delegate: ProjectResolverDelegate;
+  private _useWorkspaceVersion = true;
 
   constructor(delegate?: ProjectResolverDelegate) {
     this.delegate = delegate ?? defaultDelegate;
+  }
+
+  set useWorkspaceVersion(value: boolean) {
+    this._useWorkspaceVersion = value;
   }
 
   async resolveAll(): Promise<TypeScriptProject[]> {
@@ -99,8 +104,10 @@ export class ProjectResolver {
   }
 
   resolveTypeScriptModule(fromDir: string): { path: string; version: string } | undefined {
-    const workspaceTypeScript = this.traverseUpForTypeScript(fromDir);
-    if (workspaceTypeScript) return workspaceTypeScript;
+    if (this._useWorkspaceVersion) {
+      const workspaceTypeScript = this.traverseUpForTypeScript(fromDir);
+      if (workspaceTypeScript) return workspaceTypeScript;
+    }
 
     const vsCodeTypeScript = this.getVSCodeTypeScript();
     if (vsCodeTypeScript) return vsCodeTypeScript;

@@ -1,7 +1,7 @@
 import { Event, EventEmitter, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProblemState, ProblemSeverity } from '../core/types';
+import { ProblemState, ProblemSeverity, TscConfig } from '../core/types';
 import { ProjectResolver, TypeScriptProject } from '../typescript/ProjectResolver';
 import { TscRunner, TscRunOptions, DEFAULT_TSC_TIMEOUT_MS } from '../typescript/TscRunner';
 import { TscOutputParser, TscDiagnostic } from '../typescript/TscOutputParser';
@@ -37,10 +37,11 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   private _disposed = false;
   private _scanning = false;
   private _pendingRefresh = false;
+  private _enabled = true;
   private readonly projectResolver: ProjectResolver;
   private readonly tscRunner: TscRunner;
   private readonly outputParser: TscOutputParser;
-  private readonly timeoutMs: number;
+  private timeoutMs: number;
   private readonly refreshDebounceMs: number;
   private abortController: AbortController | undefined;
   private _lastScanErrors: TscScanError[] = [];
@@ -75,6 +76,16 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   get currentProject(): string | undefined {
     return this._currentProject;
+  }
+
+  get enabled(): boolean {
+    return this._enabled;
+  }
+
+  updateConfig(cfg: TscConfig): void {
+    this._enabled = cfg.enabled;
+    this.timeoutMs = cfg.timeout;
+    this.projectResolver.useWorkspaceVersion = cfg.useWorkspaceVersion;
   }
 
   constructor(
@@ -114,6 +125,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   async refresh(): Promise<void> {
     if (this._disposed) return;
+    if (!this._enabled) return;
 
     this._clearDebounce();
 
@@ -145,6 +157,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   async runScan(): Promise<Uri[]> {
     if (this._disposed) return [];
+    if (!this._enabled) return [];
     if (this._scanning) {
       this._pendingRefresh = true;
       return [];
