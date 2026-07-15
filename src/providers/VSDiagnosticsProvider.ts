@@ -5,7 +5,6 @@ import { ApiManager } from '../api/problemExplorerApi';
 import { DecorationEngine } from '../decoration/decorationEngine';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 import { TrendTracker } from '../trend/trendTracker';
-import { ProblemCache } from '../cache/cacheLayer';
 import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
@@ -25,7 +24,6 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly decorationEngine: DecorationEngine,
     private readonly statusBarManager: StatusBarManager,
     private readonly trendTracker: TrendTracker,
-    private readonly cache: ProblemCache,
     private readonly log: (msg: string) => void,
   ) {
     super();
@@ -128,7 +126,6 @@ public get eventCount(): number { return this.diagEventCount; }
       this.decorationEngine.refresh();
       this.log('[FORENSIC:Step4] initial refresh() called → fireDidChange(undefined)');
       this.statusBarManager.update();
-      this.log(`[FORENSIC:Step1-init] status bar: errors=${this.cache.computeTotals().errorCount} warnings=${this.cache.computeTotals().warningCount} info=${this.cache.computeTotals().infoCount}`);
     }
 
     let pollAttempts = 0;
@@ -155,7 +152,6 @@ public get eventCount(): number { return this.diagEventCount; }
         }
         this.decorationEngine.refresh();
         this.statusBarManager.update();
-        this.log(`[INIT-POLL] status bar: errors=${this.cache.computeTotals().errorCount} warnings=${this.cache.computeTotals().warningCount} info=${this.cache.computeTotals().infoCount}`);
       }
     }, 2000);
     this.registerDisposable({ dispose: () => clearInterval(pollInterval) });

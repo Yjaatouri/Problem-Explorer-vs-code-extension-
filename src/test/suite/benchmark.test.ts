@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import { Uri, Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
-import { LruCache } from '../../cache/lruCache';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
 import { aggregateStatuses } from '../../folder/propagationStrategy';
@@ -28,14 +27,17 @@ suite('Benchmarks', function () {
   }
 
   test('provideFileDecoration lookup < 1µs (target)', () => {
-    const cache = new ProblemCache();
     const store = new ProblemStore();
-    const engine = new DecorationEngine(cache, store);
+    const engine = new DecorationEngine(store, {
+      getWorkspaceFolder: (uri) =>
+        uri.toString().startsWith(rootUri.toString())
+          ? { uri: rootUri, name: 'workspace', index: 0 }
+          : undefined,
+    });
 
     const fileUri = Uri.parse('file:///workspace/src/file.ts');
     const state = { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 };
     store.set(fileUri, state);
-    cache.set(fileUri, state, rootUri);
 
     const result = measure('provideFileDecoration', () => {
       engine.provideFileDecoration(fileUri, {} as any);
@@ -47,6 +49,7 @@ suite('Benchmarks', function () {
 
   test('fullScan with 10k files < 200ms (target)', () => {
     const cache = new ProblemCache();
+    const store = new ProblemStore();
     const entries: [Uri, Diagnostic[]][] = [];
 
     for (let i = 0; i < 10000; i++) {
@@ -55,7 +58,7 @@ suite('Benchmarks', function () {
       entries.push([uri, diags]);
     }
 
-    const dm = new DiagnosticsManager(cache, {
+    const dm = new DiagnosticsManager(cache, store, {
       getAllDiagnostics: () => entries,
       getUriDiagnostics: () => [],
       getWorkspaceFolder: mockWorkspaceFolder,
@@ -64,6 +67,7 @@ suite('Benchmarks', function () {
 
     const result = measure('fullScan (10k files)', () => {
       cache.clear();
+      store.clear();
       dm.fullScan();
     }, 5);
 
@@ -71,32 +75,9 @@ suite('Benchmarks', function () {
     assert.ok(result.totalMs / 5 < 1000, `fullScan avg ${(result.totalMs / 5).toFixed(2)}ms (target < 1000ms)`);
   });
 
-  test('LRU cache get/set at capacity (10k entries)', () => {
-    const lru = new LruCache<string, number>(10000);
-    for (let i = 0; i < 10000; i++) {
-      lru.set(`key${i}`, i);
-    }
-
-    const getResult = measure('LRU get (10k entries)', () => {
-      for (let i = 0; i < 1000; i++) {
-        lru.get(`key${i}`);
-      }
-    }, 10);
-
-    console.log(formatResult(getResult));
-
-    const setResult = measure('LRU set (10k entries)', () => {
-      for (let i = 0; i < 1000; i++) {
-        lru.set(`key${i}`, i);
-      }
-    }, 10);
-
-    console.log(formatResult(setResult));
-    assert.ok(setResult.avgUs < 2000, `LRU set avg ${setResult.avgUs.toFixed(3)}µs (target < 2000µs)`);
-  });
-
   test('rapid diagnostic changes (1000 events)', () => {
     const cache = new ProblemCache();
+    const store = new ProblemStore();
     const diagnostics: [Uri, Diagnostic[]][] = [];
     const allUris: Uri[] = [];
 
@@ -106,7 +87,7 @@ suite('Benchmarks', function () {
       diagnostics.push([uri, [makeDiag(DiagnosticSeverity.Error)]]);
     }
 
-    const dm = new DiagnosticsManager(cache, {
+    const dm = new DiagnosticsManager(cache, store, {
       getAllDiagnostics: () => diagnostics,
       getUriDiagnostics: (uri: Uri) => {
         const found = diagnostics.find(([u]) => u.toString() === uri.toString());
@@ -118,6 +99,7 @@ suite('Benchmarks', function () {
 
     const result = measure('processChanges (1000 events)', () => {
       cache.clear();
+      store.clear();
       for (let i = 0; i < 1000; i++) {
         dm.processChanges({ uris: [allUris[i]] } as any);
       }

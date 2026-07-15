@@ -81,11 +81,16 @@ export class FolderStatusManager {
       }
 
       // Recompute the folder aggregate from its index entries
-      const status = this.aggregateFromIndex(parentKey);
-      const parentUri = Uri.parse(parentKey);
-      this.problemStore.set(parentUri, status);
-      if (this.problemStore.setFolderAggregate(parentUri, status)) {
-        changed.push(parentUri);
+      if (index && index.size > 0) {
+        const status = this.aggregateFromIndex(parentKey);
+        const parentUri = Uri.parse(parentKey);
+        if (this.problemStore.setFolderAggregate(parentUri, status)) {
+          changed.push(parentUri);
+        }
+      } else if (this.problemStore.isFolderAggregate(Uri.parse(parentKey))) {
+        // Index is empty but folder aggregate existed - remove it
+        this.problemStore.delete(Uri.parse(parentKey));
+        changed.push(Uri.parse(parentKey));
       }
 
       // Walk up: this parent becomes the "child" for the next level
@@ -113,10 +118,16 @@ export class FolderStatusManager {
       rootIndex?.delete(fileKey);
     }
 
-    const rootStatus = this.aggregateFromIndex(rootStr);
-    this.problemStore.set(folder.uri, rootStatus);
-    if (this.problemStore.setFolderAggregate(folder.uri, rootStatus)) {
-      changed.push(folder.uri);
+    // Only update root folder aggregate if it has children or previously existed
+    const rootUri = folder.uri;
+    if (rootIndex && rootIndex.size > 0) {
+      const rootStatus = this.aggregateFromIndex(rootStr);
+      if (this.problemStore.setFolderAggregate(rootUri, rootStatus)) {
+        changed.push(rootUri);
+      }
+    } else if (this.problemStore.isFolderAggregate(rootUri)) {
+      this.problemStore.delete(rootUri);
+      changed.push(rootUri);
     }
 
     return changed;
@@ -207,7 +218,6 @@ export class FolderStatusManager {
       for (const dirStr of sortedFolders) {
         const dirUri = Uri.parse(dirStr);
         const status = this.recomputeFolderStatus(dirUri, folderUri);
-        this.problemStore.set(dirUri, status);
         if (this.problemStore.setFolderAggregate(dirUri, status)) {
           changed.push(dirUri);
         }
@@ -240,7 +250,6 @@ export class FolderStatusManager {
       }
 
       const rootStatus = this.recomputeFolderStatus(folderUri, folderUri);
-      this.problemStore.set(folderUri, rootStatus);
       if (this.problemStore.setFolderAggregate(folderUri, rootStatus)) {
         changed.push(folderUri);
       }

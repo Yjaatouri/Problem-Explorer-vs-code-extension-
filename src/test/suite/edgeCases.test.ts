@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
-import { LruCache } from '../../cache/lruCache';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../../diagnostics/diagnosticsManager';
 import { FolderStatusManager, FolderWorkspace } from '../../folder/folderStatusManager';
@@ -32,14 +31,13 @@ suite('EdgeCases', () => {
         getWorkspaceFolder: () => undefined,
         isActiveEditorUri: () => false,
       };
-      const mgr = new DiagnosticsManager(new ProblemCache(), delegate);
+      const mgr = new DiagnosticsManager(new ProblemCache(), new ProblemStore(), delegate);
       const uri = Uri.parse('file:///workspace/src/file.ts');
       assert.strictEqual(mgr.getStatus(uri), undefined);
     });
 
     test('DecorationEngine.provideFileDecoration returns undefined without workspace folder', () => {
-      const cache = new ProblemCache();
-      const engine = new DecorationEngine(cache, new ProblemStore());
+      const engine = new DecorationEngine(new ProblemStore());
       const result = engine.provideFileDecoration(Uri.parse('file:///workspace/file.ts'), {} as any);
       assert.strictEqual(result, undefined);
     });
@@ -49,7 +47,7 @@ suite('EdgeCases', () => {
         workspaceFolders: [],
         getWorkspaceFolder: () => undefined,
       };
-      const mgr = new FolderStatusManager(new ProblemCache(), new ProblemStore(), wf);
+      const mgr = new FolderStatusManager(new ProblemStore(), wf);
       const changed = mgr.updateAncestors(Uri.parse('file:///workspace/file.ts'));
       assert.strictEqual(changed.length, 0);
     });
@@ -59,7 +57,7 @@ suite('EdgeCases', () => {
         workspaceFolders: [],
         getWorkspaceFolder: () => undefined,
       };
-      const mgr = new FolderStatusManager(new ProblemCache(), new ProblemStore(), wf);
+      const mgr = new FolderStatusManager(new ProblemStore(), wf);
       const changed = mgr.rebuildAll();
       assert.strictEqual(changed.length, 0);
     });
@@ -104,7 +102,7 @@ suite('EdgeCases', () => {
     });
 
     test('Mixed unicode in folder status propagation', () => {
-      const cache = new ProblemCache();
+      const store = new ProblemStore();
       const wf: FolderWorkspace = {
         workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
         getWorkspaceFolder: (u) =>
@@ -112,9 +110,9 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
+      const mgr = new FolderStatusManager(store, wf);
       const child = Uri.parse('file:///workspace/测试/src/file.ts');
-      cache.set(child, status(ProblemSeverity.Error), rootUri);
+      store.set(child, status(ProblemSeverity.Error));
       const changed = mgr.updateAncestors(child);
       assert.ok(changed.length > 0);
     });
@@ -131,18 +129,13 @@ suite('EdgeCases', () => {
     });
 
     test('DecorationEngine returns undefined for non-file URI (no workspace folder matches)', () => {
-      const engine = new DecorationEngine(new ProblemCache(), new ProblemStore());
+      const engine = new DecorationEngine(new ProblemStore(), {
+        getWorkspaceFolder: () => undefined,
+      });
       const result = engine.provideFileDecoration(Uri.parse('untitled:///Untitled-1.ts'), {} as any);
       assert.strictEqual(result, undefined);
     });
 
-    test('LruCache accepts non-file URI keys', () => {
-      const lru = new LruCache<string, number>(10);
-      const key = 'untitled:///Untitled-1';
-      lru.set(key, 42);
-      assert.strictEqual(lru.get(key), 42);
-      assert.strictEqual(lru.get('file:///other'), undefined);
-    });
   });
 
   // ── 4. Deleted files ─────────────────────────────────────────
@@ -155,23 +148,6 @@ suite('EdgeCases', () => {
       assert.ok(cache.get(uri, rootUri));
       cache.delete(uri, rootUri);
       assert.strictEqual(cache.get(uri, rootUri), undefined);
-    });
-
-    test('LruCache.delete removes entry and updates size', () => {
-      const lru = new LruCache<string, number>(10);
-      lru.set('a', 1);
-      lru.set('b', 2);
-      assert.strictEqual(lru.size, 2);
-      const deleted = lru.delete('a');
-      assert.strictEqual(deleted, true);
-      assert.strictEqual(lru.size, 1);
-      assert.strictEqual(lru.get('a'), undefined);
-      assert.strictEqual(lru.get('b'), 2);
-    });
-
-    test('LruCache.delete returns false for missing key', () => {
-      const lru = new LruCache<string, number>(10);
-      assert.strictEqual(lru.delete('does-not-exist'), false);
     });
 
     test('ProblemCache.delete on non-existent folder does not throw', () => {
@@ -191,7 +167,7 @@ suite('EdgeCases', () => {
     });
 
     test('FolderStatusManager recomputes after child deletion', () => {
-      const cache = new ProblemCache();
+      const store = new ProblemStore();
       const wf: FolderWorkspace = {
         workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
         getWorkspaceFolder: (u) =>
@@ -199,19 +175,19 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
+      const mgr = new FolderStatusManager(store, wf);
       const fileA = Uri.parse('file:///workspace/src/a.ts');
       const fileB = Uri.parse('file:///workspace/src/b.ts');
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
-      cache.set(fileB, status(ProblemSeverity.Warning), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
+      store.set(fileB, status(ProblemSeverity.Warning));
       mgr.updateAncestors(fileA);
       mgr.updateAncestors(fileB);
 
-      assert.strictEqual(cache.get(rootUri, rootUri)?.severity, ProblemSeverity.Error);
+      assert.strictEqual(store.get(rootUri)?.severity, ProblemSeverity.Error);
 
-      cache.delete(fileA, rootUri);
+      store.delete(fileA);
       mgr.updateAncestors(fileA); // fileA is now missing, root recomputed
-      const rootStatus = cache.get(rootUri, rootUri);
+      const rootStatus = store.get(rootUri);
       assert.strictEqual(rootStatus?.severity, ProblemSeverity.Warning);
     });
   });
@@ -232,7 +208,7 @@ suite('EdgeCases', () => {
     });
 
     test('movePrefix followed by updateAncestors produces correct root aggregate', () => {
-      const cache = new ProblemCache();
+      const store = new ProblemStore();
       const wf: FolderWorkspace = {
         workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
         getWorkspaceFolder: (u) =>
@@ -240,28 +216,30 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
+      const mgr = new FolderStatusManager(store, wf);
       const oldDir = Uri.parse('file:///workspace/src/a');
       const newDir = Uri.parse('file:///workspace/src/b');
       const fileA = Uri.parse('file:///workspace/src/a/file.ts');
+      const fileB = Uri.parse('file:///workspace/src/b/file.ts');
 
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
       mgr.updateAncestors(fileA);
-      assert.strictEqual(cache.get(rootUri, rootUri)?.severity, ProblemSeverity.Error);
+      assert.strictEqual(store.get(rootUri)?.severity, ProblemSeverity.Error);
 
-      // Rename the folder
-      cache.movePrefix(oldDir, newDir, rootUri);
+      // Rename the folder: delete old entry, set new entry in store
+      store.delete(fileA);
+      store.set(fileB, status(ProblemSeverity.Error));
       mgr.clearIndexPrefix(oldDir);
       mgr.updateAncestors(oldDir);  // remove old from index
       mgr.updateAncestors(newDir);  // add new to index
 
-      const rootStatus = cache.get(rootUri, rootUri);
+      const rootStatus = store.get(rootUri);
       assert.strictEqual(rootStatus?.severity, ProblemSeverity.Error);
       assert.strictEqual(rootStatus?.errorCount, 1);
     });
 
     test('movePrefix on file creates correct ancestor aggregate at new location', () => {
-      const cache = new ProblemCache();
+      const store = new ProblemStore();
       const wf: FolderWorkspace = {
         workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
         getWorkspaceFolder: (u) =>
@@ -269,25 +247,27 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
+      const mgr = new FolderStatusManager(store, wf);
       const oldFile = Uri.parse('file:///workspace/src/a.ts');
       const newFile = Uri.parse('file:///workspace/src/b.ts');
 
-      cache.set(oldFile, status(ProblemSeverity.Error), rootUri);
+      store.set(oldFile, status(ProblemSeverity.Error));
       mgr.updateAncestors(oldFile);
-      assert.strictEqual(cache.get(rootUri, rootUri)?.errorCount, 1);
+      assert.strictEqual(store.get(rootUri)?.errorCount, 1);
 
-      cache.movePrefix(oldFile, newFile, rootUri);
+      // Simulate move: delete old, add new
+      store.delete(oldFile);
+      store.set(newFile, status(ProblemSeverity.Error));
       mgr.updateAncestors(oldFile);
       mgr.updateAncestors(newFile);
 
-      const rootStatus = cache.get(rootUri, rootUri);
+      const rootStatus = store.get(rootUri);
       assert.strictEqual(rootStatus?.severity, ProblemSeverity.Error);
       assert.strictEqual(rootStatus?.errorCount, 1);
     });
 
     test('delete folder wipes all descendants from ancestor aggregate', () => {
-      const cache = new ProblemCache();
+      const store = new ProblemStore();
       const wf: FolderWorkspace = {
         workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
         getWorkspaceFolder: (u) =>
@@ -295,20 +275,19 @@ suite('EdgeCases', () => {
             ? { uri: rootUri, name: 'workspace', index: 0 }
             : undefined,
       };
-      const mgr = new FolderStatusManager(cache, new ProblemStore(), wf);
+      const mgr = new FolderStatusManager(store, wf);
       const fileInFolderA = Uri.parse('file:///workspace/src/a/file.ts');
 
-      cache.set(fileInFolderA, status(ProblemSeverity.Error), rootUri);
+      store.set(fileInFolderA, status(ProblemSeverity.Error));
       mgr.updateAncestors(fileInFolderA);
-      assert.strictEqual(cache.get(rootUri, rootUri)?.errorCount, 1);
+      assert.strictEqual(store.get(rootUri)?.errorCount, 1);
 
       // Simulate folder deletion
-      cache.delete(Uri.parse('file:///workspace/src/a'), rootUri);   // remove exact
-      cache.deletePrefix(Uri.parse('file:///workspace/src/a'), rootUri); // remove descendants
+      store.deleteByPrefix(Uri.parse('file:///workspace/src/a').toString());
       mgr.updateAncestors(fileInFolderA);  // remove from ancestors
       mgr.updateAncestors(Uri.parse('file:///workspace/src/a'));  // remove folder aggregate
 
-      assert.strictEqual(cache.get(rootUri, rootUri), undefined);
+      assert.strictEqual(store.get(rootUri), undefined);
     });
   });
 
@@ -321,13 +300,6 @@ suite('EdgeCases', () => {
       const cache = new ProblemCache();
       cache.set(uri, status(ProblemSeverity.Error), rootUri);
       assert.strictEqual(cache.get(uri, rootUri)?.severity, ProblemSeverity.Error);
-    });
-
-    test('LruCache handles long string keys', () => {
-      const lru = new LruCache<string, number>(10);
-      const longKey = 'a'.repeat(5000);
-      lru.set(longKey, 1);
-      assert.strictEqual(lru.get(longKey), 1);
     });
 
     test('Ignore filter handles long path (does not crash)', () => {

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { workspace } from 'vscode';
 import { ProblemCache } from './cache/cacheLayer';
 import { DiagnosticsManager } from './diagnostics/diagnosticsManager';
 import { DecorationEngine, dumpForensicReport } from './decoration/decorationEngine';
@@ -46,7 +47,9 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     const cache = new ProblemCache();
     const problemStore = new ProblemStore();
     const diagnosticsManager = new DiagnosticsManager(cache, problemStore);
-    const decorationEngine = new DecorationEngine(cache, problemStore, log);
+    const decorationEngine = new DecorationEngine(problemStore, {
+  getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
+}, log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
     const commandManager = new CommandManager(
@@ -76,7 +79,6 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       decorationEngine,
       statusBarManager,
       trendTracker,
-      cache,
       log,
     );
 

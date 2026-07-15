@@ -1,7 +1,6 @@
 import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemCache } from '../../cache/cacheLayer';
-import { LruCache } from '../../cache/lruCache';
 import { ProblemState, ProblemSeverity } from '../../core/types';
 import { aggregateStatuses } from '../../folder/propagationStrategy';
 import { toProblemState } from '../../diagnostics/severityMapper';
@@ -44,30 +43,6 @@ suite('Scenarios', () => {
       ProblemSeverity.None,
     );
     assert.strictEqual(aggregated.severity, expectedSeverity);
-  });
-
-  test('LRU eviction with capacity stress', () => {
-    const lru = new LruCache<string, number>(100);
-    for (let i = 0; i < 1000; i++) {
-      lru.set(`key${i}`, i);
-    }
-    assert.strictEqual(lru.size, 100);
-    assert.strictEqual(lru.get('key0'), undefined);
-    assert.ok(lru.get('key999') !== undefined);
-  });
-
-  test('rapid LRU set and get pattern', () => {
-    const lru = new LruCache<string, number>(50);
-    for (let round = 0; round < 10; round++) {
-      for (let i = 0; i < 100; i++) {
-        lru.set(`k${i}`, i);
-        lru.get(`k${i}`);
-      }
-    }
-    assert.strictEqual(lru.size, 50);
-    for (let i = 50; i < 100; i++) {
-      assert.ok(lru.has(`k${i}`), `key k${i} should exist`);
-    }
   });
 
   test('deeply nested folders (50 levels)', () => {

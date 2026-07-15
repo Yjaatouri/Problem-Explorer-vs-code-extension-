@@ -1,13 +1,22 @@
 import * as assert from 'assert';
 import { Uri, ThemeColor } from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
-import { DecorationEngine } from '../../decoration/decorationEngine';
+import { DecorationEngine, DecorationEngineDelegate } from '../../decoration/decorationEngine';
 import { ProblemSeverity, ProblemState } from '../../core/types';
 import { COLORS, BADGE_LETTERS } from '../../core/constants';
 
 suite('DecorationEngine', () => {
   const fileUri = Uri.parse('file:///workspace/src/file.ts');
+  const folderUri = Uri.parse('file:///workspace');
+
+  function makeDelegate(): DecorationEngineDelegate {
+    return {
+      getWorkspaceFolder: (uri: Uri) =>
+        uri.toString().startsWith(folderUri.toString())
+          ? { uri: folderUri, name: 'workspace', index: 0 }
+          : undefined,
+    };
+  }
 
   function s(severity: ProblemSeverity, overrides?: Partial<ProblemState>): ProblemState {
     return {
@@ -19,14 +28,12 @@ suite('DecorationEngine', () => {
     };
   }
 
-  let cache: ProblemCache;
   let store: ProblemStore;
   let engine: DecorationEngine;
 
   setup(() => {
-    cache = new ProblemCache();
     store = new ProblemStore();
-    engine = new DecorationEngine(cache, store);
+    engine = new DecorationEngine(store, makeDelegate());
   });
 
   test('provideFileDecoration returns undefined for file outside workspace', () => {

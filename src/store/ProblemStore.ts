@@ -111,10 +111,27 @@ export class ProblemStore {
    * Marks the key as a folder aggregate so `computeTotals()` can skip it
    * (folder aggregates are derived from file entries; summing them would
    * double-count).
-   * @returns `true` if the value changed or was newly inserted.
+   *
+   * A `None`-severity aggregate is deleted instead (no entry when the
+   * folder has no problems), matching the old `ProblemCache` contract.
+   * @returns `true` if the value changed, was newly inserted, or was deleted.
    */
   setFolderAggregate(uri: Uri, state: ProblemState): boolean {
     const key = normalizeUriKey(uri);
+
+    if (state.severity === ProblemSeverity.None) {
+      const had = this.storage.has(key);
+      if (had) {
+        this.storage.delete(key);
+        this.folderKeys.delete(key);
+        this.version++;
+        if (this.batchDepth === 0) {
+          this._onDidChange.fire({ kind: 'removed', uri });
+        }
+      }
+      return had;
+    }
+
     const old = this.storage.get(key);
     const existed = this.storage.has(key);
     this.storage.set(key, state);

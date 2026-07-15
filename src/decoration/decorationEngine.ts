@@ -4,20 +4,22 @@ import {
   EventEmitter,
   FileDecoration,
   FileDecorationProvider,
-  languages,
   ThemeColor,
   Uri,
+  WorkspaceFolder,
   workspace,
 } from 'vscode';
-import { ProblemCache } from '../cache/cacheLayer';
 import { ProblemStore } from '../store/ProblemStore';
 import { Config, ProblemSeverity, ProblemState } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
-import { toProblemState, applySeverityOverrides } from '../diagnostics/severityMapper';
 import { normalizeUriKey } from '../core/uriKey';
-import { forensicLog } from '../forensicLogger';
+
+/** Delegate interface for workspace folder lookups (enables testability) */
+export interface DecorationEngineDelegate {
+  getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
+}
 
 // ----- FORENSIC COUNTERS -----
 export const forensicCounters = {
@@ -58,24 +60,27 @@ export function dumpForensicReport(): string {
   return lines.join('\n');
 }
 
+export interface DecorationEngineDelegate {
+  getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
+}
+
+const defaultDecorationDelegate: DecorationEngineDelegate = {
+  getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
+};
+
 export class DecorationEngine implements FileDecorationProvider {
   private readonly _onDidChangeFileDecorations = new EventEmitter<Uri | Uri[] | undefined>();
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
-  private severityOverrides: Record<string, Record<string, string>> | undefined;
   private config: Config | undefined;
   private readonly _log: (msg: string) => void;
 
   constructor(
-    private readonly cache: ProblemCache,
     private readonly problemStore: ProblemStore,
+    private readonly delegate: DecorationEngineDelegate = defaultDecorationDelegate,
     log?: (msg: string) => void,
   ) {
     this._log = log ?? (() => { /* no-op */ });
-  }
-
-  setSeverityOverrides(overrides: Record<string, Record<string, string>> | undefined): void {
-    this.severityOverrides = overrides;
   }
 
   /** Provide the current user configuration. When unset, defaults apply (enabled, letter badges). */
@@ -92,7 +97,7 @@ export class DecorationEngine implements FileDecorationProvider {
     const now = new Date().toISOString();
     const fsPath = uri.fsPath;
     const configEnabled = this.config?.enabled ?? true;
-    const folder = workspace.getWorkspaceFolder(uri);
+    const folder = this.delegate.getWorkspaceFolder(uri);
 
     const explorerUriStr = uri.toString(true);
 
@@ -105,16 +110,14 @@ export class DecorationEngine implements FileDecorationProvider {
     }
 
     const ignored = isIgnored(uri, this.config?.ignorePatterns);
-    const storeStatus = this.problemStore.get(uri);
-    const diagnostics = languages.getDiagnostics(uri);
-    const diagLen = diagnostics.length;
+    const status = this.problemStore.get(uri);
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folder.uri);
 
     // Step 8: URI consistency log
     this._log(`[FORENSIC:Step8] URI consistency: explorerUri=${uri.toString(true)} fsPath=${fsPath} uriKey=${uriKey} folderKey=${folderKey} scheme=${uri.scheme} authority=${uri.authority}`);
 
-    this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} cacheHit=${!!storeStatus} diagLen=${diagLen} cacheSeverity=${storeStatus?.severity ?? 'none'} uriKey=${uriKey}`);
+    this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} storeHit=${!!status} sev=${status?.severity ?? 'none'} uriKey=${uriKey}`);
 
     try {
       if (this.config && !this.config.enabled) {
@@ -124,8 +127,6 @@ export class DecorationEngine implements FileDecorationProvider {
         return undefined;
       }
 
-      let status = this.problemStore.get(uri);
-
       if (!status) {
         if (ignored) {
           forensicCounters.returnUndefined++;
@@ -133,16 +134,8 @@ export class DecorationEngine implements FileDecorationProvider {
           this._log('  -> RETURN: ignored by pattern');
           return undefined;
         }
-        if (diagLen > 0) {
-          const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
-          status = toProblemState(mapped);
-          this.problemStore.set(uri, status);
-          this.cache.set(uri, status, folder.uri);
-          forensicLog(`[FORENSIC:Step5-DEC] provideFileDecoration cache.set: uri=${uri.toString(true)} sev=${status.severity} err=${status.errorCount} warn=${status.warningCount} diagLen=${diagLen}`);
-          this._log(`  cached NEW: sev=${status.severity} err=${status.errorCount} warn=${status.warningCount}`);
-        }
       } else {
-        this._log(`  cache HIT: sev=${status.severity}`);
+        this._log(`  store HIT: sev=${status.severity}`);
       }
 
       if (!status || status.severity === ProblemSeverity.None) {

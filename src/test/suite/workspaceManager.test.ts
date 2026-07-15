@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import { Uri, WorkspaceFolder } from 'vscode';
+import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
 import { FolderStatusManager } from '../../folder/folderStatusManager';
@@ -23,7 +24,7 @@ suite('WorkspaceManager', () => {
     };
   }
 
-  function makeMockDelegate(
+function makeMockDelegate(
     initialFolders: Uri[],
   ): {
     delegate: WorkspaceDelegate;
@@ -48,11 +49,27 @@ suite('WorkspaceManager', () => {
     };
   }
 
+  function makeDecorationEngine(
+    store: ProblemStore,
+    folders: Uri[],
+  ): DecorationEngine {
+    return new DecorationEngine(store, {
+      getWorkspaceFolder: (uri) => {
+        for (const folder of folders) {
+          if (uri.toString().startsWith(folder.toString())) {
+            return { uri: folder, name: folder.path.split('/').pop() ?? 'root', index: 0 };
+          }
+        }
+        return undefined;
+      },
+    });
+  }
+
   test('getWorkspaceFolders returns initial folders', () => {
     const store = new ProblemStore();
     const dm = new DiagnosticsManager(new ProblemCache(), store);
-    const fm = new FolderStatusManager(new ProblemCache(), store);
-    const de = new DecorationEngine(new ProblemCache(), store);
+    const fm = new FolderStatusManager(store);
+    const de = makeDecorationEngine(store, [rootA, rootB]);
     const { delegate } = makeMockDelegate([rootA, rootB]);
     const wm = new WorkspaceManager(store, dm, fm, de, delegate);
 
@@ -65,8 +82,8 @@ suite('WorkspaceManager', () => {
   test('returns empty array when no folders', () => {
     const store = new ProblemStore();
     const dm = new DiagnosticsManager(new ProblemCache(), store);
-    const fm = new FolderStatusManager(new ProblemCache(), store);
-    const de = new DecorationEngine(new ProblemCache(), store);
+    const fm = new FolderStatusManager(store);
+    const de = makeDecorationEngine(store, []);
     const { delegate } = makeMockDelegate([]);
     const wm = new WorkspaceManager(store, dm, fm, de, delegate);
 
@@ -77,8 +94,8 @@ suite('WorkspaceManager', () => {
     const store = new ProblemStore();
     const cache = new ProblemCache();
     const dm = new DiagnosticsManager(cache, store);
-    const fm = new FolderStatusManager(cache, store);
-    const de = new DecorationEngine(cache, store);
+    const fm = new FolderStatusManager(store);
+    const de = makeDecorationEngine(store, [rootA, rootB]);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
 
     store.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 });
@@ -96,8 +113,8 @@ suite('WorkspaceManager', () => {
     const store = new ProblemStore();
     const cache = new ProblemCache();
     const dm = new DiagnosticsManager(cache, store);
-    const fm = new FolderStatusManager(cache, store);
-    const de = new DecorationEngine(cache, store);
+    const fm = new FolderStatusManager(store);
+    const de = makeDecorationEngine(store, [rootA, rootB]);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
 
     store.set(fileA, { severity: 3, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 });
@@ -116,8 +133,8 @@ suite('WorkspaceManager', () => {
     const store = new ProblemStore();
     const cache = new ProblemCache();
     const dm = new DiagnosticsManager(cache, store);
-    const fm = new FolderStatusManager(cache, store);
-    const de = new DecorationEngine(cache, store);
+    const fm = new FolderStatusManager(store);
+    const de = makeDecorationEngine(store, []);
 
     let fullScanCalled = false;
     const originalFullScan = dm.fullScan.bind(dm);
@@ -137,5 +154,3 @@ suite('WorkspaceManager', () => {
     assert.strictEqual(fullScanCalled, true);
   });
 });
-
-import { ProblemCache } from '../../cache/cacheLayer';

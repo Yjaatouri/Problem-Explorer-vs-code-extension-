@@ -9,9 +9,6 @@ import type { ApiManager } from '../../api/problemExplorerApi';
 import type { DecorationEngine } from '../../decoration/decorationEngine';
 import type { StatusBarManager } from '../../statusBar/statusBarManager';
 import type { TrendTracker } from '../../trend/trendTracker';
-import type { ProblemCache } from '../../cache/cacheLayer';
-import type { ProblemStore } from '../../store/ProblemStore';
-
 function createMockDiagnosticsManager(): DiagnosticsManager {
   return {
     processChanges: () => [],
@@ -53,20 +50,6 @@ function createMockTrendTracker(): TrendTracker {
   } as unknown as TrendTracker;
 }
 
-function createMockCache(): ProblemCache {
-  return {
-    get: () => undefined,
-    computeTotals: () => ({ severity: 0, errorCount: 0, warningCount: 0, infoCount: 0, fileCount: 0 }),
-  } as unknown as ProblemCache;
-}
-
-function createMockProblemStore(): ProblemStore {
-  return {
-    set: () => {},
-    delete: () => false,
-  } as unknown as ProblemStore;
-}
-
 function createProvider(): VSDiagnosticsProvider {
   return new VSDiagnosticsProvider(
     createMockDiagnosticsManager(),
@@ -75,8 +58,6 @@ function createProvider(): VSDiagnosticsProvider {
     createMockDecorationEngine(),
     createMockStatusBarManager(),
     createMockTrendTracker(),
-    createMockCache(),
-    createMockProblemStore(),
     () => {},
   );
 }

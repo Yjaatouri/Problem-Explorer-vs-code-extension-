@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import { Uri } from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
 import { FolderStatusManager, FolderWorkspace } from '../../folder/folderStatusManager';
 import { ProblemSeverity, ProblemState } from '../../core/types';
@@ -49,14 +48,14 @@ suite('FolderStatusManager', () => {
     };
   }
 
-  let cache: ProblemCache;
+  let store: ProblemStore;
   let wf: FolderWorkspace;
   let manager: FolderStatusManager;
 
   setup(() => {
-    cache = new ProblemCache();
+    store = new ProblemStore();
     wf = makeWorkspace([rootUri]);
-    manager = new FolderStatusManager(cache, new ProblemStore(), wf);
+    manager = new FolderStatusManager(store, wf);
   });
 
   suite('recomputeFolderStatus', () => {
@@ -67,29 +66,27 @@ suite('FolderStatusManager', () => {
     });
 
     test('single error child', () => {
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
       const s = manager.recomputeFolderStatus(srcUri, rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
       assert.strictEqual(s.errorCount, 1);
     });
 
     test('worst severity wins across children', () => {
-      cache.set(fileA, status(ProblemSeverity.Info), rootUri);
-      cache.set(fileB, status(ProblemSeverity.Error), rootUri);
+      store.set(fileA, status(ProblemSeverity.Info));
+      store.set(fileB, status(ProblemSeverity.Error));
       const s = manager.recomputeFolderStatus(srcUri, rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
     });
 
     test('counts are summed across children', () => {
-      cache.set(
+      store.set(
         fileA,
         status(ProblemSeverity.Error, { errorCount: 2, warningCount: 1, infoCount: 0 }),
-        rootUri,
       );
-      cache.set(
+      store.set(
         fileB,
         status(ProblemSeverity.Warning, { errorCount: 0, warningCount: 3, infoCount: 2 }),
-        rootUri,
       );
       const s = manager.recomputeFolderStatus(srcUri, rootUri);
       assert.strictEqual(s.errorCount, 2);
@@ -98,8 +95,8 @@ suite('FolderStatusManager', () => {
     });
 
     test('files at different nesting levels are aggregated', () => {
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
-      cache.set(fileRoot, status(ProblemSeverity.Warning), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
+      store.set(fileRoot, status(ProblemSeverity.Warning));
       const s = manager.recomputeFolderStatus(rootUri, rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
       assert.strictEqual(s.errorCount, 1);
@@ -109,7 +106,7 @@ suite('FolderStatusManager', () => {
 
   suite('updateAncestors', () => {
     test('walks from file to root updating each ancestor', () => {
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
       const changed = manager.updateAncestors(fileA);
 
       assert.ok(changed.length >= 2);
@@ -118,7 +115,7 @@ suite('FolderStatusManager', () => {
     });
 
     test('file directly in root updates only root', () => {
-      cache.set(fileRoot, status(ProblemSeverity.Error), rootUri);
+      store.set(fileRoot, status(ProblemSeverity.Error));
       const changed = manager.updateAncestors(fileRoot);
 
       assert.strictEqual(changed.length, 1);
@@ -126,25 +123,25 @@ suite('FolderStatusManager', () => {
     });
 
     test('no-op if no children changed', () => {
-      cache.set(fileA, status(ProblemSeverity.None), rootUri);
+      // No file entry in store — equivalent to cache.set(None) which deletes the entry
       const changed = manager.updateAncestors(fileA);
 
       assert.strictEqual(changed.length, 0);
     });
 
     test('nested folders propagate correctly', () => {
-      cache.set(fileA, status(ProblemSeverity.Error, { errorCount: 3 }), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error, { errorCount: 3 }));
       manager.updateAncestors(fileA);
 
-      const aDir = cache.get(srcA, rootUri);
+      const aDir = store.get(srcA);
       assert.strictEqual(aDir?.severity, ProblemSeverity.Error);
       assert.strictEqual(aDir?.errorCount, 3);
 
-      const srcDir = cache.get(srcUri, rootUri);
+      const srcDir = store.get(srcUri);
       assert.strictEqual(srcDir?.severity, ProblemSeverity.Error);
       assert.strictEqual(srcDir?.errorCount, 3);
 
-      const rootDir = cache.get(rootUri, rootUri);
+      const rootDir = store.get(rootUri);
       assert.strictEqual(rootDir?.severity, ProblemSeverity.Error);
       assert.strictEqual(rootDir?.errorCount, 3);
     });
@@ -158,14 +155,14 @@ suite('FolderStatusManager', () => {
 
   suite('rebuildAll', () => {
     test('rebuilds all folder statuses from scratch', () => {
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
-      cache.set(fileB, status(ProblemSeverity.Warning), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
+      store.set(fileB, status(ProblemSeverity.Warning));
 
       const changed = manager.rebuildAll();
 
       assert.ok(changed.length > 0);
 
-      const rootDir = cache.get(rootUri, rootUri);
+      const rootDir = store.get(rootUri);
       assert.strictEqual(rootDir?.severity, ProblemSeverity.Error);
     });
 
@@ -195,41 +192,41 @@ suite('FolderStatusManager', () => {
           return undefined;
         },
       };
-      const dynamicManager = new FolderStatusManager(cache, new ProblemStore(), dynamicWf);
+      const dynamicManager = new FolderStatusManager(store, dynamicWf);
 
       // No folders initially — rebuildAll should produce nothing
       assert.strictEqual(dynamicManager.rebuildAll().length, 0);
 
       // Add a folder and a cached file under it
       mutableFolders.push(rootUri);
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
 
       // rebuildAll must see the newly added folder
       const changed = dynamicManager.rebuildAll();
       assert.ok(changed.length > 0, 'should detect changes when folders appear after construction');
-      const rootDir = cache.get(rootUri, rootUri);
+      const rootDir = store.get(rootUri);
       assert.strictEqual(rootDir?.severity, ProblemSeverity.Error);
     });
   });
 
   suite('aggregation (worst-severity-wins)', () => {
     test('Error beats Warning', () => {
-      cache.set(fileA, status(ProblemSeverity.Error), rootUri);
-      cache.set(fileB, status(ProblemSeverity.Warning), rootUri);
+      store.set(fileA, status(ProblemSeverity.Error));
+      store.set(fileB, status(ProblemSeverity.Warning));
       const s = manager.recomputeFolderStatus(rootUri, rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
     });
 
     test('Warning beats Info', () => {
-      cache.set(fileA, status(ProblemSeverity.Warning), rootUri);
-      cache.set(fileB, status(ProblemSeverity.Info), rootUri);
+      store.set(fileA, status(ProblemSeverity.Warning));
+      store.set(fileB, status(ProblemSeverity.Info));
       const s = manager.recomputeFolderStatus(rootUri, rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Warning);
     });
 
     test('Info beats None', () => {
-      cache.set(fileA, status(ProblemSeverity.Info), rootUri);
-      cache.set(fileB, status(ProblemSeverity.None), rootUri);
+      store.set(fileA, status(ProblemSeverity.Info));
+      store.set(fileB, status(ProblemSeverity.None));
       const s = manager.recomputeFolderStatus(rootUri, rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Info);
     });

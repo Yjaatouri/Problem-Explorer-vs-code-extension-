@@ -34,14 +34,6 @@ suite('DiagnosticsManager', () => {
     );
   }
 
-  function makeManager() {
-    const cache = new ProblemCache();
-    const store = new ProblemStore();
-    const delegate = makeDelegate([]);
-    const manager = new DiagnosticsManager(cache, store, delegate);
-    return { cache, store, manager };
-  }
-
   function makeManagerWithDelegate(delegate: DiagnosticsDelegate) {
     const cache = new ProblemCache();
     const store = new ProblemStore();
