@@ -136,9 +136,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
           const { oldUri, newUri } = e.files[i];
           const folder = vscode.workspace.getWorkspaceFolder(newUri);
           if (!folder) continue;
-          problemStore.deleteByPrefix(normalizeUriKey(oldUri));
+          problemStore.movePrefix(normalizeUriKey(oldUri), normalizeUriKey(newUri));
           folderStatusManager.clearIndexPrefix(oldUri);
-          vsDiagnosticsProvider.markPending(oldUri);
           vsDiagnosticsProvider.markPending(newUri);
         }
         if (e.files.length > 0) { vsDiagnosticsProvider.flush(); }

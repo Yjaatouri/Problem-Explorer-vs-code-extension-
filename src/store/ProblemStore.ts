@@ -236,6 +236,44 @@ export class ProblemStore {
   }
 
   /**
+   * Re-key all entries whose normalized key starts with `oldPrefix` to `newPrefix`.
+   * Fires a single `movePrefix` event if any entries were moved.
+   * @returns number of entries re-keyed
+   */
+  movePrefix(oldPrefix: string, newPrefix: string): number {
+    if (oldPrefix === newPrefix) return 0;
+    let count = 0;
+    const oldPrefixSlash = oldPrefix + '/';
+    const entriesToMove: { key: string; state: ProblemState; isFolder: boolean }[] = [];
+
+    for (const [key, state] of this.storage) {
+      if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
+        entriesToMove.push({ key, state, isFolder: this.folderKeys.has(key) });
+      }
+    }
+
+    for (const entry of entriesToMove) {
+      const newKey = newPrefix + entry.key.slice(oldPrefix.length);
+      this.storage.delete(entry.key);
+      this.folderKeys.delete(entry.key);
+      this.storage.set(newKey, entry.state);
+      if (entry.isFolder) {
+        this.folderKeys.add(newKey);
+      }
+      count++;
+    }
+
+    if (count > 0) {
+      this.version++;
+      if (this.batchDepth === 0) {
+        this._onDidChange.fire({ kind: 'prefixDeleted', prefix: oldPrefix });
+      }
+    }
+
+    return count;
+  }
+
+  /**
    * Aggregate all **file** entries (excluding folder aggregates) across the store.
    * Folder aggregates are skipped because their counts are derived from file
    * entries — summing them again would double-count.
