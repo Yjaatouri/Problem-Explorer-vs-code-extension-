@@ -314,6 +314,56 @@ suite('ProblemStore', () => {
     assert.throws(() => { (snap[key] as any).errorCount = 99; }, TypeError);
   });
 
+  test('deleteByPrefix removes matching entries', () => {
+    const a = Uri.parse('file:///project/src/a/file.ts');
+    const b = Uri.parse('file:///project/src/a/sub/file2.ts');
+    const c = Uri.parse('file:///project/src/b/file.ts');
+    store.set(a, makeState());
+    store.set(b, makeState());
+    store.set(c, makeState());
+    assert.strictEqual(store.size(), 3);
+
+    const count = store.deleteByPrefix('file:///project/src/a');
+    assert.strictEqual(count, 2);
+    assert.strictEqual(store.get(a), undefined);
+    assert.strictEqual(store.get(b), undefined);
+    assert.ok(store.get(c));
+  });
+
+  test('movePrefix re-keys entries from old prefix to new prefix', () => {
+    const oldA = Uri.parse('file:///project/src/a/file.ts');
+    const oldB = Uri.parse('file:///project/src/a/sub/file2.ts');
+    const newA = Uri.parse('file:///project/src/b/file.ts');
+    const newB = Uri.parse('file:///project/src/b/sub/file2.ts');
+    store.set(oldA, makeState({ errorCount: 1 }));
+    store.set(oldB, makeState({ errorCount: 2 }));
+
+    const count = store.movePrefix('file:///project/src/a', 'file:///project/src/b');
+    assert.strictEqual(count, 2);
+    assert.strictEqual(store.get(oldA), undefined);
+    assert.strictEqual(store.get(oldB), undefined);
+    assert.strictEqual(store.get(newA)?.errorCount, 1);
+    assert.strictEqual(store.get(newB)?.errorCount, 2);
+  });
+
+  test('movePrefix preserves folder-aggregate markers', () => {
+    const oldDir = Uri.parse('file:///project/src/a');
+    const newDir = Uri.parse('file:///project/src/b');
+    store.setFolderAggregate(oldDir, makeState({ errorCount: 3, fileCount: 2 }));
+
+    store.movePrefix('file:///project/src/a', 'file:///project/src/b');
+    assert.strictEqual(store.get(oldDir), undefined);
+    assert.ok(store.isFolderAggregate(newDir));
+    assert.strictEqual(store.get(newDir)?.errorCount, 3);
+  });
+
+  test('movePrefix returns 0 when oldPrefix equals newPrefix', () => {
+    store.set(Uri.parse('file:///project/a.ts'), makeState());
+    const count = store.movePrefix('file:///project', 'file:///project');
+    assert.strictEqual(count, 0);
+    assert.strictEqual(store.size(), 1);
+  });
+
   test('snapshot does not reflect subsequent store mutations', () => {
     const uri = Uri.parse('file:///project/a.ts');
     store.set(uri, makeState({ errorCount: 1 }));

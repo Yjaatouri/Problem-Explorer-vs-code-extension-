@@ -5,6 +5,7 @@ import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../../diagnostics/diagnosticsManager';
 import { FolderStatusManager, FolderWorkspace } from '../../folder/folderStatusManager';
 import { isIgnored } from '../../performance/ignoreFilter';
+import { normalizeUriKey } from '../../core/uriKey';
 import { ProblemSeverity, ProblemState } from '../../core/types';
 
 suite('EdgeCases', () => {
@@ -224,16 +225,16 @@ suite('EdgeCases', () => {
       mgr.updateAncestors(fileA);
       assert.strictEqual(store.get(rootUri)?.severity, ProblemSeverity.Error);
 
-      // Rename the folder: delete old entry, set new entry in store
-      store.delete(fileA);
-      store.set(fileB, status(ProblemSeverity.Error));
+      // Rename the folder using ProblemStore.movePrefix
+      store.movePrefix(normalizeUriKey(oldDir), normalizeUriKey(newDir));
       mgr.clearIndexPrefix(oldDir);
-      mgr.updateAncestors(oldDir);  // remove old from index
-      mgr.updateAncestors(newDir);  // add new to index
+      mgr.updateAncestors(fileB);
 
       const rootStatus = store.get(rootUri);
       assert.strictEqual(rootStatus?.severity, ProblemSeverity.Error);
       assert.strictEqual(rootStatus?.errorCount, 1);
+      assert.strictEqual(store.get(fileA), undefined);
+      assert.strictEqual(store.get(fileB)?.severity, ProblemSeverity.Error);
     });
 
     test('movePrefix on file creates correct ancestor aggregate at new location', () => {
@@ -253,15 +254,16 @@ suite('EdgeCases', () => {
       mgr.updateAncestors(oldFile);
       assert.strictEqual(store.get(rootUri)?.errorCount, 1);
 
-      // Simulate move: delete old, add new
-      store.delete(oldFile);
-      store.set(newFile, status(ProblemSeverity.Error));
+      // Rename using ProblemStore.movePrefix
+      store.movePrefix(normalizeUriKey(oldFile), normalizeUriKey(newFile));
       mgr.updateAncestors(oldFile);
       mgr.updateAncestors(newFile);
 
       const rootStatus = store.get(rootUri);
       assert.strictEqual(rootStatus?.severity, ProblemSeverity.Error);
       assert.strictEqual(rootStatus?.errorCount, 1);
+      assert.strictEqual(store.get(oldFile), undefined);
+      assert.strictEqual(store.get(newFile)?.severity, ProblemSeverity.Error);
     });
 
     test('delete folder wipes all descendants from ancestor aggregate', () => {
