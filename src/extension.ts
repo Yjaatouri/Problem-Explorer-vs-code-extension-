@@ -45,7 +45,15 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     log('Creating core services...');
 
     const problemStore = new ProblemStore();
-    const diagnosticsManager = new DiagnosticsManager(problemStore);
+    const diagnosticsManager = new DiagnosticsManager(problemStore, {
+      getAllDiagnostics: () => vscode.languages.getDiagnostics(),
+      getUriDiagnostics: (uri) => vscode.languages.getDiagnostics(uri),
+      getWorkspaceFolder: (uri) => vscode.workspace.getWorkspaceFolder(uri),
+      isActiveEditorUri: (uri) => {
+        const editor = vscode.window.activeTextEditor;
+        return editor ? editor.document.uri.toString() === uri.toString() : false;
+      },
+    });
     const decorationEngine = new DecorationEngine(problemStore, {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 }, log);

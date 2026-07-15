@@ -22,8 +22,8 @@ export interface DiagnosticsDelegate {
 }
 
 const defaultDelegate: DiagnosticsDelegate = {
-  getAllDiagnostics: () => languages.getDiagnostics(),
-  getUriDiagnostics: (uri: Uri) => languages.getDiagnostics(uri),
+  getAllDiagnostics: () => [],
+  getUriDiagnostics: () => [],
   getWorkspaceFolder: (uri: Uri) => workspace.getWorkspaceFolder(uri),
   isActiveEditorUri: (uri: Uri) => {
     const editor = window.activeTextEditor;
