@@ -6,4 +6,5 @@ export type ProblemStoreChange =
   | { kind: 'removed'; uri: Uri }
   | { kind: 'cleared' }
   | { kind: 'batch' }
-  | { kind: 'prefixDeleted'; prefix: string };
+  | { kind: 'prefixDeleted'; prefix: string }
+  | { kind: 'prefixMoved'; oldPrefix: string; newPrefix: string };

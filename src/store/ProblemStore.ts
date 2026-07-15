@@ -92,18 +92,24 @@ export class ProblemStore {
   /**
    * Insert or update state for a URI (file entry).
    * Clears any stale folder-aggregate marker for this key.
-   * Fires `added` or `updated` event (unless inside a batch).
+   * Fires `added` or `updated` event (unless inside a batch or state unchanged).
    * Increments the version counter.
+   * @returns `true` if the value changed or was newly inserted.
    */
-  set(uri: Uri, state: ProblemState): void {
+  set(uri: Uri, state: ProblemState): boolean {
     const key = normalizeUriKey(uri);
-    const existed = this.storage.has(key);
+    const old = this.storage.get(key);
+    if (old !== undefined && !this.hasChanged(old, state)) {
+      return false;
+    }
+    const existed = old !== undefined;
     this.storage.set(key, state);
     this.folderKeys.delete(key);
     this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
     }
+    return true;
   }
 
   /**
@@ -266,7 +272,7 @@ export class ProblemStore {
     if (count > 0) {
       this.version++;
       if (this.batchDepth === 0) {
-        this._onDidChange.fire({ kind: 'prefixDeleted', prefix: oldPrefix });
+        this._onDidChange.fire({ kind: 'prefixMoved', oldPrefix, newPrefix });
       }
     }
 

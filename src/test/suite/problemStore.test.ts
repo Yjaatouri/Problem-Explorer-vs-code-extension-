@@ -119,6 +119,17 @@ suite('ProblemStore', () => {
     assert.strictEqual((events[0] as any).uri?.toString(), uri.toString());
   });
 
+  test('set does not fire event when state is unchanged', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    const state = makeState();
+    store.set(uri, state);
+    let fired = false;
+    const d = store.onDidChange(() => { fired = true; });
+    store.set(uri, state);
+    d.dispose();
+    assert.strictEqual(fired, false);
+  });
+
   test('set fires updated event for existing entry', () => {
     const uri = Uri.parse('file:///project/a.ts');
     store.set(uri, makeState());
@@ -355,6 +366,20 @@ suite('ProblemStore', () => {
     assert.strictEqual(store.get(oldDir), undefined);
     assert.ok(store.isFolderAggregate(newDir));
     assert.strictEqual(store.get(newDir)?.errorCount, 3);
+  });
+
+  test('movePrefix fires prefixMoved event', () => {
+    store.set(Uri.parse('file:///project/src/a/file.ts'), makeState());
+    const events: ProblemStoreChange[] = [];
+    const d = store.onDidChange((e) => events.push(e));
+    store.movePrefix('file:///project/src/a', 'file:///project/src/b');
+    d.dispose();
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].kind, 'prefixMoved');
+    if (events[0].kind === 'prefixMoved') {
+      assert.strictEqual(events[0].oldPrefix, 'file:///project/src/a');
+      assert.strictEqual(events[0].newPrefix, 'file:///project/src/b');
+    }
   });
 
   test('movePrefix returns 0 when oldPrefix equals newPrefix', () => {
