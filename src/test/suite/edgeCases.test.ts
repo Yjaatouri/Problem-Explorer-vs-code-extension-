@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import { Uri } from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../../diagnostics/diagnosticsManager';
@@ -31,7 +30,7 @@ suite('EdgeCases', () => {
         getWorkspaceFolder: () => undefined,
         isActiveEditorUri: () => false,
       };
-      const mgr = new DiagnosticsManager(new ProblemCache(), new ProblemStore(), delegate);
+      const mgr = new DiagnosticsManager(new ProblemStore(), delegate);
       const uri = Uri.parse('file:///workspace/src/file.ts');
       assert.strictEqual(mgr.getStatus(uri), undefined);
     });
@@ -68,30 +67,30 @@ suite('EdgeCases', () => {
   suite('unicode paths', () => {
     test('Chinese characters in file path', () => {
       const uri = Uri.parse('file:///workspace/文件夹/file.ts');
-      const cache = new ProblemCache();
-      cache.set(uri, status(ProblemSeverity.Error), rootUri);
-      assert.strictEqual(cache.get(uri, rootUri)?.severity, ProblemSeverity.Error);
+      const store = new ProblemStore();
+      store.set(uri, status(ProblemSeverity.Error));
+      assert.strictEqual(store.get(uri)?.severity, ProblemSeverity.Error);
     });
 
     test('Japanese characters in file path', () => {
       const uri = Uri.parse('file:///workspace/プロジェクト/file.ts');
-      const cache = new ProblemCache();
-      cache.set(uri, status(ProblemSeverity.Error), rootUri);
-      assert.strictEqual(cache.get(uri, rootUri)?.severity, ProblemSeverity.Error);
+      const store = new ProblemStore();
+      store.set(uri, status(ProblemSeverity.Error));
+      assert.strictEqual(store.get(uri)?.severity, ProblemSeverity.Error);
     });
 
     test('Emoji in file path', () => {
       const uri = Uri.parse('file:///workspace/🎉/file.ts');
-      const cache = new ProblemCache();
-      cache.set(uri, status(ProblemSeverity.Error), rootUri);
-      assert.strictEqual(cache.get(uri, rootUri)?.severity, ProblemSeverity.Error);
+      const store = new ProblemStore();
+      store.set(uri, status(ProblemSeverity.Error));
+      assert.strictEqual(store.get(uri)?.severity, ProblemSeverity.Error);
     });
 
     test('Accented characters (Cyrillic, umlauts, tilde)', () => {
       const uri = Uri.parse('file:///workspace/déjà_vu_über_cool/ñoño.ts');
-      const cache = new ProblemCache();
-      cache.set(uri, status(ProblemSeverity.Error), rootUri);
-      assert.strictEqual(cache.get(uri, rootUri)?.severity, ProblemSeverity.Error);
+      const store = new ProblemStore();
+      store.set(uri, status(ProblemSeverity.Error));
+      assert.strictEqual(store.get(uri)?.severity, ProblemSeverity.Error);
     });
 
     test('Ignore filter handles unicode paths (does not crash)', () => {
@@ -141,29 +140,28 @@ suite('EdgeCases', () => {
   // ── 4. Deleted files ─────────────────────────────────────────
 
   suite('deleted files', () => {
-    test('ProblemCache.delete removes entry', () => {
-      const cache = new ProblemCache();
+    test('ProblemStore.delete removes entry', () => {
+      const store = new ProblemStore();
       const uri = Uri.parse('file:///workspace/src/file.ts');
-      cache.set(uri, status(ProblemSeverity.Error), rootUri);
-      assert.ok(cache.get(uri, rootUri));
-      cache.delete(uri, rootUri);
-      assert.strictEqual(cache.get(uri, rootUri), undefined);
+      store.set(uri, status(ProblemSeverity.Error));
+      assert.ok(store.get(uri));
+      store.delete(uri);
+      assert.strictEqual(store.get(uri), undefined);
     });
 
-    test('ProblemCache.delete on non-existent folder does not throw', () => {
-      const cache = new ProblemCache();
+    test('ProblemStore.delete on non-existent entry returns false', () => {
+      const store = new ProblemStore();
       const uri = Uri.parse('file:///workspace/file.ts');
-      const folder = Uri.parse('file:///nonexistent');
-      cache.delete(uri, folder);
+      assert.strictEqual(store.delete(uri), false);
     });
 
-    test('ProblemCache.delete then re-set re-creates entry correctly', () => {
-      const cache = new ProblemCache();
+    test('ProblemStore.delete then re-set re-creates entry correctly', () => {
+      const store = new ProblemStore();
       const uri = Uri.parse('file:///workspace/src/file.ts');
-      cache.set(uri, status(ProblemSeverity.Error), rootUri);
-      cache.delete(uri, rootUri);
-      cache.set(uri, status(ProblemSeverity.Warning), rootUri);
-      assert.strictEqual(cache.get(uri, rootUri)?.severity, ProblemSeverity.Warning);
+      store.set(uri, status(ProblemSeverity.Error));
+      store.delete(uri);
+      store.set(uri, status(ProblemSeverity.Warning));
+      assert.strictEqual(store.get(uri)?.severity, ProblemSeverity.Warning);
     });
 
     test('FolderStatusManager recomputes after child deletion', () => {
@@ -195,16 +193,16 @@ suite('EdgeCases', () => {
   // ── 6. Folder delete / rename with nested errors ───────────
 
   suite('folder lifecycle events', () => {
-    test('deletePrefix removes folder aggregate and all descendants from cache', () => {
-      const cache = new ProblemCache();
+    test('deleteByPrefix removes folder aggregate and all descendants from store', () => {
+      const store = new ProblemStore();
       const child = Uri.parse('file:///workspace/src/a/file.ts');
       const sub = Uri.parse('file:///workspace/src/a/sub/file2.ts');
-      cache.set(child, status(ProblemSeverity.Error), rootUri);
-      cache.set(sub, status(ProblemSeverity.Warning), rootUri);
+      store.set(child, status(ProblemSeverity.Error));
+      store.set(sub, status(ProblemSeverity.Warning));
 
-      cache.deletePrefix(Uri.parse('file:///workspace/src/a'), rootUri);
-      assert.strictEqual(cache.get(child, rootUri), undefined);
-      assert.strictEqual(cache.get(sub, rootUri), undefined);
+      store.deleteByPrefix(Uri.parse('file:///workspace/src/a').toString());
+      assert.strictEqual(store.get(child), undefined);
+      assert.strictEqual(store.get(sub), undefined);
     });
 
     test('movePrefix followed by updateAncestors produces correct root aggregate', () => {
@@ -294,12 +292,12 @@ suite('EdgeCases', () => {
   // ── 5. Extremely long file paths ─────────────────────────────
 
   suite('long file paths', () => {
-    test('ProblemCache handles 300-character file path', () => {
+    test('ProblemStore handles 300-character file path', () => {
       const long = 'a'.repeat(280);
       const uri = Uri.parse(`file:///workspace/${long}/file.ts`);
-      const cache = new ProblemCache();
-      cache.set(uri, status(ProblemSeverity.Error), rootUri);
-      assert.strictEqual(cache.get(uri, rootUri)?.severity, ProblemSeverity.Error);
+      const store = new ProblemStore();
+      store.set(uri, status(ProblemSeverity.Error));
+      assert.strictEqual(store.get(uri)?.severity, ProblemSeverity.Error);
     });
 
     test('Ignore filter handles long path (does not crash)', () => {

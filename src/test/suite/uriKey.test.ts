@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { normalizeUriKey } from '../../core/uriKey';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemSeverity, ProblemState } from '../../core/types';
+import { ProblemStore } from '../../store/ProblemStore';
 
 suite('normalizeUriKey', () => {
   test('drive letter casing maps to the same key', () => {
@@ -29,7 +29,7 @@ suite('normalizeUriKey', () => {
   });
 });
 
-suite('ProblemCache URI normalization', () => {
+suite('ProblemStore URI normalization', () => {
   const status: ProblemState = {
     severity: ProblemSeverity.Error,
     errorCount: 1,
@@ -39,24 +39,12 @@ suite('ProblemCache URI normalization', () => {
   };
 
   test('different drive-letter casing resolves to one entry', () => {
-    const cache = new ProblemCache();
-    const folderLower = Uri.parse('file:///c%3A/project');
-    const folderUpper = Uri.parse('file:///C%3A/project');
+    const store = new ProblemStore();
     const fileLower = Uri.parse('file:///c%3A/project/src/a.ts');
     const fileUpper = Uri.parse('file:///C%3A/project/src/a.ts');
 
-    cache.set(fileLower, status, folderLower);
-    assert.strictEqual(cache.get(fileUpper, folderUpper)?.severity, ProblemSeverity.Error);
-    assert.strictEqual(cache.getFolderSize(folderUpper), 1);
-  });
-
-  test('trailing slash on folder URI resolves to same folder cache', () => {
-    const cache = new ProblemCache();
-    const folderA = Uri.parse('file:///workspace/');
-    const folderB = Uri.parse('file:///workspace');
-    const file = Uri.parse('file:///workspace/src/a.ts');
-
-    cache.set(file, status, folderA);
-    assert.strictEqual(cache.get(file, folderB)?.severity, ProblemSeverity.Error);
+    store.set(fileLower, status);
+    assert.strictEqual(store.get(fileUpper)?.severity, ProblemSeverity.Error);
+    assert.strictEqual(store.size(), 1);
   });
 });

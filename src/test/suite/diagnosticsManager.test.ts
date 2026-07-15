@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemSeverity } from '../../core/types';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../../diagnostics/diagnosticsManager';
@@ -35,32 +34,21 @@ suite('DiagnosticsManager', () => {
   }
 
   function makeManagerWithDelegate(delegate: DiagnosticsDelegate) {
-    const cache = new ProblemCache();
     const store = new ProblemStore();
-    const manager = new DiagnosticsManager(cache, store, delegate);
-    return { cache, store, manager };
+    const manager = new DiagnosticsManager(store, delegate);
+    return { store, manager };
   }
 
-  function assertIdentical(cache: ProblemCache, store: ProblemStore, uri: vscode.Uri, folderUri: vscode.Uri) {
-    const cacheEntry = cache.get(uri, folderUri);
-    const storeEntry = store.get(uri);
-    assert.deepStrictEqual(storeEntry, cacheEntry, `store and cache differ for ${uri.toString()}`);
-  }
-
-  test('fullScan seeds both cache and store from all diagnostics', () => {
+  test('fullScan seeds store from all diagnostics', () => {
     const delegate = makeDelegate([
       [fileA, [diag(vscode.DiagnosticSeverity.Error)]],
       [fileB, [diag(vscode.DiagnosticSeverity.Warning)]],
     ]);
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
+    const { store, manager } = makeManagerWithDelegate(delegate);
 
     const changed = manager.fullScan();
 
     assert.strictEqual(changed.length, 2);
-    assertIdentical(cache, store, fileA, folderUri);
-    assertIdentical(cache, store, fileB, folderUri);
-    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.Error);
-    assert.strictEqual(cache.get(fileB, folderUri)?.severity, ProblemSeverity.Warning);
     assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);
     assert.strictEqual(store.get(fileB)?.severity, ProblemSeverity.Warning);
   });
@@ -69,45 +57,28 @@ suite('DiagnosticsManager', () => {
     const delegate = makeDelegate([
       [fileOutside, [diag(vscode.DiagnosticSeverity.Error)]],
     ]);
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
+    const { store, manager } = makeManagerWithDelegate(delegate);
 
     const changed = manager.fullScan();
 
     assert.strictEqual(changed.length, 0);
-    assert.strictEqual(cache.get(fileOutside, folderUri), undefined);
     assert.strictEqual(store.get(fileOutside), undefined);
   });
 
-  test('processChanges updates both cache and store for changed URIs', () => {
+  test('processChanges updates store for changed URIs', () => {
     const delegate = makeDelegate([
       [fileA, [diag(vscode.DiagnosticSeverity.Error)]],
     ]);
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
+    const { store, manager } = makeManagerWithDelegate(delegate);
 
     const event = { uris: [fileA] };
     const changed = manager.processChanges(event);
 
     assert.strictEqual(changed.length, 1);
-    assertIdentical(cache, store, fileA, folderUri);
-    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.Error);
     assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);
   });
 
-  test('processChanges skips unchanged diagnostics', () => {
-    const delegate = makeDelegate([
-      [fileA, [diag(vscode.DiagnosticSeverity.Error)]],
-    ]);
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
-    manager.fullScan();
-
-    const event = { uris: [fileA] };
-    const changed = manager.processChanges(event);
-
-    assert.strictEqual(changed.length, 0);
-    assertIdentical(cache, store, fileA, folderUri);
-  });
-
-  test('processChanges detects severity change in both cache and store', () => {
+  test('processChanges detects severity change in store', () => {
     let currentDiagnostics: vscode.Diagnostic[] = [
       diag(vscode.DiagnosticSeverity.Error),
     ];
@@ -120,7 +91,7 @@ suite('DiagnosticsManager', () => {
           : undefined,
       isActiveEditorUri: () => false,
     };
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
+    const { store, manager } = makeManagerWithDelegate(delegate);
     manager.fullScan();
 
     currentDiagnostics = [diag(vscode.DiagnosticSeverity.Warning)];
@@ -128,12 +99,10 @@ suite('DiagnosticsManager', () => {
     const changed = manager.processChanges(event);
 
     assert.strictEqual(changed.length, 1);
-    assertIdentical(cache, store, fileA, folderUri);
-    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.Warning);
     assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Warning);
   });
 
-  test('processChanges handles empty diagnostics (file fixed) in both cache and store', () => {
+  test('processChanges handles empty diagnostics (file fixed) in store', () => {
     let currentDiagnostics: vscode.Diagnostic[] = [
       diag(vscode.DiagnosticSeverity.Error),
     ];
@@ -144,12 +113,10 @@ suite('DiagnosticsManager', () => {
         uri.toString().startsWith(folderUri.toString())
           ? { uri: folderUri, name: 'workspace', index: 0 }
           : undefined,
-      isActiveEditorUri: () => true, // Active editor so deletion happens
+      isActiveEditorUri: () => true,
     };
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
+    const { store, manager } = makeManagerWithDelegate(delegate);
     manager.fullScan();
-    assertIdentical(cache, store, fileA, folderUri);
-    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.Error);
     assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);
 
     currentDiagnostics = [];
@@ -157,7 +124,6 @@ suite('DiagnosticsManager', () => {
     const changed = manager.processChanges(event);
 
     assert.strictEqual(changed.length, 1);
-    assert.strictEqual(cache.get(fileA, folderUri), undefined);
     assert.strictEqual(store.get(fileA), undefined);
   });
 
@@ -189,40 +155,33 @@ suite('DiagnosticsManager', () => {
     assert.strictEqual(status, undefined);
   });
 
-  test('multiple files in processChanges updates both cache and store', () => {
+  test('multiple files in processChanges updates store', () => {
     const delegate = makeDelegate([
       [fileA, [diag(vscode.DiagnosticSeverity.Error)]],
       [fileB, [diag(vscode.DiagnosticSeverity.Warning)]],
     ]);
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
+    const { store, manager } = makeManagerWithDelegate(delegate);
 
     const event = { uris: [fileA, fileB] };
     const changed = manager.processChanges(event);
 
     assert.strictEqual(changed.length, 2);
-    assertIdentical(cache, store, fileA, folderUri);
-    assertIdentical(cache, store, fileB, folderUri);
-    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.Error);
-    assert.strictEqual(cache.get(fileB, folderUri)?.severity, ProblemSeverity.Warning);
     assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);
     assert.strictEqual(store.get(fileB)?.severity, ProblemSeverity.Warning);
   });
 
-  test('mixed workspace and non-workspace URIs updates both identically', () => {
+  test('mixed workspace and non-workspace URIs updates store', () => {
     const delegate = makeDelegate([
       [fileA, [diag(vscode.DiagnosticSeverity.Error)]],
       [fileOutside, [diag(vscode.DiagnosticSeverity.Warning)]],
     ]);
-    const { cache, store, manager } = makeManagerWithDelegate(delegate);
+    const { store, manager } = makeManagerWithDelegate(delegate);
 
     const event = { uris: [fileA, fileOutside] };
     const changed = manager.processChanges(event);
 
     assert.strictEqual(changed.length, 1);
-    assertIdentical(cache, store, fileA, folderUri);
-    assert.strictEqual(cache.get(fileA, folderUri)?.severity, ProblemSeverity.Error);
     assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);
-    assert.strictEqual(cache.get(fileOutside, folderUri), undefined);
     assert.strictEqual(store.get(fileOutside), undefined);
   });
 });

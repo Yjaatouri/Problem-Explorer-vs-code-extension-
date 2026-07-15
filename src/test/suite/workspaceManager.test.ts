@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import { Uri, WorkspaceFolder } from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
 import { FolderStatusManager } from '../../folder/folderStatusManager';
@@ -67,7 +66,7 @@ function makeMockDelegate(
 
   test('getWorkspaceFolders returns initial folders', () => {
     const store = new ProblemStore();
-    const dm = new DiagnosticsManager(new ProblemCache(), store);
+    const dm = new DiagnosticsManager(store);
     const fm = new FolderStatusManager(store);
     const de = makeDecorationEngine(store, [rootA, rootB]);
     const { delegate } = makeMockDelegate([rootA, rootB]);
@@ -81,7 +80,7 @@ function makeMockDelegate(
 
   test('returns empty array when no folders', () => {
     const store = new ProblemStore();
-    const dm = new DiagnosticsManager(new ProblemCache(), store);
+    const dm = new DiagnosticsManager(store);
     const fm = new FolderStatusManager(store);
     const de = makeDecorationEngine(store, []);
     const { delegate } = makeMockDelegate([]);
@@ -92,8 +91,7 @@ function makeMockDelegate(
 
   test('clears store for removed folder', () => {
     const store = new ProblemStore();
-    const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache, store);
+    const dm = new DiagnosticsManager(store);
     const fm = new FolderStatusManager(store);
     const de = makeDecorationEngine(store, [rootA, rootB]);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
@@ -111,8 +109,7 @@ function makeMockDelegate(
 
   test('clears correct folder on multi-root removal', () => {
     const store = new ProblemStore();
-    const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache, store);
+    const dm = new DiagnosticsManager(store);
     const fm = new FolderStatusManager(store);
     const de = makeDecorationEngine(store, [rootA, rootB]);
     const { delegate, listeners } = makeMockDelegate([rootA, rootB]);
@@ -131,8 +128,7 @@ function makeMockDelegate(
 
   test('on folder added runs fullScan', () => {
     const store = new ProblemStore();
-    const cache = new ProblemCache();
-    const dm = new DiagnosticsManager(cache, store);
+    const dm = new DiagnosticsManager(store);
     const fm = new FolderStatusManager(store);
     const de = makeDecorationEngine(store, []);
 

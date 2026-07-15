@@ -1,13 +1,11 @@
 import * as assert from 'assert';
 import { Uri } from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
+import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemState, ProblemSeverity } from '../../core/types';
 import { aggregateStatuses } from '../../folder/propagationStrategy';
 import { toProblemState } from '../../diagnostics/severityMapper';
 
 suite('Scenarios', () => {
-  const rootUri = Uri.parse('file:///workspace');
-
   function randomSeverity(): ProblemSeverity {
     const r = Math.random();
     if (r < 0.3) return ProblemSeverity.Error;
@@ -17,7 +15,7 @@ suite('Scenarios', () => {
   }
 
   test('1000 files with random diagnostics', () => {
-    const cache = new ProblemCache();
+    const store = new ProblemStore();
     const statuses: ProblemState[] = [];
 
     for (let i = 0; i < 1000; i++) {
@@ -30,12 +28,11 @@ suite('Scenarios', () => {
         fileCount: sev !== ProblemSeverity.None ? 1 : 0,
       };
       const uri = Uri.parse(`file:///workspace/src/file${i}.ts`);
-      cache.set(uri, s, rootUri);
+      store.set(uri, s);
       statuses.push(s);
     }
 
-    const storedCount = statuses.filter((s) => s.severity !== ProblemSeverity.None).length;
-    assert.strictEqual(cache.getFolderSize(rootUri), storedCount);
+    assert.strictEqual(store.size(), 1000);
 
     const aggregated = aggregateStatuses(statuses);
     const expectedSeverity = statuses.reduce(
@@ -46,7 +43,7 @@ suite('Scenarios', () => {
   });
 
   test('deeply nested folders (50 levels)', () => {
-    const cache = new ProblemCache();
+    const store = new ProblemStore();
     const parts: string[] = [];
     for (let i = 0; i < 50; i++) {
       parts.push(`a`);
@@ -59,8 +56,8 @@ suite('Scenarios', () => {
       infoCount: 0,
       fileCount: 1,
     };
-    cache.set(deepDir, status, rootUri);
-    assert.strictEqual(cache.get(deepDir, rootUri)?.severity, ProblemSeverity.Error);
+    store.set(deepDir, status);
+    assert.strictEqual(store.get(deepDir)?.severity, ProblemSeverity.Error);
   });
 
   test('toProblemState handles 10000 diagnostics', () => {

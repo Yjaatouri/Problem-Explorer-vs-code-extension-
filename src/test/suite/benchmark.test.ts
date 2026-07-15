@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import { Uri, Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode';
-import { ProblemCache } from '../../cache/cacheLayer';
 import { ProblemStore } from '../../store/ProblemStore';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
@@ -48,7 +47,6 @@ suite('Benchmarks', function () {
   });
 
   test('fullScan with 10k files < 200ms (target)', () => {
-    const cache = new ProblemCache();
     const store = new ProblemStore();
     const entries: [Uri, Diagnostic[]][] = [];
 
@@ -58,7 +56,7 @@ suite('Benchmarks', function () {
       entries.push([uri, diags]);
     }
 
-    const dm = new DiagnosticsManager(cache, store, {
+    const dm = new DiagnosticsManager(store, {
       getAllDiagnostics: () => entries,
       getUriDiagnostics: () => [],
       getWorkspaceFolder: mockWorkspaceFolder,
@@ -66,7 +64,6 @@ suite('Benchmarks', function () {
     });
 
     const result = measure('fullScan (10k files)', () => {
-      cache.clear();
       store.clear();
       dm.fullScan();
     }, 5);
@@ -76,7 +73,6 @@ suite('Benchmarks', function () {
   });
 
   test('rapid diagnostic changes (1000 events)', () => {
-    const cache = new ProblemCache();
     const store = new ProblemStore();
     const diagnostics: [Uri, Diagnostic[]][] = [];
     const allUris: Uri[] = [];
@@ -87,7 +83,7 @@ suite('Benchmarks', function () {
       diagnostics.push([uri, [makeDiag(DiagnosticSeverity.Error)]]);
     }
 
-    const dm = new DiagnosticsManager(cache, store, {
+    const dm = new DiagnosticsManager(store, {
       getAllDiagnostics: () => diagnostics,
       getUriDiagnostics: (uri: Uri) => {
         const found = diagnostics.find(([u]) => u.toString() === uri.toString());
@@ -98,7 +94,6 @@ suite('Benchmarks', function () {
     });
 
     const result = measure('processChanges (1000 events)', () => {
-      cache.clear();
       store.clear();
       for (let i = 0; i < 1000; i++) {
         dm.processChanges({ uris: [allUris[i]] } as any);
@@ -130,8 +125,8 @@ suite('Benchmarks', function () {
     assert.ok(result.avgUs < 500, `aggregateStatuses avg ${result.avgUs.toFixed(3)}µs (target < 500µs)`);
   });
 
-  test('ProblemCache set/get performance at 10k entries', () => {
-    const cache = new ProblemCache();
+  test('ProblemStore set/get performance at 10k entries', () => {
+    const store = new ProblemStore();
     const fileUris: Uri[] = [];
 
     for (let i = 0; i < 10000; i++) {
@@ -139,17 +134,17 @@ suite('Benchmarks', function () {
       fileUris.push(uri);
     }
 
-    const setResult = measure('cache set (10k unique)', () => {
+    const setResult = measure('store set (10k unique)', () => {
       for (let i = 0; i < 10000; i++) {
-        cache.set(fileUris[i], { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 }, rootUri);
+        store.set(fileUris[i], { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 });
       }
     }, 3);
 
     console.log(formatResult(setResult));
 
-    const getResult = measure('cache get (10k entries)', () => {
+    const getResult = measure('store get (10k entries)', () => {
       for (let i = 0; i < 10000; i++) {
-        cache.get(fileUris[i], rootUri);
+        store.get(fileUris[i]);
       }
     }, 3);
 

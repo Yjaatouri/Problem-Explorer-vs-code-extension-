@@ -8,11 +8,10 @@ import {
   window,
   workspace,
 } from 'vscode';
-import { ProblemCache } from '../cache/cacheLayer';
 import { ProblemStore } from '../store/ProblemStore';
 import { toProblemState, applySeverityOverrides } from './severityMapper';
 import { ProblemState } from '../core/types';
-import { isIgnored, precompilePatterns } from '../performance/ignoreFilter';
+import { precompilePatterns } from '../performance/ignoreFilter';
 
 /** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
 export interface DiagnosticsDelegate {
@@ -32,9 +31,8 @@ const defaultDelegate: DiagnosticsDelegate = {
   },
 };
 
-/** Ingests VS Code diagnostic events, converts them to `ProblemState`, and writes to both cache and store */
+/** Ingests VS Code diagnostic events, converts them to `ProblemState`, and writes to ProblemStore */
 export class DiagnosticsManager {
-  private readonly cache: ProblemCache;
   private readonly store: ProblemStore;
   private readonly delegate: DiagnosticsDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
@@ -46,17 +44,15 @@ export class DiagnosticsManager {
   /** Direct passthrough to `languages.onDidChangeDiagnostics` */
   readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
 
-  constructor(cache: ProblemCache, store: ProblemStore, delegate?: DiagnosticsDelegate) {
-    this.cache = cache;
+  constructor(store: ProblemStore, delegate?: DiagnosticsDelegate) {
     this.store = store;
     this.delegate = delegate ?? defaultDelegate;
     this.onDidDiagnosticsChange = languages.onDidChangeDiagnostics;
   }
 
-  /** Set the glob patterns that determine which URIs the cache should ignore. Pre-compiles patterns for efficiency. */
+  /** Set the glob patterns that determine which URIs the store should ignore. Pre-compiles patterns for efficiency. */
   setIgnorePatterns(patterns: string[]): void {
     precompilePatterns(patterns);
-    this.cache.setIgnorePredicate((uri) => isIgnored(uri, patterns));
   }
 
   /** Set per-extension severity overrides (from `Config.severityOverrides`) */
@@ -130,22 +126,16 @@ export class DiagnosticsManager {
       if (!this.delegate.isActiveEditorUri(uri)) {
         return;
       }
-      const cacheChanged = this.cache.delete(uri, folder.uri);
-      const storeChanged = this.store.delete(uri);
-      if (cacheChanged || storeChanged) {
+      if (this.store.delete(uri)) {
         changed.push(uri);
       }
       return;
     }
 
-    // Non-empty diagnostics — map and update both cache and store
+    // Non-empty diagnostics — map and update the store
     const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
     const status = toProblemState(mapped);
-    const cacheChanged = this.cache.set(uri, status, folder.uri);
-    const storeChanged = this.store.set(uri, status);
-
-    if (cacheChanged || storeChanged) {
-      changed.push(uri);
-    }
+    this.store.set(uri, status);
+    changed.push(uri);
   }
 }

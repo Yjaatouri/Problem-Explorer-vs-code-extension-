@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { workspace } from 'vscode';
-import { ProblemCache } from './cache/cacheLayer';
 import { DiagnosticsManager } from './diagnostics/diagnosticsManager';
+import { normalizeUriKey } from './core/uriKey';
 import { DecorationEngine, dumpForensicReport } from './decoration/decorationEngine';
 import { FolderStatusManager } from './folder/folderStatusManager';
 import { ConfigManager } from './config/configManager';
@@ -44,9 +44,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   try {
     log('Creating core services...');
 
-    const cache = new ProblemCache();
     const problemStore = new ProblemStore();
-    const diagnosticsManager = new DiagnosticsManager(cache, problemStore);
+    const diagnosticsManager = new DiagnosticsManager(problemStore);
     const decorationEngine = new DecorationEngine(problemStore, {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 }, log);
@@ -115,10 +114,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
           const uri = e.files[i];
           const folder = vscode.workspace.getWorkspaceFolder(uri);
           if (!folder) continue;
-          cache.delete(uri, folder.uri);
-          cache.deletePrefix(uri, folder.uri);
+          problemStore.deleteByPrefix(normalizeUriKey(uri));
           folderStatusManager.clearIndexPrefix(uri);
-          problemStore.delete(uri);
           vsDiagnosticsProvider.markPending(uri);
         }
         if (e.files.length > 0) { vsDiagnosticsProvider.flush(); }
@@ -131,9 +128,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
           const { oldUri, newUri } = e.files[i];
           const folder = vscode.workspace.getWorkspaceFolder(newUri);
           if (!folder) continue;
-          cache.movePrefix(oldUri, newUri, folder.uri);
+          problemStore.deleteByPrefix(normalizeUriKey(oldUri));
           folderStatusManager.clearIndexPrefix(oldUri);
-          problemStore.delete(oldUri);
           vsDiagnosticsProvider.markPending(oldUri);
           vsDiagnosticsProvider.markPending(newUri);
         }
