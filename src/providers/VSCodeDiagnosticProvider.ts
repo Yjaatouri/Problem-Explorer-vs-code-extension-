@@ -37,7 +37,12 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
   }
 
   dispose(): void {
+    this.store.unconfigureProvider(this.name);
     this.manager.dispose();
+  }
+
+  releaseOwnership(): void {
+    this.store.releaseOwnership(this.name);
   }
 
   fullScan(): Uri[] {

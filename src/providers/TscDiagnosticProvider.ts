@@ -145,7 +145,12 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     if (this._disposed) return;
     this._disposed = true;
     this.stop();
+    this._store.unconfigureProvider(this.name);
     this._onDidUpdate.dispose();
+  }
+
+  releaseOwnership(): void {
+    this._store.releaseOwnership(this.name);
   }
 
   private _clearDebounce(): void {
@@ -307,7 +312,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     for (const [filePath, fileDiags] of diagnostics) {
       const state = this.aggregateFileState(fileDiags);
       const uri = Uri.file(filePath);
-      this._store.set(uri, state);
+      this._store.set(uri, state, this.name);
       changed.push(uri);
     }
 

@@ -88,16 +88,6 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       decorationEngine,
     );
 
-    const vsDiagnosticsProvider = new VSDiagnosticsProvider(
-      diagProvider,
-      folderStatusManager,
-      apiManager,
-      decorationEngine,
-      statusBarManager,
-      trendTracker,
-      log,
-    );
-
     const diagProviderManager = new DiagnosticProviderManager();
     diagProviderManager.register('vscode', diagProvider, {
       priority: 10,
@@ -107,6 +97,21 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       priority: 5,
       capabilities: ['diagnostics', 'tsc-scan'],
     });
+
+    // Configure provider priorities in the ProblemStore (must match manager registration order)
+    problemStore.configureProvider('vscodeDiagnostics', 10);
+    problemStore.configureProvider('tsc', 5);
+
+    const vsDiagnosticsProvider = new VSDiagnosticsProvider(
+      diagProviderManager,
+      folderStatusManager,
+      apiManager,
+      decorationEngine,
+      statusBarManager,
+      trendTracker,
+      log,
+    );
+
     diagProviderManager.initializeAll();
     diagProviderManager.startAll();
     diagProvider.startInitPoll();

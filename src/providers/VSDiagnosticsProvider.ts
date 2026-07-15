@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { DiagnosticProvider } from './DiagnosticProvider';
+import { DiagnosticProviderManager } from './DiagnosticProviderManager';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { ApiManager } from '../api/problemExplorerApi';
 import { DecorationEngine } from '../decoration/decorationEngine';
@@ -18,7 +18,7 @@ export class VSDiagnosticsProvider extends BaseProblemProvider {
 public get eventCount(): number { return this.diagEventCount; }
 
   constructor(
-    private readonly provider: DiagnosticProvider,
+    private readonly manager: DiagnosticProviderManager,
     private readonly folderStatusManager: FolderStatusManager,
     private readonly apiManager: ApiManager,
     private readonly decorationEngine: DecorationEngine,
@@ -27,7 +27,7 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly log: (msg: string) => void,
   ) {
     super();
-    this.registerDisposable(this.provider.onDidUpdate((changed: vscode.Uri[]) => {
+    this.registerDisposable(this.manager.onDidUpdateAll((changed: vscode.Uri[]) => {
       this.diagEventCount++;
       this.log(`[FORENSIC:Step2] onDidUpdate: ${changed.length} changed URIs`);
       this.notifyApi(changed);
@@ -99,7 +99,7 @@ public get eventCount(): number { return this.diagEventCount; }
   }
 
   protected onRefresh(): void {
-    this.provider.refresh();
+    this.manager.refreshAll();
     const changedFolders = this.folderStatusManager.rebuildAll();
     for (let i = 0; i < changedFolders.length; i++) {
       const folder = vscode.workspace.getWorkspaceFolder(changedFolders[i]);

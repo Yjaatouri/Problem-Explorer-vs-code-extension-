@@ -196,7 +196,7 @@ export class DiagnosticsManager implements DiagnosticProvider {
 
     const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
     const status = toProblemState(mapped);
-    this._store.set(uri, status);
+    this._store.set(uri, status, this.name);
     changed.push(uri);
   }
 }

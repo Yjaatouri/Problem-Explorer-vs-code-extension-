@@ -1,26 +1,19 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { VSDiagnosticsProvider } from '../../providers/VSDiagnosticsProvider';
+import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { ProviderManager } from '../../services/ProviderManager';
-import type { DiagnosticProvider } from '../../providers/DiagnosticProvider';
-import type { ProblemStore } from '../../store/ProblemStore';
 import type { FolderStatusManager } from '../../folder/folderStatusManager';
 import type { ApiManager } from '../../api/problemExplorerApi';
 import type { DecorationEngine } from '../../decoration/decorationEngine';
 import type { StatusBarManager } from '../../statusBar/statusBarManager';
 import type { TrendTracker } from '../../trend/trendTracker';
 
-function createMockDiagnosticProvider(): DiagnosticProvider {
+function createMockManager(): DiagnosticProviderManager {
   return {
-    name: 'mock',
-    store: {} as ProblemStore,
-    onDidUpdate: (_cb: (uris: vscode.Uri[]) => void) => ({ dispose: () => {} }),
-    initialize: () => {},
-    start: () => {},
-    stop: () => {},
-    refresh: () => {},
-    dispose: () => {},
-  } as DiagnosticProvider;
+    onDidUpdateAll: (_cb: (uris: vscode.Uri[]) => void) => ({ dispose: () => {} }),
+    refreshAll: () => {},
+  } as unknown as DiagnosticProviderManager;
 }
 
 function createMockFolderStatusManager(): FolderStatusManager {
@@ -58,7 +51,7 @@ function createMockTrendTracker(): TrendTracker {
 
 function createProvider(): VSDiagnosticsProvider {
   return new VSDiagnosticsProvider(
-    createMockDiagnosticProvider(),
+    createMockManager(),
     createMockFolderStatusManager(),
     createMockApiManager(),
     createMockDecorationEngine(),

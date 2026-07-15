@@ -397,4 +397,191 @@ suite('ProblemStore', () => {
     const key = normalizeUriKey(uri);
     assert.strictEqual(snap[key].errorCount, 1);
   });
+
+  // Ownership / Provider Priority tests
+
+  test('configureProvider registers provider priority', () => {
+    store.configureProvider('providerA', 100);
+    assert.strictEqual(store.getProviderPriority('providerA'), 100);
+  });
+
+  test('unconfigureProvider removes provider priority', () => {
+    store.configureProvider('providerA', 100);
+    store.unconfigureProvider('providerA');
+    assert.strictEqual(store.getProviderPriority('providerA'), -1);
+  });
+
+  test('unconfigureProvider on unknown provider is no-op', () => {
+    store.unconfigureProvider('unknown');
+    assert.strictEqual(store.getProviderPriority('unknown'), -1);
+  });
+
+  test('higher priority provider wins ownership', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.configureProvider('low', 10);
+    store.configureProvider('high', 100);
+
+    // Low priority writes first
+    store.set(uri, makeState({ errorCount: 1 }), 'low');
+    assert.strictEqual(store.getOwningProvider(uri), 'low');
+
+    // High priority writes - should take ownership
+    const result = store.set(uri, makeState({ errorCount: 2 }), 'high');
+    assert.strictEqual(result, true);
+    assert.strictEqual(store.getOwningProvider(uri), 'high');
+    assert.strictEqual(store.get(uri)?.errorCount, 2);
+  });
+
+  test('lower priority provider write is rejected', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.configureProvider('high', 100);
+    store.configureProvider('low', 10);
+
+    // High priority writes first
+    store.set(uri, makeState({ errorCount: 1 }), 'high');
+    assert.strictEqual(store.getOwningProvider(uri), 'high');
+
+    // Low priority tries to write - should be rejected
+    const result = store.set(uri, makeState({ errorCount: 2 }), 'low');
+    assert.strictEqual(result, false);
+    assert.strictEqual(store.getOwningProvider(uri), 'high');
+    assert.strictEqual(store.get(uri)?.errorCount, 1);
+  });
+
+  test('same priority provider write succeeds (last write wins)', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.configureProvider('p1', 50);
+    store.configureProvider('p2', 50);
+
+    store.set(uri, makeState({ errorCount: 1 }), 'p1');
+    assert.strictEqual(store.getOwningProvider(uri), 'p1');
+
+    // Same priority - write should succeed
+    const result = store.set(uri, makeState({ errorCount: 2 }), 'p2');
+    assert.strictEqual(result, true);
+    assert.strictEqual(store.getOwningProvider(uri), 'p2');
+    assert.strictEqual(store.get(uri)?.errorCount, 2);
+  });
+
+  test('unconfigured provider has priority -1 (lowest)', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.configureProvider('configured', 50);
+
+    store.set(uri, makeState({ errorCount: 1 }), 'configured');
+    assert.strictEqual(store.getOwningProvider(uri), 'configured');
+
+    // Unconfigured provider has priority -1, should be rejected
+    const result = store.set(uri, makeState({ errorCount: 2 }), 'unconfigured');
+    assert.strictEqual(result, false);
+    assert.strictEqual(store.getOwningProvider(uri), 'configured');
+  });
+
+  test('write without providerName ignores ownership (legacy behavior)', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.configureProvider('p1', 100);
+
+    store.set(uri, makeState({ errorCount: 1 }), 'p1');
+    assert.strictEqual(store.getOwningProvider(uri), 'p1');
+
+    // Write without providerName should succeed (legacy mode)
+    const result = store.set(uri, makeState({ errorCount: 2 }));
+    assert.strictEqual(result, true);
+    // Ownership unchanged
+    assert.strictEqual(store.getOwningProvider(uri), 'p1');
+  });
+
+  test('releaseOwnership releases all keys owned by provider', () => {
+    const a = Uri.parse('file:///project/a.ts');
+    const b = Uri.parse('file:///project/b.ts');
+    store.configureProvider('p1', 100);
+
+    store.set(a, makeState({ errorCount: 1 }), 'p1');
+    store.set(b, makeState({ errorCount: 1 }), 'p1');
+    assert.strictEqual(store.getOwningProvider(a), 'p1');
+    assert.strictEqual(store.getOwningProvider(b), 'p1');
+
+    store.releaseOwnership('p1');
+    assert.strictEqual(store.getOwningProvider(a), undefined);
+    assert.strictEqual(store.getOwningProvider(b), undefined);
+  });
+
+  test('releaseOwnership allows other provider to claim keys', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.configureProvider('p1', 100);
+    store.configureProvider('p2', 50);
+
+    store.set(uri, makeState({ errorCount: 1 }), 'p1');
+    assert.strictEqual(store.getOwningProvider(uri), 'p1');
+
+    store.releaseOwnership('p1');
+    assert.strictEqual(store.getOwningProvider(uri), undefined);
+
+    // p2 can now claim the key
+    const result = store.set(uri, makeState({ errorCount: 2 }), 'p2');
+    assert.strictEqual(result, true);
+    assert.strictEqual(store.getOwningProvider(uri), 'p2');
+  });
+
+  test('releaseOwnership on unknown provider is no-op', () => {
+    const uri = Uri.parse('file:///project/a.ts');
+    store.configureProvider('p1', 100);
+    store.set(uri, makeState({ errorCount: 1 }), 'p1');
+
+    store.releaseOwnership('unknown');
+    assert.strictEqual(store.getOwningProvider(uri), 'p1');
+  });
+
+  test('dispose clears ownership and priorities', () => {
+    store.configureProvider('p1', 100);
+    store.set(Uri.parse('file:///project/a.ts'), makeState({ errorCount: 1 }), 'p1');
+
+    store.dispose();
+
+    assert.strictEqual(store.getProviderPriority('p1'), -1);
+    assert.strictEqual(store.size(), 0);
+  });
+
+  test('deleteByPrefix releases ownership for deleted keys', () => {
+    const a = Uri.parse('file:///project/src/a/file.ts');
+    const b = Uri.parse('file:///project/src/a/sub/file2.ts');
+    const c = Uri.parse('file:///project/src/b/file.ts');
+    store.configureProvider('p1', 100);
+
+    store.set(a, makeState(), 'p1');
+    store.set(b, makeState(), 'p1');
+    store.set(c, makeState(), 'p1');
+    assert.strictEqual(store.getOwningProvider(a), 'p1');
+    assert.strictEqual(store.getOwningProvider(b), 'p1');
+    assert.strictEqual(store.getOwningProvider(c), 'p1');
+
+    store.deleteByPrefix('file:///project/src/a');
+    assert.strictEqual(store.getOwningProvider(a), undefined);
+    assert.strictEqual(store.getOwningProvider(b), undefined);
+    assert.strictEqual(store.getOwningProvider(c), 'p1');
+  });
+
+  test('movePrefix preserves ownership for moved keys', () => {
+    const oldA = Uri.parse('file:///project/src/a/file.ts');
+    const newA = Uri.parse('file:///project/src/b/file.ts');
+    store.configureProvider('p1', 100);
+
+    store.set(oldA, makeState({ errorCount: 1 }), 'p1');
+    assert.strictEqual(store.getOwningProvider(oldA), 'p1');
+
+    store.movePrefix('file:///project/src/a', 'file:///project/src/b');
+    assert.strictEqual(store.getOwningProvider(oldA), undefined);
+    assert.strictEqual(store.getOwningProvider(newA), 'p1');
+  });
+
+  test('folder aggregates bypass ownership (no providerName)', () => {
+    const dir = Uri.parse('file:///project/src');
+    store.configureProvider('p1', 100);
+
+    store.set(dir, makeState({ errorCount: 1 }), 'p1');
+    assert.strictEqual(store.getOwningProvider(dir), 'p1');
+
+    // Folder aggregate uses setFolderAggregate without providerName
+    store.setFolderAggregate(dir, makeState({ errorCount: 2 }));
+    assert.strictEqual(store.getOwningProvider(dir), 'p1');
+  });
 });

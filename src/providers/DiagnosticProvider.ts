@@ -11,4 +11,7 @@ export interface DiagnosticProvider extends Disposable {
   start(): void;
   stop(): void;
   refresh(): void;
+
+  /** Optional: called when provider is unregistered/stopped to release store ownership */
+  releaseOwnership?(): void;
 }

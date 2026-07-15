@@ -82,6 +82,8 @@ export class DiagnosticProviderManager {
     if (this._started) {
       try { entry.provider.stop(); } catch {}
     }
+    // Release ownership in ProblemStore
+    try { entry.provider.releaseOwnership?.(); } catch {}
     this.entries.delete(name);
     try { entry.provider.dispose(); } catch {}
     this.cleanupProviderSub(name);
@@ -175,6 +177,8 @@ export class DiagnosticProviderManager {
     for (const [name, entry] of reversed) {
       try {
         entry.provider.stop();
+        // Release ownership so other providers can claim keys
+        entry.provider.releaseOwnership?.();
         if (entry.state !== ProviderState.disposed && entry.state !== ProviderState.error) {
           this.setProviderState(name, ProviderState.idle);
         }
@@ -201,6 +205,8 @@ export class DiagnosticProviderManager {
     this._started = false;
     for (const [name, entry] of this.entries) {
       this.setProviderState(name, ProviderState.disposed);
+      // Release ownership before disposing
+      try { entry.provider.releaseOwnership?.(); } catch {}
       try { entry.provider.dispose(); } catch {}
     }
     this.entries.clear();

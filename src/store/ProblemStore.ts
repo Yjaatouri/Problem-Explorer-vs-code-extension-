@@ -56,6 +56,8 @@ import { normalizeUriKey } from '../core/uriKey';
 export class ProblemStore {
   private readonly storage = new Map<string, ProblemState>();
   private readonly folderKeys = new Set<string>();
+  private readonly ownerByKey = new Map<string, string>();
+  private readonly providerPriorities = new Map<string, number>();
   private readonly _onDidChange = new EventEmitter<ProblemStoreChange>();
   private batchDepth = 0;
   private version = 0;
@@ -94,10 +96,26 @@ export class ProblemStore {
    * Clears any stale folder-aggregate marker for this key.
    * Fires `added` or `updated` event (unless inside a batch or state unchanged).
    * Increments the version counter.
+   *
+   * **Ownership**: If `providerName` is given, the store enforces priority-based
+   * ownership. When a key is already owned by a higher-priority provider, the
+   * write is rejected. Same-priority or unowned keys are accepted. Ownership
+   * is transferred to the writing provider on successful write.
+   *
    * @returns `true` if the value changed or was newly inserted.
    */
-  set(uri: Uri, state: ProblemState): boolean {
+  set(uri: Uri, state: ProblemState, providerName?: string): boolean {
     const key = normalizeUriKey(uri);
+    if (providerName !== undefined) {
+      const currentOwner = this.ownerByKey.get(key);
+      if (currentOwner !== undefined) {
+        const currentPriority = this.providerPriorities.get(currentOwner) ?? -1;
+        const newPriority = this.providerPriorities.get(providerName) ?? -1;
+        if (newPriority < currentPriority) {
+          return false;
+        }
+      }
+    }
     const old = this.storage.get(key);
     if (old !== undefined && !this.hasChanged(old, state)) {
       return false;
@@ -105,6 +123,9 @@ export class ProblemStore {
     const existed = old !== undefined;
     this.storage.set(key, state);
     this.folderKeys.delete(key);
+    if (providerName !== undefined) {
+      this.ownerByKey.set(key, providerName);
+    }
     this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
@@ -175,6 +196,7 @@ export class ProblemStore {
     }
     this.storage.delete(key);
     this.folderKeys.delete(key);
+    this.ownerByKey.delete(key);
     this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire({ kind: 'removed', uri });
@@ -189,6 +211,7 @@ export class ProblemStore {
   clear(): void {
     this.storage.clear();
     this.folderKeys.clear();
+    this.ownerByKey.clear();
     this.version++;
     if (this.batchDepth === 0) {
       this._onDidChange.fire({ kind: 'cleared' });
@@ -228,6 +251,7 @@ export class ProblemStore {
     for (const key of keysToDelete) {
       this.storage.delete(key);
       this.folderKeys.delete(key);
+      this.ownerByKey.delete(key);
       count++;
     }
 
@@ -265,6 +289,11 @@ export class ProblemStore {
       this.storage.set(newKey, entry.state);
       if (entry.isFolder) {
         this.folderKeys.add(newKey);
+      }
+      const owner = this.ownerByKey.get(entry.key);
+      if (owner !== undefined) {
+        this.ownerByKey.delete(entry.key);
+        this.ownerByKey.set(newKey, owner);
       }
       count++;
     }
@@ -316,9 +345,58 @@ export class ProblemStore {
   /**
    * Clear all state, dispose the event emitter. No mutations allowed after this.
    */
+  /**
+   * Register a provider's priority for ownership resolution.
+   * Higher priority wins when multiple providers write to the same URI.
+   * Call once per provider before writes begin.
+   */
+  configureProvider(providerName: string, priority: number): void {
+    this.providerPriorities.set(providerName, priority);
+  }
+
+  /**
+   * Remove a provider's priority registration (called on provider stop/unregister).
+   */
+  unconfigureProvider(providerName: string): void {
+    this.providerPriorities.delete(providerName);
+  }
+
+  /**
+   * Release ownership of all keys owned by the given provider.
+   * Called when a provider stops or is unregistered so its keys
+   * can be claimed by other providers.
+   */
+  releaseOwnership(providerName: string): void {
+    const keysToRelease: string[] = [];
+    for (const [key, owner] of this.ownerByKey) {
+      if (owner === providerName) {
+        keysToRelease.push(key);
+      }
+    }
+    for (const key of keysToRelease) {
+      this.ownerByKey.delete(key);
+    }
+  }
+
+  /**
+   * Get the provider name that currently owns a URI, or undefined if unowned.
+   */
+  getOwningProvider(uri: Uri): string | undefined {
+    return this.ownerByKey.get(normalizeUriKey(uri));
+  }
+
+  /**
+   * Get the configured priority for a provider, or -1 if not registered.
+   */
+  getProviderPriority(providerName: string): number {
+    return this.providerPriorities.get(providerName) ?? -1;
+  }
+
   dispose(): void {
     this.storage.clear();
     this.folderKeys.clear();
+    this.ownerByKey.clear();
+    this.providerPriorities.clear();
     this._onDidChange.dispose();
   }
 
