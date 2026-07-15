@@ -7,6 +7,7 @@ export const COMMANDS = {
   REFRESH: 'problemExplorer.refresh',
   TOGGLE: 'problemExplorer.toggle',
   SCAN_TS: 'problemExplorer.scanTypeScript',
+  CANCEL_SCAN: 'problemExplorer.cancelScan',
 } as const;
 
 export const COLORS = {

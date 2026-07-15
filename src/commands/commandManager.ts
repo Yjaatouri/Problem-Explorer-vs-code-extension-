@@ -55,6 +55,13 @@ export class CommandManager {
           ),
         ),
       );
+
+      context.subscriptions.push(
+        commands.registerCommand(COMMANDS.CANCEL_SCAN, () => {
+          this.log?.('[CANCEL_SCAN] Cancelling TypeScript scan...');
+          this.tscProvider!.stop();
+        }),
+      );
     }
   }
 }
