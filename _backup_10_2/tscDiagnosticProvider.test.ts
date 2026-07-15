@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { Uri } from 'vscode';
 import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemSeverity } from '../../core/types';
-import { TscDiagnosticProvider, TscScanContext, TscScanError } from '../../providers/TscDiagnosticProvider';
+import { TscDiagnosticProvider, TscScanContext, TscScanError, ScanTiming } from '../../providers/TscDiagnosticProvider';
 import { ProjectResolver, TypeScriptProject } from '../../typescript/ProjectResolver';
 import { TscRunner, TscRunnerDelegate, TscProcess } from '../../typescript/TscRunner';
 import { TscOutputParser } from '../../typescript/TscOutputParser';
@@ -280,6 +280,7 @@ suite('TscDiagnosticProvider', () => {
     const first = provider.runScan();
     const second = provider.runScan();
     const results = await Promise.all([first, second]);
+    // First should succeed, second should return empty (rejected)
     assert.strictEqual(results[1].length, 0);
     provider.dispose();
   });
@@ -306,5 +307,62 @@ suite('TscDiagnosticProvider', () => {
       message: 'config error',
     };
     assert.strictEqual(err.message, 'config error');
+  });
+
+  test('lastScanDurationMs is reported after scan', async () => {
+    const provider = makeProvider({ tscDelayMs: 10 });
+    assert.strictEqual(provider.lastScanDurationMs, 0);
+    await provider.runScan();
+    assert.ok(provider.lastScanDurationMs > 0);
+    provider.dispose();
+  });
+
+  test('lastScanTiming is populated after scan', async () => {
+    const provider = makeProvider({ tscDelayMs: 10 });
+    await provider.runScan();
+    const timing = provider.lastScanTiming;
+    assert.ok(timing);
+    assert.ok(timing!.totalMs > 0);
+    assert.ok(timing!.resolveProjectsMs >= 0);
+    assert.ok(timing!.tscRunsMs >= 0);
+    assert.ok(timing!.parseMs >= 0);
+    assert.ok(timing!.storeWriteMs >= 0);
+    provider.dispose();
+  });
+
+  test('pendingRefresh queues a second scan after current completes', async () => {
+    const provider = makeProvider({ tscDelayMs: 20 });
+    // runScan with no delay means both get rejected but pendingRefresh is set
+    const first = provider.runScan();
+    // While scanning, trigger second — should set pendingRefresh
+    const second = provider.runScan();
+    await Promise.all([first, second]);
+    // The pending refresh should have fired and completed
+    assert.strictEqual(provider.scanning, false);
+    provider.dispose();
+  });
+
+  test('getMemoryUsage returns process info', () => {
+    const store = new ProblemStore();
+    const provider = new TscDiagnosticProvider(store);
+    const mem = provider.getMemoryUsage();
+    assert.ok(mem);
+    assert.ok(mem!.heapUsed > 0);
+    assert.ok(mem!.heapTotal > 0);
+    provider.dispose();
+  });
+
+  test('constructor accepts refreshDebounceMs', () => {
+    const store = new ProblemStore();
+    const provider = new TscDiagnosticProvider(store, undefined, undefined, undefined, undefined, 500);
+    assert.ok(provider);
+    provider.dispose();
+  });
+
+  test('ScanTiming satisfies structural type', () => {
+    const t: ScanTiming = {
+      totalMs: 100, resolveProjectsMs: 10, tscRunsMs: 80, parseMs: 5, storeWriteMs: 5,
+    };
+    assert.strictEqual(t.totalMs, 100);
   });
 });

@@ -10,13 +10,24 @@ export function createScanHandler(
   log: (msg: string) => void,
 ): () => Promise<void> {
   return async () => {
-    const startTime = Date.now();
     log('[TSC-SCAN] Starting TypeScript scan...');
+    const startTime = Date.now();
     try {
       await tscProvider.refresh();
       folderStatusManager.rebuildAll();
       decorationEngine.refresh();
       const elapsed = Date.now() - startTime;
+      const timing = tscProvider.lastScanTiming;
+
+      if (timing) {
+        log(
+          `[TSC-SCAN] Timing: total=${timing.totalMs.toFixed(0)}ms ` +
+          `(resolve=${timing.resolveProjectsMs.toFixed(0)}ms, ` +
+          `tsc=${timing.tscRunsMs.toFixed(0)}ms, ` +
+          `parse=${timing.parseMs.toFixed(0)}ms, ` +
+          `store=${timing.storeWriteMs.toFixed(0)}ms)`,
+        );
+      }
 
       const errors = tscProvider.lastScanErrors;
       if (errors.length > 0) {
