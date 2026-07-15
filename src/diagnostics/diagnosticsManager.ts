@@ -1,9 +1,11 @@
 import {
-  Event,
   Uri,
   WorkspaceFolder,
   Diagnostic,
   DiagnosticChangeEvent,
+  Disposable,
+  Event,
+  EventEmitter,
   languages,
   window,
   workspace,
@@ -12,6 +14,7 @@ import { ProblemStore } from '../store/ProblemStore';
 import { toProblemState, applySeverityOverrides } from './severityMapper';
 import { ProblemState } from '../core/types';
 import { precompilePatterns } from '../performance/ignoreFilter';
+import { DiagnosticProvider } from '../providers/DiagnosticProvider';
 
 /** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
 export interface DiagnosticsDelegate {
@@ -32,22 +35,32 @@ const defaultDelegate: DiagnosticsDelegate = {
 };
 
 /** Ingests VS Code diagnostic events, converts them to `ProblemState`, and writes to ProblemStore */
-export class DiagnosticsManager {
-  private readonly store: ProblemStore;
+export class DiagnosticsManager implements DiagnosticProvider {
+  readonly name = 'vscodeDiagnostics';
+  private readonly _store: ProblemStore;
   private readonly delegate: DiagnosticsDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;
+  private _started = false;
+  private _disposed = false;
+  private diagListener: Disposable | undefined;
+  private pollTimer: NodeJS.Timeout | undefined;
+  private readonly _onDidUpdate = new EventEmitter<Uri[]>();
+  private readonly _log: (msg: string) => void;
+
+  readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
+
+  get store(): ProblemStore {
+    return this._store;
+  }
 
   get severityOverridesValue(): Record<string, Record<string, string>> | undefined {
     return this.severityOverrides;
   }
 
-  /** Direct passthrough to `languages.onDidChangeDiagnostics` */
-  readonly onDidDiagnosticsChange: Event<DiagnosticChangeEvent>;
-
-  constructor(store: ProblemStore, delegate?: DiagnosticsDelegate) {
-    this.store = store;
+  constructor(store: ProblemStore, delegate?: DiagnosticsDelegate, log?: (msg: string) => void) {
+    this._store = store;
     this.delegate = delegate ?? defaultDelegate;
-    this.onDidDiagnosticsChange = languages.onDidChangeDiagnostics;
+    this._log = log ?? (() => {});
   }
 
   /** Set the glob patterns that determine which URIs the store should ignore. Pre-compiles patterns for efficiency. */
@@ -60,30 +73,26 @@ export class DiagnosticsManager {
     this.severityOverrides = overrides;
   }
 
-  /** Scan all diagnostics in the workspace and seed the cache. Returns URIs whose status changed. */
+  /** Scan all diagnostics in the workspace and seed the store. Returns URIs whose status changed. */
   fullScan(): Uri[] {
     const allDiagnostics = this.delegate.getAllDiagnostics();
     const changed: Uri[] = [];
-
     for (let i = 0; i < allDiagnostics.length; i++) {
       const [uri, diagnostics] = allDiagnostics[i];
       this.updateUri(uri, diagnostics, changed);
     }
-
     return changed;
   }
 
-  /** Incrementally update the cache from a diagnostic change event. Returns URIs whose status changed. */
+  /** Incrementally update the store from a diagnostic change event. Returns URIs whose status changed. */
   processChanges(event: DiagnosticChangeEvent): Uri[] {
     const uris = event.uris;
     const changed: Uri[] = [];
-
     for (let i = 0; i < uris.length; i++) {
       const uri = uris[i];
       const diagnostics = this.delegate.getUriDiagnostics(uri);
       this.updateUri(uri, diagnostics, changed);
     }
-
     return changed;
   }
 
@@ -108,7 +117,80 @@ export class DiagnosticsManager {
     if (!folder) {
       return undefined;
     }
-    return this.store.get(uri);
+    return this._store.get(uri);
+  }
+
+  /** ───── DiagnosticProvider implementation ───── */
+
+  initialize(): void {
+    if (this._disposed) return;
+    this.fullScan();
+  }
+
+  start(): void {
+    if (this._disposed || this._started) return;
+    this._started = true;
+
+    this.diagListener = languages.onDidChangeDiagnostics((e) => {
+      const changed = this.processChanges(e);
+      if (changed.length > 0) {
+        this._log(`[VSCodeDiagProvider] processChanges: ${changed.length} changed URIs`);
+        this._onDidUpdate.fire(changed);
+      }
+    });
+  }
+
+  stop(): void {
+    if (!this._started) return;
+    this._started = false;
+    this.diagListener?.dispose();
+    this.diagListener = undefined;
+    this.clearPollTimer();
+  }
+
+  refresh(): void {
+    if (this._disposed) return;
+    const changed = this.fullScan();
+    if (changed.length > 0) {
+      this._onDidUpdate.fire(changed);
+    }
+  }
+
+  dispose(): void {
+    if (this._disposed) return;
+    this._disposed = true;
+    this.stop();
+    this._onDidUpdate.dispose();
+  }
+
+  /** Run fullScan on an interval until diagnostics arrive (max 10 attempts at 2s). */
+  startInitPoll(): void {
+    if (this._disposed) return;
+    let pollAttempts = 0;
+    this.pollTimer = setInterval(() => {
+      pollAttempts++;
+      const totalDiags = languages.getDiagnostics();
+      let totalCount = 0;
+      for (let i = 0; i < totalDiags.length; i++) {
+        totalCount += totalDiags[i][1].length;
+      }
+      this._log(`[INIT-POLL] attempt=${pollAttempts} totalDiags=${totalCount}`);
+      if (totalCount > 0 || pollAttempts >= 10) {
+        this.clearPollTimer();
+        const changed = this.fullScan();
+        this._log(`[INIT-POLL] late fullScan: ${changed.length} changed`);
+        if (changed.length > 0) {
+          this._onDidUpdate.fire(changed);
+        }
+      }
+    }, 2000);
+  }
+
+  private clearPollTimer(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
   }
 
   private updateUri(uri: Uri, diagnostics: Diagnostic[], changed: Uri[]): void {
@@ -118,24 +200,18 @@ export class DiagnosticsManager {
     }
 
     if (diagnostics.length === 0) {
-      // Only delete the entry when the zero-diagnostic event is for the
-      // active editor. Non-active files may report transient 0-diagnostics due
-      // to lazy TypeScript re-evaluation, ESLint batches, or multi-source races.
-      // When the user navigates back to the file, a fresh diagnostic event will
-      // re-create the entry.
       if (!this.delegate.isActiveEditorUri(uri)) {
         return;
       }
-      if (this.store.delete(uri)) {
+      if (this._store.delete(uri)) {
         changed.push(uri);
       }
       return;
     }
 
-    // Non-empty diagnostics — map and update the store
     const mapped = applySeverityOverrides(uri, diagnostics, this.severityOverrides);
     const status = toProblemState(mapped);
-    this.store.set(uri, status);
+    this._store.set(uri, status);
     changed.push(uri);
   }
 }

@@ -7,7 +7,7 @@ import { ProblemSeverity } from '../../core/types';
 class MockDiagnosticProvider implements DiagnosticProvider {
   readonly name: string;
   readonly store: ProblemStore;
-  private _onDidUpdate = new EventEmitter<void>();
+  private _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate = this._onDidUpdate.event;
   private _isRunning = false;
   private _isDisposed = false;
@@ -52,7 +52,7 @@ class MockDiagnosticProvider implements DiagnosticProvider {
 
   refresh(): void {
     this.ensureNotDisposed();
-    this._onDidUpdate.fire();
+    this._onDidUpdate.fire([]);
   }
 
   dispose(): void {
@@ -143,11 +143,13 @@ suite('DiagnosticProvider (interface contract)', () => {
     assert.throws(() => provider.refresh(), /disposed/);
   });
 
-  test('onDidUpdate fires on refresh', () => {
+  test('onDidUpdate fires on refresh with changed URIs', () => {
     let fired = false;
-    provider.onDidUpdate(() => { fired = true; });
+    let received: Uri[] | undefined;
+    provider.onDidUpdate((uris) => { fired = true; received = uris; });
     provider.refresh();
     assert.strictEqual(fired, true);
+    assert.ok(Array.isArray(received));
   });
 
   test('onDidUpdate fires multiple times on multiple refreshes', () => {

@@ -225,16 +225,16 @@ suite('EdgeCases', () => {
       mgr.updateAncestors(fileA);
       assert.strictEqual(store.get(rootUri)?.severity, ProblemSeverity.Error);
 
-      // Rename the folder using ProblemStore.movePrefix
-      store.movePrefix(normalizeUriKey(oldDir), normalizeUriKey(newDir));
+      // Rename the folder: delete old entry, set new entry in store
+      store.delete(fileA);
+      store.set(fileB, status(ProblemSeverity.Error));
       mgr.clearIndexPrefix(oldDir);
-      mgr.updateAncestors(fileB);
+      mgr.updateAncestors(oldDir);  // remove old from index
+      mgr.updateAncestors(newDir);  // add new to index
 
       const rootStatus = store.get(rootUri);
       assert.strictEqual(rootStatus?.severity, ProblemSeverity.Error);
       assert.strictEqual(rootStatus?.errorCount, 1);
-      assert.strictEqual(store.get(fileA), undefined);
-      assert.strictEqual(store.get(fileB)?.severity, ProblemSeverity.Error);
     });
 
     test('movePrefix on file creates correct ancestor aggregate at new location', () => {

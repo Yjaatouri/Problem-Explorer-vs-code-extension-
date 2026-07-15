@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { DiagnosticProvider } from './DiagnosticProvider';
 import { DiagnosticsManager } from '../diagnostics/diagnosticsManager';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { ApiManager } from '../api/problemExplorerApi';
@@ -18,7 +19,7 @@ export class VSDiagnosticsProvider extends BaseProblemProvider {
 public get eventCount(): number { return this.diagEventCount; }
 
   constructor(
-    private readonly diagnosticsManager: DiagnosticsManager,
+    private readonly provider: DiagnosticProvider & DiagnosticsManager,
     private readonly folderStatusManager: FolderStatusManager,
     private readonly apiManager: ApiManager,
     private readonly decorationEngine: DecorationEngine,
@@ -72,23 +73,9 @@ public get eventCount(): number { return this.diagEventCount; }
       this.trendTracker.takeSnapshot();
     }, PROCESSING_DEBOUNCE_MS);
 
-    const disposable = vscode.languages.onDidChangeDiagnostics((e) => {
+    const onUpdate = (changed: vscode.Uri[]): void => {
       this.diagEventCount++;
-      this.log(`[FORENSIC:Step1] onDidChangeDiagnostics #${this.diagEventCount}: ${e.uris.length} URIs`);
-      for (let di = 0; di < Math.min(e.uris.length, 10); di++) {
-        this.log(`[FORENSIC:Step1]   URI[${di}]=${e.uris[di].toString(true)}`);
-        const ddx = vscode.languages.getDiagnostics(e.uris[di]);
-        this.log(`[FORENSIC:Step1]   URI[${di}] diagCount=${ddx.length}`);
-      }
-      if (e.uris.length > 10) {
-        this.log(`[FORENSIC:Step1]   ... and ${e.uris.length - 10} more URIs`);
-      }
-      const changed = this.diagnosticsManager.processChanges(e);
-      this.log(`[FORENSIC:Step2] processChanges returned ${changed.length} changed URIs`);
-      const severityCounts = this.diagnosticsManager.getEventDiagnosticsCounts(e);
-      for (const sc of severityCounts) {
-        this.log(`[FORENSIC:Step2]   URI=${sc.uri} err=${sc.err} warn=${sc.warn} info=${sc.info} hint=${sc.hint}`);
-      }
+      this.log(`[FORENSIC:Step2] onDidUpdate: ${changed.length} changed URIs`);
       notifyApi(changed);
       for (let i = 0; i < changed.length; i++) {
         this.pendingUris.add(changed[i].toString());
@@ -96,31 +83,23 @@ public get eventCount(): number { return this.diagEventCount; }
       if (changed.length > 0) {
         this.flushUpdates?.();
       }
-    });
+    };
 
-    this.registerDisposable(disposable);
+    this.provider.onDidUpdate(onUpdate);
+    this.registerDisposable({ dispose: () => { /* subscription handled by provider */ } });
     this.registerDisposable({ dispose: () => this.flushUpdates?.cancel() });
 
+    // Initial seed
+    this.log('[FORENSIC:Step1-init] initialize START');
+    this.provider.initialize();
+
     if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
-      this.log(`[FORENSIC:Step1-init] fullScan START: ${vscode.workspace.workspaceFolders!.length} folders`);
-      const allDiags = vscode.languages.getDiagnostics();
-      this.log(`[FORENSIC:Step1-init] languages.getDiagnostics() returned ${allDiags.length} entries`);
-      for (let i = 0; i < Math.min(allDiags.length, 10); i++) {
-        const [u, d] = allDiags[i];
-        this.log(`[FORENSIC:Step1-init]   URI[${i}]=${u.toString(true)} diagCount=${d.length}`);
-      }
-      if (allDiags.length > 10) {
-        this.log(`[FORENSIC:Step1-init]   ... and ${allDiags.length - 10} more`);
-      }
-      const changed = this.diagnosticsManager.fullScan();
-      this.log(`[FORENSIC:Step1-init] fullScan returned ${changed.length} changed URIs`);
       const changedFolders = this.folderStatusManager.rebuildAll();
       this.log(`[FORENSIC:Step1-init] rebuildAll returned ${changedFolders.length} folders`);
-      const initialUris = [...changed, ...changedFolders];
-      for (let i = 0; i < initialUris.length; i++) {
-        const folder = vscode.workspace.getWorkspaceFolder(initialUris[i]);
+      for (let i = 0; i < changedFolders.length; i++) {
+        const folder = vscode.workspace.getWorkspaceFolder(changedFolders[i]);
         if (folder) {
-          this.apiManager.notifyChanged(initialUris[i], folder.uri);
+          this.apiManager.notifyChanged(changedFolders[i], folder.uri);
         }
       }
       this.decorationEngine.refresh();
@@ -128,36 +107,21 @@ public get eventCount(): number { return this.diagEventCount; }
       this.statusBarManager.update();
     }
 
-    let pollAttempts = 0;
-    const pollInterval = setInterval(() => {
-      pollAttempts++;
-      const totalDiags = vscode.languages.getDiagnostics();
-      let totalCount = 0;
-      for (let i = 0; i < totalDiags.length; i++) {
-        totalCount += totalDiags[i][1].length;
-      }
-      this.log(`[INIT-POLL] attempt=${pollAttempts} totalDiags=${totalCount}`);
-      if (totalCount > 0 || pollAttempts >= 10) {
-        clearInterval(pollInterval);
-        const changed = this.diagnosticsManager.fullScan();
-        this.log(`[INIT-POLL] late fullScan: ${changed.length} changed`);
-        const changedFolders = this.folderStatusManager.rebuildAll();
-        this.log(`[INIT-POLL] late rebuildAll: ${changedFolders.length} folders`);
-        const pollUris = [...changed, ...changedFolders];
-        for (let i = 0; i < pollUris.length; i++) {
-          const folder = vscode.workspace.getWorkspaceFolder(pollUris[i]);
-          if (folder) {
-            this.apiManager.notifyChanged(pollUris[i], folder.uri);
-          }
-        }
-        this.decorationEngine.refresh();
-        this.statusBarManager.update();
-      }
-    }, 2000);
-    this.registerDisposable({ dispose: () => clearInterval(pollInterval) });
+    // Start listening to diagnostic events
+    this.provider.start();
+    this.provider.startInitPoll();
   }
 
   protected onRefresh(): void {
-    // TODO: full re-scan of all diagnostics
+    this.provider.refresh();
+    const changedFolders = this.folderStatusManager.rebuildAll();
+    for (let i = 0; i < changedFolders.length; i++) {
+      const folder = vscode.workspace.getWorkspaceFolder(changedFolders[i]);
+      if (folder) {
+        this.apiManager.notifyChanged(changedFolders[i], folder.uri);
+      }
+    }
+    this.decorationEngine.refresh();
+    this.statusBarManager.update();
   }
 }

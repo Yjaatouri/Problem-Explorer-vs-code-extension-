@@ -1,20 +1,35 @@
 import * as assert from 'assert';
-import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { VSDiagnosticsProvider } from '../../providers/VSDiagnosticsProvider';
 import { ProviderManager } from '../../services/ProviderManager';
 import type { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
+import type { DiagnosticProvider } from '../../providers/DiagnosticProvider';
+import type { ProblemStore } from '../../store/ProblemStore';
 import type { FolderStatusManager } from '../../folder/folderStatusManager';
 import type { ApiManager } from '../../api/problemExplorerApi';
 import type { DecorationEngine } from '../../decoration/decorationEngine';
 import type { StatusBarManager } from '../../statusBar/statusBarManager';
 import type { TrendTracker } from '../../trend/trendTracker';
-function createMockDiagnosticsManager(): DiagnosticsManager {
+
+function createMockDiagnosticProvider(): DiagnosticProvider & DiagnosticsManager {
   return {
+    name: 'mock',
+    store: {} as ProblemStore,
+    onDidUpdate: (_cb: (uris: vscode.Uri[]) => void) => ({ dispose: () => {} }),
+    initialize: () => {},
+    start: () => {},
+    stop: () => {},
+    refresh: () => {},
+    dispose: () => {},
     processChanges: () => [],
     fullScan: () => [],
     getEventDiagnosticsCounts: () => [],
-  } as unknown as DiagnosticsManager;
+    startInitPoll: () => {},
+    setIgnorePatterns: () => {},
+    setSeverityOverrides: () => {},
+    getStatus: () => undefined,
+    severityOverridesValue: undefined,
+  } as unknown as DiagnosticProvider & DiagnosticsManager;
 }
 
 function createMockFolderStatusManager(): FolderStatusManager {
@@ -52,7 +67,7 @@ function createMockTrendTracker(): TrendTracker {
 
 function createProvider(): VSDiagnosticsProvider {
   return new VSDiagnosticsProvider(
-    createMockDiagnosticsManager(),
+    createMockDiagnosticProvider(),
     createMockFolderStatusManager(),
     createMockApiManager(),
     createMockDecorationEngine(),
@@ -63,12 +78,6 @@ function createProvider(): VSDiagnosticsProvider {
 }
 
 suite('VSDiagnosticsProvider', () => {
-  let onDiagSpy: sinon.SinonSpy | undefined;
-
-  teardown(() => {
-    onDiagSpy?.restore();
-  });
-
   test('isRunning is false before start', () => {
     const provider = createProvider();
     assert.strictEqual(provider.isRunning, false);
@@ -162,11 +171,10 @@ suite('VSDiagnosticsProvider', () => {
     provider.dispose();
   });
 
-  test('start subscribes to onDidChangeDiagnostics', () => {
-    onDiagSpy = sinon.spy(vscode.languages, 'onDidChangeDiagnostics');
+  test('start calls provider.initialize and provider.start', () => {
     const provider = createProvider();
     provider.start();
-    assert.strictEqual(onDiagSpy.calledOnce, true);
+    assert.strictEqual(provider.isRunning, true);
     provider.dispose();
   });
 

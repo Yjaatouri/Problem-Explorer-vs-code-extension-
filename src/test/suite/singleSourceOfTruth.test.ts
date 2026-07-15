@@ -46,7 +46,7 @@ suite('SingleSourceOfTruth', () => {
           ? { uri: rootUri, name: 'workspace', index: 0 }
           : undefined,
     });
-    api = new ApiManager(store);
+    api = new ApiManager(store, wf);
   });
 
   test('diagnostics → store: processChanges writes to store', () => {
