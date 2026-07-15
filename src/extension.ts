@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { workspace } from 'vscode';
-import { DiagnosticsManager } from './diagnostics/diagnosticsManager';
 import { normalizeUriKey } from './core/uriKey';
 import { DecorationEngine, dumpForensicReport } from './decoration/decorationEngine';
 import { FolderStatusManager } from './folder/folderStatusManager';
@@ -13,6 +12,8 @@ import { initForensicLogger, forensicLog } from './forensicLogger';
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { ProblemStore } from './store/ProblemStore';
 import { ProviderManager } from './services/ProviderManager';
+import { DiagnosticProviderManager } from './providers/DiagnosticProviderManager';
+import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 
 export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
@@ -45,7 +46,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     log('Creating core services...');
 
     const problemStore = new ProblemStore();
-    const diagnosticsManager = new DiagnosticsManager(problemStore, {
+    const diagProvider = new VSCodeDiagnosticProvider(problemStore, {
       getAllDiagnostics: () => vscode.languages.getDiagnostics(),
       getUriDiagnostics: (uri) => vscode.languages.getDiagnostics(uri),
       getWorkspaceFolder: (uri) => vscode.workspace.getWorkspaceFolder(uri),
@@ -53,14 +54,14 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
         const editor = vscode.window.activeTextEditor;
         return editor ? editor.document.uri.toString() === uri.toString() : false;
       },
-    });
+    }, log);
     const decorationEngine = new DecorationEngine(problemStore, {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 }, log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
     const commandManager = new CommandManager(
-      diagnosticsManager,
+      diagProvider,
       decorationEngine,
       folderStatusManager,
       configManager,
@@ -74,13 +75,13 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     trendTracker.start();
     const workspaceManager = new WorkspaceManager(
       problemStore,
-      diagnosticsManager,
+      diagProvider,
       folderStatusManager,
       decorationEngine,
     );
 
     const vsDiagnosticsProvider = new VSDiagnosticsProvider(
-      diagnosticsManager,
+      diagProvider,
       folderStatusManager,
       apiManager,
       decorationEngine,
@@ -89,14 +90,20 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       log,
     );
 
+    const diagProviderManager = new DiagnosticProviderManager();
+    diagProviderManager.register('vscode', diagProvider);
+    diagProviderManager.initializeAll();
+    diagProviderManager.startAll();
+    diagProvider.startInitPoll();
+
     const providerManager = new ProviderManager();
     providerManager.register('vsDiagnostics', vsDiagnosticsProvider);
     providerManager.startAll();
 
     const applyConfig = (): void => {
       const config = configManager.getConfig();
-      diagnosticsManager.setSeverityOverrides(config.severityOverrides);
-      diagnosticsManager.setIgnorePatterns(config.ignorePatterns);
+      diagProvider.setSeverityOverrides(config.severityOverrides);
+      diagProvider.setIgnorePatterns(config.ignorePatterns);
     };
     applyConfig();
     log('config applied: enabled=' + configManager.getConfig().enabled);
@@ -152,6 +159,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       configManager,
       workspaceManager,
       problemStore,
+      diagProviderManager,
       providerManager,
       { dispose: () => { trendTracker.stop(); } },
     );

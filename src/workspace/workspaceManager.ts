@@ -5,18 +5,16 @@ import {
   workspace,
 } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
-import { DiagnosticsManager } from '../diagnostics/diagnosticsManager';
+import { VSCodeDiagnosticProvider } from '../providers/VSCodeDiagnosticProvider';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { DecorationEngine } from '../decoration/decorationEngine';
 import { normalizeUriKey } from '../core/uriKey';
 
-/** Abstraction over `workspace.workspaceFolders` and folder change events for testability */
 export interface WorkspaceDelegate {
   readonly workspaceFolders: readonly WorkspaceFolder[];
   onDidChangeWorkspaceFolders: Event<WorkspaceFoldersChangeEvent>;
 }
 
-/** Shape of the VS Code workspace folder change event */
 export interface WorkspaceFoldersChangeEvent {
   readonly added: readonly WorkspaceFolder[];
   readonly removed: readonly WorkspaceFolder[];
@@ -30,14 +28,13 @@ const defaultDelegate: WorkspaceDelegate = {
     workspace.onDidChangeWorkspaceFolders(listener),
 };
 
-/** Tracks multi-root workspace folder changes and re-seeds cache/decoration state */
 export class WorkspaceManager implements Disposable {
   private readonly delegate: WorkspaceDelegate;
   private readonly disposable: Disposable;
 
   constructor(
     private readonly store: ProblemStore,
-    private readonly diagnosticsManager: DiagnosticsManager,
+    private readonly diagProvider: VSCodeDiagnosticProvider,
     private readonly folderStatusManager: FolderStatusManager,
     private readonly decorationEngine: DecorationEngine,
     delegate?: WorkspaceDelegate,
@@ -52,7 +49,6 @@ export class WorkspaceManager implements Disposable {
     this.disposable.dispose();
   }
 
-  /** Return the current list of workspace folders */
   getWorkspaceFolders(): readonly WorkspaceFolder[] {
     return this.delegate.workspaceFolders;
   }
@@ -63,7 +59,7 @@ export class WorkspaceManager implements Disposable {
     }
 
     if (event.added.length > 0) {
-      this.diagnosticsManager.fullScan();
+      this.diagProvider.fullScan();
       this.folderStatusManager.rebuildAll();
     }
 

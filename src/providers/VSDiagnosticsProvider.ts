@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
-import { DiagnosticsManager } from '../diagnostics/diagnosticsManager';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { ApiManager } from '../api/problemExplorerApi';
 import { DecorationEngine } from '../decoration/decorationEngine';
@@ -19,7 +18,7 @@ export class VSDiagnosticsProvider extends BaseProblemProvider {
 public get eventCount(): number { return this.diagEventCount; }
 
   constructor(
-    private readonly provider: DiagnosticProvider & DiagnosticsManager,
+    private readonly provider: DiagnosticProvider,
     private readonly folderStatusManager: FolderStatusManager,
     private readonly apiManager: ApiManager,
     private readonly decorationEngine: DecorationEngine,
@@ -28,6 +27,26 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly log: (msg: string) => void,
   ) {
     super();
+    this.provider.onDidUpdate((changed: vscode.Uri[]) => {
+      this.diagEventCount++;
+      this.log(`[FORENSIC:Step2] onDidUpdate: ${changed.length} changed URIs`);
+      this.notifyApi(changed);
+      for (let i = 0; i < changed.length; i++) {
+        this.pendingUris.add(changed[i].toString());
+      }
+      if (changed.length > 0) {
+        this.flushUpdates?.();
+      }
+    });
+  }
+
+  private notifyApi(uris: vscode.Uri[]): void {
+    for (let i = 0; i < uris.length; i++) {
+      const folder = vscode.workspace.getWorkspaceFolder(uris[i]);
+      if (folder) {
+        this.apiManager.notifyChanged(uris[i], folder.uri);
+      }
+    }
   }
 
   markPending(uri: vscode.Uri): void {
@@ -39,22 +58,13 @@ public get eventCount(): number { return this.diagEventCount; }
   }
 
   protected onStart(): void {
-    const notifyApi = (uris: vscode.Uri[]): void => {
-      for (let i = 0; i < uris.length; i++) {
-        const folder = vscode.workspace.getWorkspaceFolder(uris[i]);
-        if (folder) {
-          this.apiManager.notifyChanged(uris[i], folder.uri);
-        }
-      }
-    };
-
     this.flushUpdates = debounce(() => {
       this.log(`[FORENSIC:Step4-prep] flushUpdates: pending=${this.pendingUris.size}`);
       for (const uriStr of this.pendingUris) {
         const uri = vscode.Uri.parse(uriStr);
         this.dirtyUris.add(uriStr);
         const ancestors = this.folderStatusManager.updateAncestors(uri);
-        notifyApi(ancestors);
+        this.notifyApi(ancestors);
         for (let k = 0; k < ancestors.length; k++) {
           this.dirtyUris.add(ancestors[k].toString());
         }
@@ -73,26 +83,6 @@ public get eventCount(): number { return this.diagEventCount; }
       this.trendTracker.takeSnapshot();
     }, PROCESSING_DEBOUNCE_MS);
 
-    const onUpdate = (changed: vscode.Uri[]): void => {
-      this.diagEventCount++;
-      this.log(`[FORENSIC:Step2] onDidUpdate: ${changed.length} changed URIs`);
-      notifyApi(changed);
-      for (let i = 0; i < changed.length; i++) {
-        this.pendingUris.add(changed[i].toString());
-      }
-      if (changed.length > 0) {
-        this.flushUpdates?.();
-      }
-    };
-
-    this.provider.onDidUpdate(onUpdate);
-    this.registerDisposable({ dispose: () => { /* subscription handled by provider */ } });
-    this.registerDisposable({ dispose: () => this.flushUpdates?.cancel() });
-
-    // Initial seed
-    this.log('[FORENSIC:Step1-init] initialize START');
-    this.provider.initialize();
-
     if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
       const changedFolders = this.folderStatusManager.rebuildAll();
       this.log(`[FORENSIC:Step1-init] rebuildAll returned ${changedFolders.length} folders`);
@@ -106,10 +96,6 @@ public get eventCount(): number { return this.diagEventCount; }
       this.log('[FORENSIC:Step4] initial refresh() called → fireDidChange(undefined)');
       this.statusBarManager.update();
     }
-
-    // Start listening to diagnostic events
-    this.provider.start();
-    this.provider.startInitPoll();
   }
 
   protected onRefresh(): void {

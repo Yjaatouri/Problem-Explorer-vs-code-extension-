@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { VSDiagnosticsProvider } from '../../providers/VSDiagnosticsProvider';
 import { ProviderManager } from '../../services/ProviderManager';
-import type { DiagnosticsManager } from '../../diagnostics/diagnosticsManager';
 import type { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import type { ProblemStore } from '../../store/ProblemStore';
 import type { FolderStatusManager } from '../../folder/folderStatusManager';
@@ -11,7 +10,7 @@ import type { DecorationEngine } from '../../decoration/decorationEngine';
 import type { StatusBarManager } from '../../statusBar/statusBarManager';
 import type { TrendTracker } from '../../trend/trendTracker';
 
-function createMockDiagnosticProvider(): DiagnosticProvider & DiagnosticsManager {
+function createMockDiagnosticProvider(): DiagnosticProvider {
   return {
     name: 'mock',
     store: {} as ProblemStore,
@@ -21,15 +20,7 @@ function createMockDiagnosticProvider(): DiagnosticProvider & DiagnosticsManager
     stop: () => {},
     refresh: () => {},
     dispose: () => {},
-    processChanges: () => [],
-    fullScan: () => [],
-    getEventDiagnosticsCounts: () => [],
-    startInitPoll: () => {},
-    setIgnorePatterns: () => {},
-    setSeverityOverrides: () => {},
-    getStatus: () => undefined,
-    severityOverridesValue: undefined,
-  } as unknown as DiagnosticProvider & DiagnosticsManager;
+  } as DiagnosticProvider;
 }
 
 function createMockFolderStatusManager(): FolderStatusManager {

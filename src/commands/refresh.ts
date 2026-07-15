@@ -1,14 +1,14 @@
-import { DiagnosticsManager } from '../diagnostics/diagnosticsManager';
+import { VSCodeDiagnosticProvider } from '../providers/VSCodeDiagnosticProvider';
 import { DecorationEngine } from '../decoration/decorationEngine';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 
 export function createRefreshHandler(
-  diagnosticsManager: DiagnosticsManager,
+  diagProvider: VSCodeDiagnosticProvider,
   decorationEngine: DecorationEngine,
   folderStatusManager: FolderStatusManager,
 ): () => void {
   return () => {
-    diagnosticsManager.fullScan();
+    diagProvider.fullScan();
     folderStatusManager.rebuildAll();
     decorationEngine.refresh();
   };
