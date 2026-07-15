@@ -96,21 +96,6 @@ export class DiagnosticsManager implements DiagnosticProvider {
     return changed;
   }
 
-  getEventDiagnosticsCounts(event: DiagnosticChangeEvent): Array<{ uri: string; err: number; warn: number; info: number; hint: number }> {
-    const result: Array<{ uri: string; err: number; warn: number; info: number; hint: number }> = [];
-    for (let i = 0; i < event.uris.length; i++) {
-      const d = this.delegate.getUriDiagnostics(event.uris[i]);
-      result.push({
-        uri: event.uris[i].toString(true),
-        err: d.filter((dx: Diagnostic) => dx.severity === 0).length,
-        warn: d.filter((dx: Diagnostic) => dx.severity === 1).length,
-        info: d.filter((dx: Diagnostic) => dx.severity === 2).length,
-        hint: d.filter((dx: Diagnostic) => dx.severity === 3).length,
-      });
-    }
-    return result;
-  }
-
   /** Read the status for a URI. Returns `undefined` if not in store or not in a workspace folder. */
   getStatus(uri: Uri): ProblemState | undefined {
     const folder = this.delegate.getWorkspaceFolder(uri);

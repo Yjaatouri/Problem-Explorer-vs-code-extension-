@@ -7,7 +7,7 @@ import {
   Uri,
 } from 'vscode';
 import { ProblemSeverity } from '../../core/types';
-import { toProblemSeverity, toProblemState, applySeverityOverrides } from '../../diagnostics/severityMapper';
+import { toProblemState, applySeverityOverrides } from '../../diagnostics/severityMapper';
 
 function makeDiagnostic(severity: DiagnosticSeverity): Diagnostic {
   return new Diagnostic(
@@ -18,49 +18,6 @@ function makeDiagnostic(severity: DiagnosticSeverity): Diagnostic {
 }
 
 suite('severityMapper', () => {
-  suite('toProblemSeverity', () => {
-    test('returns None for empty array', () => {
-      assert.strictEqual(toProblemSeverity([]), ProblemSeverity.None);
-    });
-
-    test('returns Error for errors', () => {
-      const diags = [makeDiagnostic(DiagnosticSeverity.Error)];
-      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.Error);
-    });
-
-    test('returns Warning for warnings', () => {
-      const diags = [makeDiagnostic(DiagnosticSeverity.Warning)];
-      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.Warning);
-    });
-
-    test('returns Info for information', () => {
-      const diags = [makeDiagnostic(DiagnosticSeverity.Information)];
-      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.Info);
-    });
-
-    test('returns None for hints (ignored)', () => {
-      const diags = [makeDiagnostic(DiagnosticSeverity.Hint)];
-      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.None);
-    });
-
-    test('returns highest severity in mixed array', () => {
-      const diags = [
-        makeDiagnostic(DiagnosticSeverity.Information),
-        makeDiagnostic(DiagnosticSeverity.Error),
-        makeDiagnostic(DiagnosticSeverity.Warning),
-      ];
-      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.Error);
-    });
-
-    test('returns Warning when worst is warning', () => {
-      const diags = [
-        makeDiagnostic(DiagnosticSeverity.Information),
-        makeDiagnostic(DiagnosticSeverity.Warning),
-      ];
-      assert.strictEqual(toProblemSeverity(diags), ProblemSeverity.Warning);
-    });
-  });
-
   suite('toProblemState', () => {
     test('returns clean status for empty array', () => {
       const result = toProblemState([]);

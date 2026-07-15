@@ -5,13 +5,6 @@ import {
 } from 'vscode';
 import { ProblemSeverity, ProblemState } from '../core/types';
 
-const SEVERITY_MAP: Record<DiagnosticSeverity, ProblemSeverity> = {
-  [DiagnosticSeverity.Error]: ProblemSeverity.Error,
-  [DiagnosticSeverity.Warning]: ProblemSeverity.Warning,
-  [DiagnosticSeverity.Information]: ProblemSeverity.Info,
-  [DiagnosticSeverity.Hint]: ProblemSeverity.None,
-};
-
 const SEVERITY_NAME_MAP: Record<string, DiagnosticSeverity> = {
   'Error': DiagnosticSeverity.Error,
   'Warning': DiagnosticSeverity.Warning,
@@ -66,20 +59,6 @@ export function applySeverityOverrides(
   }
 
   return changed ? result : diagnostics;
-}
-
-/** Compute the highest severity present across a set of diagnostics (ignores counts) */
-export function toProblemSeverity(diagnostics: readonly Diagnostic[]): ProblemSeverity {
-  let max: ProblemSeverity = ProblemSeverity.None;
-
-  for (let i = 0; i < diagnostics.length; i++) {
-    const mapped = SEVERITY_MAP[diagnostics[i].severity];
-    if (mapped > max) {
-      max = mapped;
-    }
-  }
-
-  return max;
 }
 
 /**
