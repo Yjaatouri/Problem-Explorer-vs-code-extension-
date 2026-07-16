@@ -160,10 +160,12 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
         const prevTsc = prevTscEnabled;
         const prevEslint = prevEslintEnabled;
         applyConfig();
-        const currTsc = configManager.getConfig().typescript;
-        const currEslint = configManager.getConfig().eslint;
+        const currCfg = configManager.getConfig();
+        const currTsc = currCfg.typescript;
+        const currEslint = currCfg.eslint;
         prevTscEnabled = currTsc.enabled;
         prevEslintEnabled = currEslint.enabled;
+        autoScanner.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
           tscProvider.refresh();
@@ -175,7 +177,8 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       }),
     );
 
-    const autoScanner = new AutoScanner(tscProvider, eslintProvider, log);
+    const autoScannerCfg = configManager.getConfig();
+    const autoScanner = new AutoScanner(tscProvider, eslintProvider, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
     autoScanner.start();
     context.subscriptions.push(autoScanner);
 

@@ -45,6 +45,8 @@ export interface Config {
    * Example: `{ ".py": { "Error": "Warning" } }` demotes Python errors to warnings.
    */
   readonly severityOverrides: Record<string, Record<string, string>> | undefined;
+  readonly autoScanEnabled: boolean;
+  readonly autoScanDelay: number;
   readonly typescript: TscConfig;
   readonly eslint: EslintConfig;
 }

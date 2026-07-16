@@ -221,6 +221,17 @@
             }
           }
         },
+        "problemExplorer.autoScan.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable automatic background scanning on file changes"
+        },
+        "problemExplorer.autoScanDelay": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 500,
+          "description": "Delay in milliseconds before triggering an auto-scan after file changes"
+        },
         "problemExplorer.typescript.enabled": {
           "type": "boolean",
           "default": true,

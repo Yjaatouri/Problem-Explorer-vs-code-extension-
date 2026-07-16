@@ -63,6 +63,8 @@ export class ConfigManager implements Disposable {
       warningColor: cfg.get<string | undefined>('warningColor', undefined),
       infoColor: cfg.get<string | undefined>('infoColor', undefined),
       severityOverrides: cfg.get<Record<string, Record<string, string>> | undefined>('severityOverrides', undefined),
+      autoScanEnabled: cfg.get<boolean>('autoScan.enabled', true),
+      autoScanDelay: cfg.get<number>('autoScanDelay', 2000),
       typescript: this.readTscConfig(cfg),
       eslint: this.readEslintConfig(cfg),
     };

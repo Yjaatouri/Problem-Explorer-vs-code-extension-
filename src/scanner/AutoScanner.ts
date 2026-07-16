@@ -1,7 +1,7 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace } from 'vscode';
 import { TscDiagnosticProvider } from '../providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from '../providers/EslintDiagnosticProvider';
-import { AUTO_SCAN_DEBOUNCE_MS, AUTO_SCAN_EXTENSIONS_TSC, AUTO_SCAN_EXTENSIONS_ESLINT } from '../core/constants';
+import { AUTO_SCAN_EXTENSIONS_TSC, AUTO_SCAN_EXTENSIONS_ESLINT } from '../core/constants';
 
 export class AutoScanner implements Disposable {
   private readonly disposables: Disposable[] = [];
@@ -10,12 +10,18 @@ export class AutoScanner implements Disposable {
   private _eslintQueued = false;
   private _activeScans = 0;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private _debounceMs: number;
+  private _enabled = true;
 
   constructor(
     private readonly tscProvider: TscDiagnosticProvider | undefined,
     private readonly eslintProvider: EslintDiagnosticProvider | undefined,
     private readonly log: (msg: string) => void,
+    debounceMs: number = 2000,
+    enabled: boolean = true,
   ) {
+    this._debounceMs = debounceMs;
+    this._enabled = enabled;
     this.statusItem = window.createStatusBarItem(StatusBarAlignment.Left, 1);
     this.statusItem.name = 'Problem Explorer Auto-Scan';
     this.statusItem.text = '$(sync~spin) Scanning...';
@@ -38,7 +44,14 @@ export class AutoScanner implements Disposable {
     );
   }
 
+  updateConfig(debounceMs: number, enabled: boolean): void {
+    this._debounceMs = debounceMs;
+    this._enabled = enabled;
+  }
+
   private onFileChanged(uri: Uri): void {
+    if (!this._enabled) return;
+
     const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
     const needsTsc = this.tscProvider?.enabled && this.tscProvider?.autoScan && AUTO_SCAN_EXTENSIONS_TSC.includes(ext);
     const needsEslint = this.eslintProvider?.enabled && this.eslintProvider?.autoScan && AUTO_SCAN_EXTENSIONS_ESLINT.includes(ext);
@@ -54,11 +67,24 @@ export class AutoScanner implements Disposable {
   private _schedule(): void {
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
+    } else {
+      this._cancelActiveScans();
     }
     this._debounceTimer = setTimeout(() => {
       this._debounceTimer = undefined;
       this._flush();
-    }, AUTO_SCAN_DEBOUNCE_MS);
+    }, this._debounceMs);
+  }
+
+  private _cancelActiveScans(): void {
+    if (this.tscProvider?.scanning) {
+      this.log('[AUTO-SCAN] Cancelling in-progress tsc scan');
+      this.tscProvider.stop();
+    }
+    if (this.eslintProvider?.scanning) {
+      this.log('[AUTO-SCAN] Cancelling in-progress eslint scan');
+      this.eslintProvider.stop();
+    }
   }
 
   private async _flush(): Promise<void> {
