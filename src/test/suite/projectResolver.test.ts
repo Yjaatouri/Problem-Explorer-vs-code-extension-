@@ -105,22 +105,24 @@ suite('ProjectResolver', () => {
     assert.ok(calls.some((c) => c.includes('node_modules')));
   });
 
-  test('returns npx sentinel when workspace TypeScript is missing', () => {
+  test('falls back to VS Code bundled TypeScript when workspace module is missing', () => {
     const delegate = makeDelegate({
       moduleExists: () => false,
-      readPackageJson: () => undefined,
+      readPackageJson: (p) => {
+        if (p.includes('vscode') && p.endsWith('typescript' + path.sep + 'package.json') || p.endsWith('typescript/package.json')) {
+          return { version: '5.4.0' };
+        }
+        return undefined;
+      },
       getExtensionPath: () => '/extensions/vscode.typescript-language-features',
     });
     const resolver = new ProjectResolver(delegate);
 
     const result = resolver.resolveTypeScriptModule('/workspace');
 
-    assert.ok(result, 'should return npx sentinel');
-    assert.strictEqual(result!.path, '__npx__');
-    assert.strictEqual(result!.version, 'npx');
+    assert.ok(result, 'should fall back to VS Code TypeScript');
+    assert.strictEqual(result!.version, '5.4.0');
   });
-
-  test('falls back to VS Code bundled TypeScript when workspace version disabled', () => {
     const delegate = makeDelegate({
       moduleExists: () => false,
       readPackageJson: (p) => {

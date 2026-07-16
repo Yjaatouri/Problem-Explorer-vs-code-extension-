@@ -1,6 +1,5 @@
 import * as path from 'path';
 import * as cp from 'child_process';
-import { NPX_SENTINEL } from './ProjectResolver';
 
 export const DEFAULT_TSC_TIMEOUT_MS = 120_000;
 
@@ -49,30 +48,13 @@ export class TscRunner {
   }
 
   async run(options: TscRunOptions): Promise<TscRunResult> {
-    const useNpx = options.typescriptPath === NPX_SENTINEL;
-
-    let command: string;
-    let tscArgs: string[];
-
-    if (useNpx) {
-      command = 'npx';
-      tscArgs = [
-        '--package', 'typescript',
-        'tsc',
-        '--noEmit',
-        '--pretty', 'false',
-        '--project', options.tsconfigPath,
-      ];
-    } else {
-      const tscScript = path.join(options.typescriptPath, 'lib', 'tsc.js');
-      command = 'node';
-      tscArgs = [
-        tscScript,
-        '--noEmit',
-        '--pretty', 'false',
-        '--project', options.tsconfigPath,
-      ];
-    }
+    const tscScript = path.join(options.typescriptPath, 'lib', 'tsc.js');
+    const args = [
+      tscScript,
+      '--noEmit',
+      '--pretty', 'false',
+      '--project', options.tsconfigPath,
+    ];
 
     const timeoutMs = options.timeoutMs ?? DEFAULT_TSC_TIMEOUT_MS;
     const startTime = Date.now();
@@ -93,7 +75,7 @@ export class TscRunner {
 
       let child: TscProcess;
       try {
-        child = this.delegate.spawn(command, tscArgs);
+        child = this.delegate.spawn('node', args);
       } catch (err: unknown) {
         finish({
           exitCode: null,

@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import { TscRunner, TscProcess, TscRunnerDelegate, TscRunResult } from '../../typescript/TscRunner';
-import { NPX_SENTINEL } from '../../typescript/ProjectResolver';
 
 type DataListener = (chunk: string) => void;
 type CloseListener = (code: number | null) => void;
@@ -111,32 +110,6 @@ suite('TscRunner', () => {
     assert.ok(captured!.args.includes('--noEmit'));
     assert.ok(captured!.args.includes('--pretty'));
     assert.ok(captured!.args.includes('false'));
-    assert.ok(captured!.args.includes('--project'));
-    assert.ok(captured!.args.includes('/workspace/tsconfig.json'));
-  });
-
-  test('spawns npx with --package typescript when typescriptPath is NPX_SENTINEL', async () => {
-    const proc = fakeProcess({ exitCode: 0, closeDelayMs: 5 });
-    let captured: { command: string; args: string[] } | undefined;
-    const delegate: TscRunnerDelegate = {
-      spawn: (command, args) => {
-        captured = { command, args };
-        return proc;
-      },
-    };
-    const runner = new TscRunner(delegate);
-
-    await runner.run({
-      typescriptPath: NPX_SENTINEL,
-      tsconfigPath: '/workspace/tsconfig.json',
-    });
-
-    assert.ok(captured);
-    assert.strictEqual(captured!.command, 'npx');
-    assert.ok(captured!.args.includes('--package'));
-    assert.ok(captured!.args.includes('typescript'));
-    assert.ok(captured!.args.includes('tsc'));
-    assert.ok(captured!.args.includes('--noEmit'));
     assert.ok(captured!.args.includes('--project'));
     assert.ok(captured!.args.includes('/workspace/tsconfig.json'));
   });

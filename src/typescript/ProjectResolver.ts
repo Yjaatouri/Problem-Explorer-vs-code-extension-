@@ -19,7 +19,6 @@ export interface ProjectResolverDelegate {
 }
 
 export const VSCODE_TS_EXTENSION_ID = 'vscode.typescript-language-features';
-export const NPX_SENTINEL = '__npx__';
 
 const defaultDelegate: ProjectResolverDelegate = {
   get workspaceFolders() {
@@ -109,21 +108,23 @@ export class ProjectResolver {
   }
 
   resolveTypeScriptModule(fromDir: string): { path: string; version: string } | undefined {
+    console.log(`[TSC] resolveTypeScriptModule fromDir=${fromDir}`);
+
+    // 1. Try workspace TypeScript (traverse up for node_modules/typescript)
     if (this._useWorkspaceVersion) {
-      console.log(`[TSC] resolveTypeScriptModule useWorkspaceVersion=true fromDir=${fromDir}`);
       const workspaceTypeScript = this.traverseUpForTypeScript(fromDir);
       if (workspaceTypeScript) {
-        console.log(`[TSC] Workspace TypeScript: found`);
+        console.log(`[TSC] Using workspace TypeScript`);
         console.log(`[TSC] Version: ${workspaceTypeScript.version}`);
         console.log(`[TSC] Compiler: ${path.join(workspaceTypeScript.path, 'lib', 'tsc.js')}`);
         return workspaceTypeScript;
       }
       console.log(`[TSC] Workspace TypeScript: not found`);
-      console.log(`[TSC] Falling back to npx --package typescript tsc`);
-      return { path: NPX_SENTINEL, version: 'npx' };
+    } else {
+      console.log(`[TSC] Workspace TypeScript: skipped (useWorkspaceVersion=false)`);
     }
 
-    console.log(`[TSC] resolveTypeScriptModule useWorkspaceVersion=false fromDir=${fromDir}`);
+    // 2. Try VS Code bundled TypeScript
     console.log(`[TSC] Checking VS Code bundled TypeScript...`);
     const vsCodeTypeScript = this.getVSCodeTypeScript();
     if (vsCodeTypeScript) {
@@ -133,7 +134,9 @@ export class ProjectResolver {
       return vsCodeTypeScript;
     }
 
+    // 3. No runnable compiler found
     console.log(`[TSC] No runnable TypeScript compiler found`);
+    console.log(`[TSC]   Action: Install TypeScript in your workspace (npm install typescript --save-dev)`);
     return undefined;
   }
 
