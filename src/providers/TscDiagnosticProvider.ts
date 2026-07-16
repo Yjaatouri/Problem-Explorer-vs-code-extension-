@@ -351,8 +351,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     for (const [filePath, fileDiags] of diagnostics) {
       const state = this.aggregateFileState(fileDiags);
       const uri = Uri.file(filePath);
-      this._store.set(uri, state, this.name);
-      changed.push(uri);
+      if (this._store.set(uri, state, this.name)) {
+        changed.push(uri);
+      }
     }
 
     return changed;

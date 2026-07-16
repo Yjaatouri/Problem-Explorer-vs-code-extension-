@@ -101,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       capabilities: ['diagnostics', 'realtime'],
     });
     diagProviderManager.register('tsc', tscProvider, {
-      priority: 5,
+      priority: 8,
       capabilities: ['diagnostics', 'tsc-scan'],
     });
     diagProviderManager.register('eslint', eslintProvider, {
@@ -109,10 +109,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       capabilities: ['diagnostics', 'eslint-scan'],
     });
 
-    // Configure provider priorities in the ProblemStore (must match manager registration order)
-    problemStore.configureProvider('vscodeDiagnostics', 10);
-    problemStore.configureProvider('tsc', 5);
-    problemStore.configureProvider('eslint', 7);
+    // Provider ownership priorities in ProblemStore.
+    // Compiler (tsc) is authoritative — it performs full project compilation.
+    // Linter (eslint) is next — cross-file linting rules.
+    // Language server (vscodeDiagnostics) is least authoritative — editor-scoped, incremental.
+    problemStore.configureProvider('tsc', 10);
+    problemStore.configureProvider('eslint', 9);
+    problemStore.configureProvider('vscodeDiagnostics', 5);
 
     const vsDiagnosticsProvider = new VSDiagnosticsProvider(
       diagProviderManager,

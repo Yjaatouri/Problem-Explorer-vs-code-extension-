@@ -367,8 +367,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     for (const [uriString, fileDiags] of diagnostics) {
       const state = this.aggregateFileState(fileDiags);
       const uri = Uri.parse(uriString);
-      this._store.set(uri, state, this.name);
-      changed.push(uri);
+      if (this._store.set(uri, state, this.name)) {
+        changed.push(uri);
+      }
     }
 
     return changed;
