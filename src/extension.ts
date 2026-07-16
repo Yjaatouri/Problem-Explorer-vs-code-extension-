@@ -144,12 +144,18 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
 
     if (tscCfg.enabled && tscCfg.scanOnStartup) {
       log('[TSC] scanOnStartup enabled — triggering initial scan');
-      tscProvider.refresh();
+      tscProvider.refresh().then(
+        () => log('[TSC] initial scan completed'),
+        (err) => log(`[TSC] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
+      );
     }
 
     if (eslintCfg.enabled) {
       log('[ESLINT] triggering initial scan');
-      eslintProvider.refresh();
+      eslintProvider.refresh().then(
+        () => log('[ESLINT] initial scan completed'),
+        (err) => log(`[ESLINT] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
+      );
     }
 
     let prevTscEnabled = tscCfg.enabled;
