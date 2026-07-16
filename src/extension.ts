@@ -8,7 +8,7 @@ import { CommandManager } from './commands/commandManager';
 import { WorkspaceManager } from './workspace/workspaceManager';
 import { StatusBarManager } from './statusBar/statusBarManager';
 import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
-import { initForensicLogger, forensicLog } from './forensicLogger';
+import { initForensicLogger, forensicLog, dumpChainReport, resetChainCounters } from './forensicLogger';
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { ProblemStore } from './store/ProblemStore';
 import { ProviderManager } from './services/ProviderManager';
@@ -18,6 +18,8 @@ import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 import { AutoScanner } from './scanner/AutoScanner';
+
+console.log('[LOG:DIST_LOADED]');
 
 export async function activate(context: vscode.ExtensionContext): Promise<ProblemExplorerAPI> {
   const consoleLog = (msg: string): void => {
@@ -122,7 +124,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       log,
     );
 
+    console.log('[LOG:PRE_INIT] about to call initializeAll()');
     await diagProviderManager.initializeAll();
+    console.log('[LOG:POST_INIT] initializeAll() completed');
     log('[VERIFY] All diagnostic providers initialized');
     log(`[VERIFY] Providers: ${diagProviderManager.all().map(p => p.name + '=' + p.state).join(', ')}`);
 
@@ -171,6 +175,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       );
     }
 
+    const autoScannerCfg = configManager.getConfig();
+    const autoScanner = new AutoScanner(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
+    autoScanner.start();
+    context.subscriptions.push(autoScanner);
+
     let prevTscEnabled = tscCfg.enabled;
     let prevEslintEnabled = eslintCfg.enabled;
     context.subscriptions.push(
@@ -195,11 +204,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         }
       }),
     );
-
-    const autoScannerCfg = configManager.getConfig();
-    const autoScanner = new AutoScanner(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
-    autoScanner.start();
-    context.subscriptions.push(autoScanner);
 
     log('[FORENSIC:Step7] registerFileDecorationProvider START');
     const regResult = vscode.window.registerFileDecorationProvider(decorationEngine);
@@ -268,7 +272,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         const report = dumpForensicReport();
         log(report);
         log(`[FORENSIC:REPORT] diagEventCount=${vsDiagnosticsProvider.eventCount}`);
+        const chain = dumpChainReport();
+        log(chain);
         vscode.window.showInformationMessage('Forensic report dumped to console (DevTools)');
+      }),
+    );
+
+    // RESET CHAIN COUNTERS COMMAND
+    context.subscriptions.push(
+      vscode.commands.registerCommand('problemExplorer.resetChainCounters', () => {
+        resetChainCounters();
+        log('[CHAIN:REPORT] Chain counters reset');
+        vscode.window.showInformationMessage('Chain counters reset');
       }),
     );
 

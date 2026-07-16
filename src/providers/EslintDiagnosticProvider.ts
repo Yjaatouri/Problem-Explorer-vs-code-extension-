@@ -1,8 +1,9 @@
-import { Event, EventEmitter, Uri, WorkspaceFolder } from 'vscode';
+import { Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState, ProblemSeverity, EslintConfig } from '../core/types';
 import { EslintRunner, EslintRunOptions, EslintDiagnostic } from '../typescript/EslintRunner';
+import { chainCounters } from '../forensicLogger';
 import * as path from 'path';
 
 export interface EslintScanContext {
@@ -97,10 +98,17 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   async initialize(): Promise<void> {
-    if (this._disposed) return;
+    if (this._disposed) { console.log('[LOG:ESLINT-init] DISPOSED — returning'); return; }
     const changed = await this.runScan();
+    console.log(`[LOG:ESLINT-init] runScan returned changed.length=${changed.length}`);
     if (changed.length > 0) {
+      chainCounters.providerRunScanReturned++;
+      console.log(`[LOG:ESLINT-init] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
       this._onDidUpdate.fire(changed);
+      chainCounters.providerOnDidUpdateFired++;
+      console.log(`[LOG:ESLINT-init] AFTER _onDidUpdate.fire()`);
+    } else {
+      console.log(`[LOG:ESLINT-init] changed.length=0 → SKIPPING _onDidUpdate.fire()`);
     }
   }
 
@@ -117,8 +125,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   async refresh(): Promise<void> {
-    if (this._disposed) return;
-    if (!this._enabled) return;
+    chainCounters.providerRefreshCalled++;
+    if (this._disposed) { console.log('[LOG:ESLINT-refresh] DISPOSED — returning'); return; }
+    if (!this._enabled) { console.log('[LOG:ESLINT-refresh] DISABLED — returning'); return; }
 
     this._clearDebounce();
 
@@ -126,8 +135,15 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       this._debounceTimer = setTimeout(async () => {
         this._debounceTimer = undefined;
         const changed = await this.runScan();
+        console.log(`[LOG:ESLINT-refresh] runScan returned changed.length=${changed.length}`);
         if (!this._disposed && changed.length > 0) {
+          chainCounters.providerRunScanReturned++;
+          console.log(`[LOG:ESLINT-refresh] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
           this._onDidUpdate.fire(changed);
+          chainCounters.providerOnDidUpdateFired++;
+          console.log(`[LOG:ESLINT-refresh] AFTER _onDidUpdate.fire()`);
+        } else {
+          console.log(`[LOG:ESLINT-refresh] changed.length=0 OR disposed → SKIPPING _onDidUpdate.fire()`);
         }
         resolve();
       }, this.refreshDebounceMs);
@@ -257,6 +273,12 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       this._lastScanDurationMs = timing.totalMs;
       this._lastScanTiming = timing;
 
+      if (changed.length === 0 && this._lastScanErrors.length > 0) {
+        for (const e of this._lastScanErrors) {
+          console.log(`[LOG:ESLINT-error] ${e.folder || '(workspace)'} — ${e.message}`);
+        }
+      }
+
       return changed;
     } finally {
       this._scanning = false;
@@ -270,11 +292,11 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     }
   }
 
-  private getWorkspaceFolders(): WorkspaceFolder[] {
-    return (globalThis as any).vscode?.workspace?.workspaceFolders ?? [];
+  private getWorkspaceFolders(): readonly WorkspaceFolder[] {
+    return workspace.workspaceFolders ?? [];
   }
 
-  private async findFoldersWithEslint(folders: WorkspaceFolder[]): Promise<WorkspaceFolder[]> {
+  private async findFoldersWithEslint(folders: readonly WorkspaceFolder[]): Promise<WorkspaceFolder[]> {
     const fs = await import('fs/promises');
     const result: WorkspaceFolder[] = [];
 

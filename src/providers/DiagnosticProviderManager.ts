@@ -1,5 +1,6 @@
 import { Event, EventEmitter, Disposable, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
+import { chainCounters } from '../forensicLogger';
 
 export enum ProviderState {
   idle = 'idle',
@@ -63,6 +64,8 @@ export class DiagnosticProviderManager {
     this.entries.set(name, entry);
 
     const sub = provider.onDidUpdate((uris: Uri[]) => {
+      chainCounters.dpmOnDidUpdateReceived++;
+      console.log(`[LOG:DPMgr] onDidUpdate received from "${name}" — ${uris.length} URIs — firing _onDidUpdateAll`);
       this._onDidUpdateAll.fire(uris);
     });
     this.providerSubscriptions.set(name, sub);

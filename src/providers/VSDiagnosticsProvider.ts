@@ -8,6 +8,7 @@ import { TrendTracker } from '../trend/trendTracker';
 import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
+import { chainCounters } from '../forensicLogger';
 
 export class VSDiagnosticsProvider extends BaseProblemProvider {
   private diagEventCount = 0;
@@ -29,13 +30,19 @@ public get eventCount(): number { return this.diagEventCount; }
     super();
     this.registerDisposable(this.manager.onDidUpdateAll((changed: vscode.Uri[]) => {
       this.diagEventCount++;
+      chainCounters.vsDiagOnDidUpdateAllReceived++;
+      console.log(`[LOG:VSDiag] onDidUpdateAll RECEIVED — ${changed.length} URIs — pendingUris was ${this.pendingUris.size}`);
       this.log(`[FORENSIC:Step2] onDidUpdate: ${changed.length} changed URIs`);
       this.notifyApi(changed);
       for (let i = 0; i < changed.length; i++) {
         this.pendingUris.add(changed[i].toString());
       }
+      console.log(`[LOG:VSDiag] pendingUris now ${this.pendingUris.size} — flushUpdates exists? ${!!this.flushUpdates}`);
       if (changed.length > 0) {
         this.flushUpdates?.();
+        console.log(`[LOG:VSDiag] flushUpdates() called`);
+      } else {
+        console.log(`[LOG:VSDiag] changed.length=0 → NOT calling flushUpdates()`);
       }
     }));
   }
@@ -59,11 +66,14 @@ public get eventCount(): number { return this.diagEventCount; }
 
   protected onStart(): void {
     this.flushUpdates = debounce(() => {
+      chainCounters.vsDiagFlushUpdatesExecuted++;
+      console.log(`[LOG:flushUpdates] EXECUTING — pendingUris.size=${this.pendingUris.size} initialDirty=${this.dirtyUris.size}`);
       this.log(`[FORENSIC:Step4-prep] flushUpdates: pending=${this.pendingUris.size}`);
       for (const uriStr of this.pendingUris) {
         const uri = vscode.Uri.parse(uriStr);
         this.dirtyUris.add(uriStr);
         const ancestors = this.folderStatusManager.updateAncestors(uri);
+        console.log(`[LOG:flushUpdates] updateAncestors("${uriStr.split('/').pop() || uriStr}") returned ${ancestors.length} ancestor URIs`);
         this.notifyApi(ancestors);
         for (let k = 0; k < ancestors.length; k++) {
           this.dirtyUris.add(ancestors[k].toString());
@@ -73,15 +83,19 @@ public get eventCount(): number { return this.diagEventCount; }
 
       if (this.dirtyUris.size > 0) {
         const uris = Array.from(this.dirtyUris, (s) => vscode.Uri.parse(s));
+        console.log(`[LOG:flushUpdates] firing fireDidChange with ${uris.length} URIs`);
         this.log(`[FORENSIC:Step4-prep] fireDidChange: ${uris.length} URIs (${this.dirtyUris.size} total before clear)`);
         this.log(`[VERIFY] DecorationEngine.fireDidChange called with ${uris.length} URIs (from flushUpdates)`);
         this.dirtyUris.clear();
+        chainCounters.fireDidChangeWithUris++;
         this.decorationEngine.fireDidChange(uris);
       } else {
+        console.log(`[LOG:flushUpdates] dirtyUris.size=0 → NOT firing fireDidChange`);
         this.log('[FORENSIC:Step4-prep] dirtyUris.size=0 → NOT firing fireDidChange');
       }
       this.statusBarManager.update();
       this.trendTracker.takeSnapshot();
+      console.log(`[LOG:flushUpdates] COMPLETE — statusBar updated, trend snapshot taken`);
     }, PROCESSING_DEBOUNCE_MS);
 
     if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {

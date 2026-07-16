@@ -63,6 +63,16 @@
         "command": "problemExplorer.scanAll",
         "title": "Scan All (TypeScript + ESLint)",
         "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.forensicReport",
+        "title": "Dump Forensic Report",
+        "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.resetChainCounters",
+        "title": "Reset Chain Counters",
+        "category": "Problem Explorer"
       }
     ],
     "keybindings": [

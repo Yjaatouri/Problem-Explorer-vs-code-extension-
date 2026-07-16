@@ -1,6 +1,7 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace } from 'vscode';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import { AUTO_SCAN_EXTENSIONS_TSC, AUTO_SCAN_EXTENSIONS_ESLINT } from '../core/constants';
+import { chainCounters } from '../forensicLogger';
 
 interface ScanTarget {
   providerName: string;
@@ -70,6 +71,7 @@ export class AutoScanner implements Disposable {
       const provider = this.manager.get(target.providerName);
       if (!provider || !provider.enabled || !provider.autoScan) continue;
       this.queuedProviders.add(target.providerName);
+      chainCounters.autoScannerTriggered++;
     }
 
     if (this.queuedProviders.size === 0) return;
@@ -100,6 +102,7 @@ export class AutoScanner implements Disposable {
 
   private async _flush(): Promise<void> {
     if (this.queuedProviders.size === 0) return;
+    chainCounters.autoScannerFlushCalled++;
 
     const names = Array.from(this.queuedProviders);
     this.queuedProviders.clear();
@@ -111,6 +114,7 @@ export class AutoScanner implements Disposable {
     for (const name of names) {
       const provider = this.manager.get(name);
       if (!provider) continue;
+      chainCounters.autoScannerFlushProviderRun++;
 
       this.log(`[AUTO-SCAN] Triggering ${name} auto-scan...`);
       const result = provider.refresh();

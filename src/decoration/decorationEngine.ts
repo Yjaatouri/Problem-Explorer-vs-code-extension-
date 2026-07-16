@@ -16,6 +16,7 @@ import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
 import { normalizeUriKey } from '../core/uriKey';
+import { chainCounters } from '../forensicLogger';
 
 export const forensicCounters = {
   provideFileDecorationCalls: 0,
@@ -185,10 +186,12 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     }
 
     if (Array.isArray(uris)) {
+      if (uris.length > 0) { chainCounters.fireDidChangeWithUris++; }
       for (let i = 0; i < uris.length; i++) {
         this._coalescedUris.add(uris[i].toString());
       }
     } else {
+      chainCounters.fireDidChangeWithUris++;
       this._coalescedUris.add(uris.toString());
     }
 

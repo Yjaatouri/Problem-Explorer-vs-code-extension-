@@ -19,6 +19,7 @@ export interface ProjectResolverDelegate {
 }
 
 export const VSCODE_TS_EXTENSION_ID = 'vscode.typescript-language-features';
+export const NPX_SENTINEL = '__npx__';
 
 const defaultDelegate: ProjectResolverDelegate = {
   get workspaceFolders() {
@@ -103,10 +104,15 @@ export class ProjectResolver {
     };
   }
 
+  private tscExists(typescriptDir: string): boolean {
+    return this.delegate.moduleExists(path.join(typescriptDir, 'lib', 'tsc.js'));
+  }
+
   resolveTypeScriptModule(fromDir: string): { path: string; version: string } | undefined {
     if (this._useWorkspaceVersion) {
       const workspaceTypeScript = this.traverseUpForTypeScript(fromDir);
       if (workspaceTypeScript) return workspaceTypeScript;
+      return { path: NPX_SENTINEL, version: 'npx' };
     }
 
     const vsCodeTypeScript = this.getVSCodeTypeScript();
@@ -122,10 +128,13 @@ export class ProjectResolver {
       const packageJsonPath = path.join(current, 'node_modules', 'typescript', 'package.json');
       const pkg = this.delegate.readPackageJson(packageJsonPath);
       if (pkg && typeof pkg.version === 'string') {
-        return {
-          path: path.dirname(packageJsonPath),
-          version: pkg.version,
-        };
+        const tsDir = path.dirname(packageJsonPath);
+        if (this.tscExists(tsDir)) {
+          return {
+            path: tsDir,
+            version: pkg.version,
+          };
+        }
       }
 
       const parent = path.dirname(current);
@@ -140,15 +149,26 @@ export class ProjectResolver {
     const extPath = this.delegate.getExtensionPath(VSCODE_TS_EXTENSION_ID);
     if (!extPath) return undefined;
 
-    const typescriptLibDir = path.join(extPath, 'node_modules', 'typescript');
-    const packageJsonPath = path.join(typescriptLibDir, 'package.json');
+    // Try per-extension node_modules (legacy VS Code structure)
+    const perExtTsc = path.join(extPath, 'node_modules', 'typescript');
+    if (this.tscExists(perExtTsc)) {
+      const perExtPkg = path.join(perExtTsc, 'package.json');
+      const pkg = this.delegate.readPackageJson(perExtPkg);
+      if (pkg && typeof pkg.version === 'string') {
+        return { path: perExtTsc, version: pkg.version };
+      }
+    }
 
-    const pkg = this.delegate.readPackageJson(packageJsonPath);
-    if (!pkg || typeof pkg.version !== 'string') return undefined;
+    // Try shared extensions node_modules (modern VS Code ≥1.96)
+    const sharedExtTsc = path.resolve(extPath, '..', 'node_modules', 'typescript');
+    if (this.tscExists(sharedExtTsc)) {
+      const sharedExtPkg = path.join(sharedExtTsc, 'package.json');
+      const pkg = this.delegate.readPackageJson(sharedExtPkg);
+      if (pkg && typeof pkg.version === 'string') {
+        return { path: sharedExtTsc, version: pkg.version };
+      }
+    }
 
-    return {
-      path: typescriptLibDir,
-      version: pkg.version,
-    };
+    return undefined;
   }
 }

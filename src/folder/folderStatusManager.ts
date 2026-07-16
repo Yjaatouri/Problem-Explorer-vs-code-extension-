@@ -3,6 +3,7 @@ import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState } from '../core/types';
 import { normalizeUriKey, getParentKey } from '../core/uriKey';
 import { aggregateStatuses } from './propagationStrategy';
+import { chainCounters } from '../forensicLogger';
 
 export interface FolderWorkspace {
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
@@ -103,6 +104,9 @@ export class FolderStatusManager {
       changed.push(rootUri);
     }
 
+    if (changed.length > 0) {
+      chainCounters.updateAncestorsReturned++;
+    }
     return changed;
   }
 

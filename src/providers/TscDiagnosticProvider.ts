@@ -5,6 +5,7 @@ import { ProblemState, ProblemSeverity, TscConfig } from '../core/types';
 import { ProjectResolver, TypeScriptProject } from '../typescript/ProjectResolver';
 import { TscRunner, TscRunOptions, DEFAULT_TSC_TIMEOUT_MS } from '../typescript/TscRunner';
 import { TscOutputParser, TscDiagnostic } from '../typescript/TscOutputParser';
+import { chainCounters } from '../forensicLogger';
 import * as path from 'path';
 
 export interface TscScanContext {
@@ -111,10 +112,17 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async initialize(): Promise<void> {
-    if (this._disposed) return;
+    if (this._disposed) { console.log('[LOG:TSC-init] DISPOSED — returning'); return; }
     const changed = await this.runScan();
+    console.log(`[LOG:TSC-init] runScan returned changed.length=${changed.length}`);
     if (changed.length > 0) {
+      chainCounters.providerRunScanReturned++;
+      console.log(`[LOG:TSC-init] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
       this._onDidUpdate.fire(changed);
+      chainCounters.providerOnDidUpdateFired++;
+      console.log(`[LOG:TSC-init] AFTER _onDidUpdate.fire()`);
+    } else {
+      console.log(`[LOG:TSC-init] changed.length=0 → SKIPPING _onDidUpdate.fire()`);
     }
   }
 
@@ -130,8 +138,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async refresh(): Promise<void> {
-    if (this._disposed) return;
-    if (!this._enabled) return;
+    chainCounters.providerRefreshCalled++;
+    if (this._disposed) { console.log('[LOG:TSC-refresh] DISPOSED — returning'); return; }
+    if (!this._enabled) { console.log('[LOG:TSC-refresh] DISABLED — returning'); return; }
 
     this._clearDebounce();
 
@@ -139,8 +148,15 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       this._debounceTimer = setTimeout(async () => {
         this._debounceTimer = undefined;
         const changed = await this.runScan();
+        console.log(`[LOG:TSC-refresh] runScan returned changed.length=${changed.length}`);
         if (changed.length > 0) {
+          chainCounters.providerRunScanReturned++;
+          console.log(`[LOG:TSC-refresh] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
           this._onDidUpdate.fire(changed);
+          chainCounters.providerOnDidUpdateFired++;
+          console.log(`[LOG:TSC-refresh] AFTER _onDidUpdate.fire()`);
+        } else {
+          console.log(`[LOG:TSC-refresh] changed.length=0 → SKIPPING _onDidUpdate.fire()`);
         }
         resolve();
       }, this.refreshDebounceMs);
@@ -278,6 +294,12 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       timing.totalMs = performance.now() - scanStart;
       this._lastScanDurationMs = timing.totalMs;
       this._lastScanTiming = timing;
+
+      if (result.length === 0 && this._lastScanErrors.length > 0) {
+        for (const e of this._lastScanErrors) {
+          console.log(`[LOG:TSC-error] ${e.tsconfigPath || '(workspace)'} — ${e.message}`);
+        }
+      }
 
       return result;
     } finally {
