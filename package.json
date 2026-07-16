@@ -248,6 +248,17 @@
           "minimum": 1,
           "maximum": 10,
           "description": "Maximum number of concurrent tsc scans (currently limited to 1)"
+        },
+        "problemExplorer.eslint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable ESLint scanning"
+        },
+        "problemExplorer.eslint.timeout": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 5000,
+          "description": "Timeout in milliseconds for each ESLint invocation"
         }
       }
     }

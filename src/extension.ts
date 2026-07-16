@@ -15,6 +15,7 @@ import { ProviderManager } from './services/ProviderManager';
 import { DiagnosticProviderManager } from './providers/DiagnosticProviderManager';
 import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
 import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
+import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 
 export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
@@ -66,6 +67,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       undefined, undefined, undefined,
       configManager.getConfig().typescript.timeout,
     );
+    const eslintProvider = new EslintDiagnosticProvider(problemStore);
     const commandManager = new CommandManager(
       diagProvider,
       decorationEngine,
@@ -97,10 +99,15 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       priority: 5,
       capabilities: ['diagnostics', 'tsc-scan'],
     });
+    diagProviderManager.register('eslint', eslintProvider, {
+      priority: 7,
+      capabilities: ['diagnostics', 'eslint-scan'],
+    });
 
     // Configure provider priorities in the ProblemStore (must match manager registration order)
     problemStore.configureProvider('vscodeDiagnostics', 10);
     problemStore.configureProvider('tsc', 5);
+    problemStore.configureProvider('eslint', 7);
 
     const vsDiagnosticsProvider = new VSDiagnosticsProvider(
       diagProviderManager,
@@ -125,27 +132,42 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       diagProvider.setSeverityOverrides(config.severityOverrides);
       diagProvider.setIgnorePatterns(config.ignorePatterns);
       tscProvider.updateConfig(config.typescript);
+      eslintProvider.updateConfig(config.eslint);
     };
     applyConfig();
     const tscCfg = configManager.getConfig().typescript;
-    log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled);
+    const eslintCfg = configManager.getConfig().eslint;
+    log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled + ', eslint.enabled=' + eslintCfg.enabled);
 
     if (tscCfg.enabled && tscCfg.scanOnStartup) {
       log('[TSC] scanOnStartup enabled — triggering initial scan');
       tscProvider.refresh();
     }
 
+    if (eslintCfg.enabled) {
+      log('[ESLINT] triggering initial scan');
+      eslintProvider.refresh();
+    }
+
     let prevTscEnabled = tscCfg.enabled;
+    let prevEslintEnabled = eslintCfg.enabled;
     context.subscriptions.push(
       configManager.onDidChangeConfig(() => {
         log('config changed');
-        const prev = prevTscEnabled;
+        const prevTsc = prevTscEnabled;
+        const prevEslint = prevEslintEnabled;
         applyConfig();
-        const curr = configManager.getConfig().typescript;
-        prevTscEnabled = curr.enabled;
-        if (curr.enabled && !prev) {
+        const currTsc = configManager.getConfig().typescript;
+        const currEslint = configManager.getConfig().eslint;
+        prevTscEnabled = currTsc.enabled;
+        prevEslintEnabled = currEslint.enabled;
+        if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
           tscProvider.refresh();
+        }
+        if (currEslint.enabled && !prevEslint) {
+          log('[ESLINT] Scan enabled via config change — triggering scan');
+          eslintProvider.refresh();
         }
       }),
     );
@@ -195,6 +217,7 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       workspaceManager,
       problemStore,
       tscProvider,
+      eslintProvider,
       diagProviderManager,
       providerManager,
       decorationEngine,

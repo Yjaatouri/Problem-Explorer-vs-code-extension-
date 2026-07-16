@@ -25,7 +25,11 @@ export interface TscConfig {
   readonly maxConcurrentScans: number;
 }
 
-/** Shape of the `problemExplorer.*` user settings at runtime */
+export interface EslintConfig {
+  readonly enabled: boolean;
+  readonly timeout: number;
+}
+
 export interface Config {
   readonly enabled: boolean;
   readonly showWarnings: boolean;
@@ -41,6 +45,7 @@ export interface Config {
    */
   readonly severityOverrides: Record<string, Record<string, string>> | undefined;
   readonly typescript: TscConfig;
+  readonly eslint: EslintConfig;
 }
 
 /** Convenience type for badge formatting — just the counts, no severity */

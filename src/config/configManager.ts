@@ -5,7 +5,7 @@ import {
   EventEmitter,
   workspace,
 } from 'vscode';
-import { Config, TscConfig } from '../core/types';
+import { Config, EslintConfig, TscConfig } from '../core/types';
 import { SETTINGS_SECTION } from '../core/constants';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
@@ -64,6 +64,7 @@ export class ConfigManager implements Disposable {
       infoColor: cfg.get<string | undefined>('infoColor', undefined),
       severityOverrides: cfg.get<Record<string, Record<string, string>> | undefined>('severityOverrides', undefined),
       typescript: this.readTscConfig(cfg),
+      eslint: this.readEslintConfig(cfg),
     };
   }
 
@@ -75,6 +76,13 @@ export class ConfigManager implements Disposable {
       timeout: cfg.get<number>('typescript.timeout', 120000),
       useWorkspaceVersion: cfg.get<boolean>('typescript.useWorkspaceVersion', true),
       maxConcurrentScans: cfg.get<number>('typescript.maxConcurrentScans', 1),
+    };
+  }
+
+  private readEslintConfig(cfg: { get<T>(key: string, defaultValue?: T): T }): EslintConfig {
+    return {
+      enabled: cfg.get<boolean>('eslint.enabled', true),
+      timeout: cfg.get<number>('eslint.timeout', 120000),
     };
   }
 }
