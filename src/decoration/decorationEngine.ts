@@ -17,7 +17,6 @@ import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
 import { normalizeUriKey } from '../core/uriKey';
 
-// ----- FORENSIC COUNTERS -----
 export const forensicCounters = {
   provideFileDecorationCalls: 0,
   returnDecoration: 0,
@@ -71,6 +70,10 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   private config: Config | undefined;
   private readonly _log: (msg: string) => void;
 
+  // Coalescing state: batch multiple fireDidChange calls into a single array fire
+  private _coalesceTimer: ReturnType<typeof setTimeout> | undefined;
+  private _coalescedUris = new Set<string>();
+
   constructor(
     private readonly problemStore: ProblemStore,
     private readonly delegate: DecorationEngineDelegate = defaultDecorationDelegate,
@@ -79,7 +82,6 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     this._log = log ?? (() => { /* no-op */ });
   }
 
-  /** Provide the current user configuration. When unset, defaults apply (enabled, letter badges). */
   setConfig(config: Config | undefined): void {
     this.config = config;
   }
@@ -110,7 +112,6 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     const uriKey = normalizeUriKey(uri);
     const folderKey = normalizeUriKey(folder.uri);
 
-    // Step 8: URI consistency log
     this._log(`[FORENSIC:Step8] URI consistency: explorerUri=${uri.toString(true)} fsPath=${fsPath} uriKey=${uriKey} folderKey=${folderKey} scheme=${uri.scheme} authority=${uri.authority}`);
 
     this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} storeHit=${!!status} sev=${status?.severity ?? 'none'} uriKey=${uriKey}`);
@@ -170,7 +171,46 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     }
   }
 
+  /**
+   * Fire decoration change events with coalescing: multiple calls in the same
+   * tick are merged into a single array fire, reducing VS Code Explorer
+   * invalidation requests.
+   */
   fireDidChange(uris: Uri | Uri[] | undefined): void {
+    if (uris === undefined) {
+      // Full refresh — flush pending coalesced URIs first, then fire undefined
+      this._flushCoalesced();
+      this._fire(undefined);
+      return;
+    }
+
+    if (Array.isArray(uris)) {
+      for (let i = 0; i < uris.length; i++) {
+        this._coalescedUris.add(uris[i].toString());
+      }
+    } else {
+      this._coalescedUris.add(uris.toString());
+    }
+
+    this._scheduleCoalescedFire();
+  }
+
+  /**
+   * Deprecated: use fireDidChange with specific URIs instead.
+   * Fires undefined causing full VS Code invalidation.
+   */
+  refresh(): void {
+    this.fireDidChange(undefined);
+  }
+
+  dispose(): void {
+    if (this._coalesceTimer !== undefined) {
+      clearTimeout(this._coalesceTimer);
+    }
+    this._onDidChangeFileDecorations.dispose();
+  }
+
+  private _fire(uris: Uri | Uri[] | undefined): void {
     forensicCounters.fireDidChangeCalls++;
     const now = new Date().toISOString();
     if (uris === undefined) {
@@ -192,14 +232,19 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     this._onDidChangeFileDecorations.fire(uris);
   }
 
-  refresh(): void {
-    const now = new Date().toISOString();
-    this._log(`[FORENSIC:Step4] refresh() → fireDidChange(undefined) time=${now}`);
-    this._onDidChangeFileDecorations.fire(undefined);
+  private _scheduleCoalescedFire(): void {
+    if (this._coalesceTimer !== undefined) return;
+    this._coalesceTimer = setTimeout(() => {
+      this._coalesceTimer = undefined;
+      this._flushCoalesced();
+    }, 0);
   }
 
-  dispose(): void {
-    this._onDidChangeFileDecorations.dispose();
+  private _flushCoalesced(): void {
+    if (this._coalescedUris.size === 0) return;
+    const uris = Array.from(this._coalescedUris, (s) => Uri.parse(s));
+    this._coalescedUris.clear();
+    this._fire(uris);
   }
 
   private toDecoration(status: ProblemState): FileDecoration | undefined {
@@ -227,7 +272,6 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     if (style !== 'letter') {
       badge = getBadge(status.severity, status, style);
     }
-    // FileDecoration.badge is limited to 2 characters by the VS Code API
     if (badge.length > 2) {
       badge = '9+';
     }

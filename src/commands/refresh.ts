@@ -9,7 +9,7 @@ export function createRefreshHandler(
 ): () => void {
   return () => {
     diagProvider.fullScan();
-    folderStatusManager.rebuildAll();
-    decorationEngine.refresh();
+    const changed = folderStatusManager.rebuildAll();
+    decorationEngine.fireDidChange(changed);
   };
 }

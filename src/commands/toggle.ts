@@ -19,8 +19,10 @@ export function createToggleHandler(
 
     if (newValue) {
       diagProvider.fullScan();
-      folderStatusManager.rebuildAll();
+      const changed = folderStatusManager.rebuildAll();
+      decorationEngine.fireDidChange(changed);
+    } else {
+      decorationEngine.fireDidChange(undefined);
     }
-    decorationEngine.refresh();
   };
 }

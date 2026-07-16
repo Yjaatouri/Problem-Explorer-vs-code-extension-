@@ -92,8 +92,9 @@ public get eventCount(): number { return this.diagEventCount; }
           this.apiManager.notifyChanged(changedFolders[i], folder.uri);
         }
       }
-      this.decorationEngine.refresh();
-      this.log('[FORENSIC:Step4] initial refresh() called → fireDidChange(undefined)');
+      // Use targeted folder URIs instead of undefined to reduce Explorer re-query
+      this.decorationEngine.fireDidChange(changedFolders);
+      this.log(`[FORENSIC:Step4] initial fireDidChange with ${changedFolders.length} folder URIs (targeted, not full refresh)`);
       this.statusBarManager.update();
     }
   }
@@ -107,7 +108,8 @@ public get eventCount(): number { return this.diagEventCount; }
         this.apiManager.notifyChanged(changedFolders[i], folder.uri);
       }
     }
-    this.decorationEngine.refresh();
+    // Use targeted folder URIs instead of undefined to reduce Explorer re-query
+    this.decorationEngine.fireDidChange(changedFolders);
     this.statusBarManager.update();
   }
 }

@@ -38,8 +38,8 @@ export function createScanHandler(
 
         try {
           await tscProvider.refresh();
-          folderStatusManager.rebuildAll();
-          decorationEngine.refresh();
+          const changed = folderStatusManager.rebuildAll();
+          decorationEngine.fireDidChange(changed);
 
           clearInterval(interval);
 

@@ -60,9 +60,10 @@ export class WorkspaceManager implements Disposable {
 
     if (event.added.length > 0) {
       this.diagProvider.fullScan();
-      this.folderStatusManager.rebuildAll();
+      const changed = this.folderStatusManager.rebuildAll();
+      this.decorationEngine.fireDidChange(changed);
+    } else {
+      this.decorationEngine.fireDidChange(undefined);
     }
-
-    this.decorationEngine.refresh();
   }
 }
