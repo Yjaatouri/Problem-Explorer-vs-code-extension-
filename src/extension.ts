@@ -167,10 +167,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     startupController.run();
     context.subscriptions.push(startupController);
 
+    // AutoScan is disabled by default. Set "problemExplorer.autoScan.enabled": true to re-enable.
     const autoScannerCfg = configManager.getConfig();
-    const autoScanController = new AutoScanController(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
-    autoScanController.start();
-    context.subscriptions.push(autoScanController);
+    let autoScanController: AutoScanController | undefined;
+    if (autoScannerCfg.autoScanEnabled) {
+      autoScanController = new AutoScanController(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
+      autoScanController.start();
+      context.subscriptions.push(autoScanController);
+      log('[VERIFY] AutoScanController created (feature flag enabled)');
+    } else {
+      log('[VERIFY] AutoScanController not created (feature flag disabled)');
+    }
 
     // Scan Workspace button (status bar + explorer toolbar)
     new ScanWorkspaceButton(context, log);
@@ -189,7 +196,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         const currEslint = currCfg.eslint;
         prevTscEnabled = currTsc.enabled;
         prevEslintEnabled = currEslint.enabled;
-        autoScanController.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
+        autoScanController?.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
           tscProvider.refresh();

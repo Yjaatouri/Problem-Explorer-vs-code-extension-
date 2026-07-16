@@ -223,7 +223,7 @@
         },
         "problemExplorer.autoScan.enabled": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Enable or disable automatic background scanning on file changes"
         },
         "problemExplorer.autoScanDelay": {
@@ -239,7 +239,7 @@
         },
         "problemExplorer.typescript.autoScan": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Automatically scan TypeScript projects when files change"
         },
         "problemExplorer.typescript.scanOnStartup": {
@@ -278,7 +278,7 @@
         },
         "problemExplorer.eslint.autoScan": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Automatically scan ESLint when JavaScript/TypeScript files change"
         }
       }
