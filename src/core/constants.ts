@@ -8,6 +8,7 @@ export const COMMANDS = {
   TOGGLE: 'problemExplorer.toggle',
   SCAN_TS: 'problemExplorer.scanTypeScript',
   CANCEL_SCAN: 'problemExplorer.cancelScan',
+  SCAN_ALL: 'problemExplorer.scanAll',
 } as const;
 
 export const COLORS = {
@@ -17,6 +18,9 @@ export const COLORS = {
 } as const;
 
 export const PROCESSING_DEBOUNCE_MS = 50;
+export const AUTO_SCAN_DEBOUNCE_MS = 2000;
+export const AUTO_SCAN_EXTENSIONS_TSC = ['.ts', '.tsx'];
+export const AUTO_SCAN_EXTENSIONS_ESLINT = ['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte'];
 
 export const DEFAULT_IGNORE_PATTERNS: readonly string[] = [
   '**/node_modules/**',

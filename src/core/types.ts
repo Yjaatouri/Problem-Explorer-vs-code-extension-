@@ -27,6 +27,7 @@ export interface TscConfig {
 
 export interface EslintConfig {
   readonly enabled: boolean;
+  readonly autoScan: boolean;
   readonly timeout: number;
 }
 

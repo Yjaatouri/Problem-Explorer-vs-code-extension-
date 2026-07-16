@@ -82,6 +82,7 @@ export class ConfigManager implements Disposable {
   private readEslintConfig(cfg: { get<T>(key: string, defaultValue?: T): T }): EslintConfig {
     return {
       enabled: cfg.get<boolean>('eslint.enabled', true),
+      autoScan: cfg.get<boolean>('eslint.autoScan', true),
       timeout: cfg.get<number>('eslint.timeout', 120000),
     };
   }

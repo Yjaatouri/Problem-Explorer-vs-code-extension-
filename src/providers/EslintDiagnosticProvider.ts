@@ -36,9 +36,11 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   private _scanning = false;
   private _pendingRefresh = false;
   private _enabled = true;
+  private _autoScan = true;
   private readonly runner: EslintRunner;
   private timeoutMs: number;
   private readonly refreshDebounceMs: number;
+  private abortController: AbortController | undefined;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _lastScanErrors: EslintScanError[] = [];
   private _lastScanDurationMs = 0;
@@ -72,6 +74,10 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     return this._enabled;
   }
 
+  get autoScan(): boolean {
+    return this._autoScan;
+  }
+
   constructor(
     store: ProblemStore,
     runner?: EslintRunner,
@@ -86,6 +92,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
   updateConfig(cfg: EslintConfig): void {
     this._enabled = cfg.enabled;
+    this._autoScan = cfg.autoScan;
     this.timeoutMs = cfg.timeout;
   }
 
@@ -103,6 +110,10 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
   stop(): void {
     this._clearDebounce();
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = undefined;
+    }
   }
 
   async refresh(): Promise<void> {
@@ -152,6 +163,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     this._scanning = true;
     this._lastScanErrors = [];
     this._pendingRefresh = false;
+    this.abortController = new AbortController();
+    const signal = this.abortController.signal;
 
     const timing: Mutable<EslintScanTiming> = {
       totalMs: 0,
@@ -163,6 +176,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     const scanStart = performance.now();
 
     try {
+      if (signal.aborted) return [];
+
       const workspaceFolders = this.getWorkspaceFolders();
       if (workspaceFolders.length === 0) {
         this._lastScanErrors.push({
@@ -177,6 +192,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       const resolveStart = performance.now();
       const foldersWithEslint = await this.findFoldersWithEslint(workspaceFolders);
       timing.resolveFoldersMs = performance.now() - resolveStart;
+      if (signal.aborted) return [];
 
       if (foldersWithEslint.length === 0) {
         this._lastScanErrors.push({
@@ -188,8 +204,11 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
       const eslintStart = performance.now();
       for (const folder of foldersWithEslint) {
+        if (signal.aborted) break;
+
         const options: EslintRunOptions = {
           cwd: folder.uri.fsPath,
+          signal,
           timeoutMs: this.timeoutMs,
         };
 
@@ -227,6 +246,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         }
       }
       timing.eslintRunsMs = performance.now() - eslintStart;
+
+      this.abortController = undefined;
 
       const writeStart = performance.now();
       const changed = this.writeToStore(allDiagnostics);

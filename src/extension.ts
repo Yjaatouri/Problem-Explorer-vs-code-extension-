@@ -17,6 +17,7 @@ import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
 import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
+import { AutoScanner } from './scanner/AutoScanner';
 
 export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
   const consoleLog = (msg: string): void => {
@@ -68,15 +69,17 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       configManager.getConfig().typescript.timeout,
     );
     const eslintProvider = new EslintDiagnosticProvider(problemStore);
+    const statusBarManager = new StatusBarManager(problemStore);
     const commandManager = new CommandManager(
       diagProvider,
       decorationEngine,
       folderStatusManager,
       configManager,
       tscProvider,
+      eslintProvider,
+      statusBarManager,
       log,
     );
-    const statusBarManager = new StatusBarManager(problemStore);
     const apiManager = new ApiManager(problemStore);
     const trendTracker = new TrendTracker(
       problemStore,
@@ -171,6 +174,10 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
         }
       }),
     );
+
+    const autoScanner = new AutoScanner(tscProvider, eslintProvider, log);
+    autoScanner.start();
+    context.subscriptions.push(autoScanner);
 
     log('[FORENSIC:Step7] registerFileDecorationProvider START');
     const regResult = vscode.window.registerFileDecorationProvider(decorationEngine);

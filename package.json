@@ -58,6 +58,11 @@
         "command": "problemExplorer.runExperiment",
         "title": "Run Diagnostics Experiment (openTextDocument)",
         "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.scanAll",
+        "title": "Scan All (TypeScript + ESLint)",
+        "category": "Problem Explorer"
       }
     ],
     "keybindings": [
@@ -259,6 +264,11 @@
           "default": 120000,
           "minimum": 5000,
           "description": "Timeout in milliseconds for each ESLint invocation"
+        },
+        "problemExplorer.eslint.autoScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan ESLint when JavaScript/TypeScript files change"
         }
       }
     }
