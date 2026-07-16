@@ -19,7 +19,7 @@ import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 import { AutoScanner } from './scanner/AutoScanner';
 
-export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
+export async function activate(context: vscode.ExtensionContext): Promise<ProblemExplorerAPI> {
   const consoleLog = (msg: string): void => {
     const timestamp = new Date().toISOString();
     console.log(`[PE ${timestamp}] ${msg}`);
@@ -122,13 +122,20 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
       log,
     );
 
-    diagProviderManager.initializeAll();
+    await diagProviderManager.initializeAll();
+    log('[VERIFY] All diagnostic providers initialized');
+    log(`[VERIFY] Providers: ${diagProviderManager.all().map(p => p.name + '=' + p.state).join(', ')}`);
+
     diagProviderManager.startAll();
+    log('[VERIFY] All diagnostic providers started');
+
     diagProvider.startInitPoll();
 
     const providerManager = new ProviderManager();
     providerManager.register('vsDiagnostics', vsDiagnosticsProvider);
     providerManager.startAll();
+    log('[VERIFY] VSDiagnosticsProvider started');
+    log(`[VERIFY] Store entries after init: ${problemStore.size()}`);
 
     const applyConfig = (): void => {
       const config = configManager.getConfig();
@@ -145,7 +152,10 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     if (tscCfg.enabled && tscCfg.scanOnStartup) {
       log('[TSC] scanOnStartup enabled — triggering initial scan');
       tscProvider.refresh().then(
-        () => log('[TSC] initial scan completed'),
+        () => {
+          log('[TSC] initial scan completed');
+          log(`[VERIFY] Store entries after tsc scan: ${problemStore.size()}`);
+        },
         (err) => log(`[TSC] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
       );
     }
@@ -153,7 +163,10 @@ export function activate(context: vscode.ExtensionContext): ProblemExplorerAPI {
     if (eslintCfg.enabled) {
       log('[ESLINT] triggering initial scan');
       eslintProvider.refresh().then(
-        () => log('[ESLINT] initial scan completed'),
+        () => {
+          log('[ESLINT] initial scan completed');
+          log(`[VERIFY] Store entries after eslint scan: ${problemStore.size()}`);
+        },
         (err) => log(`[ESLINT] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
       );
     }

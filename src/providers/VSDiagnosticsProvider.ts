@@ -74,6 +74,7 @@ public get eventCount(): number { return this.diagEventCount; }
       if (this.dirtyUris.size > 0) {
         const uris = Array.from(this.dirtyUris, (s) => vscode.Uri.parse(s));
         this.log(`[FORENSIC:Step4-prep] fireDidChange: ${uris.length} URIs (${this.dirtyUris.size} total before clear)`);
+        this.log(`[VERIFY] DecorationEngine.fireDidChange called with ${uris.length} URIs (from flushUpdates)`);
         this.dirtyUris.clear();
         this.decorationEngine.fireDidChange(uris);
       } else {
@@ -84,6 +85,12 @@ public get eventCount(): number { return this.diagEventCount; }
     }, PROCESSING_DEBOUNCE_MS);
 
     if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
+      // Flush any URIs that were queued before flushUpdates was initialized (e.g., from initializeAll scans)
+      if (this.pendingUris.size > 0) {
+        this.log(`[VERIFY] Flushing ${this.pendingUris.size} pending URIs queued before flushUpdates was ready`);
+        this.flushUpdates();
+      }
+
       const changedFolders = this.folderStatusManager.rebuildAll();
       this.log(`[FORENSIC:Step1-init] rebuildAll returned ${changedFolders.length} folders`);
       for (let i = 0; i < changedFolders.length; i++) {
@@ -95,6 +102,7 @@ public get eventCount(): number { return this.diagEventCount; }
       // Use targeted folder URIs instead of undefined to reduce Explorer re-query
       this.decorationEngine.fireDidChange(changedFolders);
       this.log(`[FORENSIC:Step4] initial fireDidChange with ${changedFolders.length} folder URIs (targeted, not full refresh)`);
+      this.log(`[VERIFY] DecorationEngine.fireDidChange called with ${changedFolders.length} folder URIs (from onStart rebuildAll)`);
       this.statusBarManager.update();
     }
   }

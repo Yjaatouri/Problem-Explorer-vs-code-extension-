@@ -213,12 +213,13 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   private _fire(uris: Uri | Uri[] | undefined): void {
     forensicCounters.fireDidChangeCalls++;
     const now = new Date().toISOString();
+    const storeSize = this.problemStore.size();
     if (uris === undefined) {
       forensicCounters.fireDidChangeUndefined++;
-      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} UNDEFINED (full refresh) time=${now}`);
+      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} UNDEFINED (full refresh) time=${now} storeSize=${storeSize}`);
     } else if (Array.isArray(uris)) {
       forensicCounters.fireDidChangeArray++;
-      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} Array(${uris.length}) time=${now}`);
+      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} Array(${uris.length}) time=${now} storeSize=${storeSize}`);
       for (let i = 0; i < Math.min(uris.length, 10); i++) {
         this._log(`[FORENSIC:Step4]   uri[${i}]=${uris[i].toString(true)}`);
       }
@@ -227,7 +228,7 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       }
     } else {
       forensicCounters.fireDidChangeSingle++;
-      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} single URI=${uris.toString(true)} time=${now}`);
+      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} single URI=${uris.toString(true)} time=${now} storeSize=${storeSize}`);
     }
     this._onDidChangeFileDecorations.fire(uris);
   }
