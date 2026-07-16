@@ -45,23 +45,8 @@
         "category": "Problem Explorer"
       },
       {
-        "command": "problemExplorer.scanTypeScript",
-        "title": "Scan TypeScript Project (tsc --noEmit)",
-        "category": "Problem Explorer"
-      },
-      {
         "command": "problemExplorer.test",
         "title": "Test Problem Explorer",
-        "category": "Problem Explorer"
-      },
-      {
-        "command": "problemExplorer.runExperiment",
-        "title": "Run Diagnostics Experiment (openTextDocument)",
-        "category": "Problem Explorer"
-      },
-      {
-        "command": "problemExplorer.scanAll",
-        "title": "Scan All (TypeScript + ESLint)",
         "category": "Problem Explorer"
       },
       {
@@ -72,6 +57,11 @@
       {
         "command": "problemExplorer.resetChainCounters",
         "title": "Reset Chain Counters",
+        "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.scanWorkspace",
+        "title": "Scan Workspace",
         "category": "Problem Explorer"
       }
     ],

@@ -73,13 +73,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     );
     const eslintProvider = new EslintDiagnosticProvider(problemStore);
     const statusBarManager = new StatusBarManager(problemStore);
+
+    const diagProviderManager = new DiagnosticProviderManager();
+    diagProviderManager.register('vscode', diagProvider, {
+      priority: 10,
+      capabilities: ['diagnostics', 'realtime'],
+    });
+    diagProviderManager.register('tsc', tscProvider, {
+      priority: 8,
+      capabilities: ['diagnostics', 'tsc-scan'],
+    });
+    diagProviderManager.register('eslint', eslintProvider, {
+      priority: 7,
+      capabilities: ['diagnostics', 'eslint-scan'],
+    });
+
     const commandManager = new CommandManager(
+      diagProviderManager,
       diagProvider,
       decorationEngine,
       folderStatusManager,
       configManager,
-      tscProvider,
-      eslintProvider,
       statusBarManager,
       log,
     );
@@ -95,20 +109,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       folderStatusManager,
       decorationEngine,
     );
-
-    const diagProviderManager = new DiagnosticProviderManager();
-    diagProviderManager.register('vscode', diagProvider, {
-      priority: 10,
-      capabilities: ['diagnostics', 'realtime'],
-    });
-    diagProviderManager.register('tsc', tscProvider, {
-      priority: 8,
-      capabilities: ['diagnostics', 'tsc-scan'],
-    });
-    diagProviderManager.register('eslint', eslintProvider, {
-      priority: 7,
-      capabilities: ['diagnostics', 'eslint-scan'],
-    });
 
     // Provider ownership priorities in ProblemStore.
     // Compiler (tsc) is authoritative — it performs full project compilation.

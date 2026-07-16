@@ -1,25 +1,22 @@
 import { commands, ExtensionContext } from 'vscode';
 import { ConfigManager } from '../config/configManager';
+import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import { VSCodeDiagnosticProvider } from '../providers/VSCodeDiagnosticProvider';
-import { TscDiagnosticProvider } from '../providers/TscDiagnosticProvider';
-import { EslintDiagnosticProvider } from '../providers/EslintDiagnosticProvider';
 import { DecorationEngine } from '../decoration/decorationEngine';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 import { createRefreshHandler } from './refresh';
 import { createToggleHandler } from './toggle';
-import { createScanHandler } from './scan';
-import { createScanAllHandler } from './scanAll';
+import { createScanWorkspaceHandler } from './scanWorkspace';
 import { COMMANDS } from '../core/constants';
 
 export class CommandManager {
   constructor(
+    private readonly diagProviderManager: DiagnosticProviderManager,
     private readonly diagProvider: VSCodeDiagnosticProvider,
     private readonly decorationEngine: DecorationEngine,
     private readonly folderStatusManager: FolderStatusManager,
     private readonly configManager: ConfigManager,
-    private readonly tscProvider?: TscDiagnosticProvider,
-    private readonly eslintProvider?: EslintDiagnosticProvider,
     private readonly statusBarManager?: StatusBarManager,
     private readonly log?: (msg: string) => void,
   ) {}
@@ -48,40 +45,18 @@ export class CommandManager {
       ),
     );
 
-    if (this.log) {
+    if (this.log && this.statusBarManager) {
       context.subscriptions.push(
         commands.registerCommand(
-          COMMANDS.SCAN_ALL,
-          createScanAllHandler(
-            this.tscProvider,
-            this.eslintProvider,
+          COMMANDS.SCAN_WORKSPACE,
+          createScanWorkspaceHandler(
+            this.diagProviderManager,
             this.folderStatusManager,
             this.decorationEngine,
-            this.statusBarManager!,
+            this.statusBarManager,
             this.log,
           ),
         ),
-      );
-    }
-
-    if (this.tscProvider && this.log) {
-      context.subscriptions.push(
-        commands.registerCommand(
-          COMMANDS.SCAN_TS,
-          createScanHandler(
-            this.tscProvider,
-            this.folderStatusManager,
-            this.decorationEngine,
-            this.log,
-          ),
-        ),
-      );
-
-      context.subscriptions.push(
-        commands.registerCommand(COMMANDS.CANCEL_SCAN, () => {
-          this.log?.('[CANCEL_SCAN] Cancelling TypeScript scan...');
-          this.tscProvider!.stop();
-        }),
       );
     }
   }

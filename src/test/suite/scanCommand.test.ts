@@ -167,8 +167,8 @@ suite('ScanCommand', () => {
     }
   });
 
-  test('COMMANDS.SCAN_TS constant is defined', () => {
+  test('COMMANDS.SCAN_WORKSPACE constant is defined', () => {
     const { COMMANDS } = require('../../core/constants');
-    assert.strictEqual(COMMANDS.SCAN_TS, 'problemExplorer.scanTypeScript');
+    assert.strictEqual(COMMANDS.SCAN_WORKSPACE, 'problemExplorer.scanWorkspace');
   });
 });
