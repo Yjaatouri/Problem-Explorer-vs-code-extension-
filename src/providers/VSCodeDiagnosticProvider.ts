@@ -9,6 +9,8 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
   readonly capabilities: ProviderCapabilities = {
     extensions: [],
     realtime: true,
+    manualScan: false,
+    startupScan: false,
   };
   private readonly manager: DiagnosticsManager;
 

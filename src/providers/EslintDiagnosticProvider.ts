@@ -32,8 +32,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'eslint';
   readonly capabilities: ProviderCapabilities = {
     extensions: ['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte'],
-    onSave: true,
-    onDemand: true,
+    realtime: false,
+    manualScan: true,
+    startupScan: true,
     fullWorkspace: true,
   };
   private readonly _store: ProblemStore;

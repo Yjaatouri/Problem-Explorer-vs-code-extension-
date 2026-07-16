@@ -89,7 +89,7 @@ export class AutoScanController implements Disposable {
 
   /**
    * Find all registered providers whose capabilities match the given extension.
-   * - Provider must be enabled and support onSave scanning
+   * - Provider must be enabled and support manualScan scanning
    * - Provider's extensions list must include the file extension
    * - Realtime providers are excluded (they push on their own)
    */
@@ -97,8 +97,8 @@ export class AutoScanController implements Disposable {
     const matches: DiagnosticProvider[] = [];
     for (const info of this.manager.all()) {
       const caps = info.provider.capabilities;
-      if (!caps.onSave || !info.provider.enabled || !info.provider.autoScan) {
-        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (onSave=${caps.onSave} enabled=${info.provider.enabled} autoScan=${info.provider.autoScan})`);
+      if (!caps.manualScan || !info.provider.enabled || !info.provider.autoScan) {
+        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (manualScan=${caps.manualScan} enabled=${info.provider.enabled} autoScan=${info.provider.autoScan})`);
         continue;
       }
       if (caps.realtime) {

@@ -34,8 +34,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'tsc';
   readonly capabilities: ProviderCapabilities = {
     extensions: ['.ts', '.tsx'],
-    onSave: true,
-    onDemand: true,
+    realtime: false,
+    manualScan: true,
+    startupScan: true,
     fullWorkspace: true,
   };
   private readonly _store: ProblemStore;

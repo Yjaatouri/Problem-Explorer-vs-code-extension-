@@ -156,26 +156,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const eslintCfg = configManager.getConfig().eslint;
     log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled + ', eslint.enabled=' + eslintCfg.enabled);
 
-    if (tscCfg.enabled && tscCfg.scanOnStartup) {
-      log('[TSC] scanOnStartup enabled — triggering initial scan');
-      tscProvider.refresh().then(
-        () => {
-          log('[TSC] initial scan completed');
-          log(`[VERIFY] Store entries after tsc scan: ${problemStore.size()}`);
-        },
-        (err) => log(`[TSC] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
-      );
-    }
+    // Start all providers with startupScan capability
+    for (const info of diagProviderManager.all()) {
+      if (!info.provider.capabilities.startupScan) continue;
+      if (!info.provider.enabled) continue;
 
-    if (eslintCfg.enabled) {
-      log('[ESLINT] triggering initial scan');
-      eslintProvider.refresh().then(
-        () => {
-          log('[ESLINT] initial scan completed');
-          log(`[VERIFY] Store entries after eslint scan: ${problemStore.size()}`);
-        },
-        (err) => log(`[ESLINT] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
-      );
+      // Respect per-provider config guards
+      if (info.name === 'tsc' && !tscCfg.scanOnStartup) {
+        log(`[TSC] startupScan enabled but scanOnStartup config is false — skipping`);
+        continue;
+      }
+
+      const label = info.name.toUpperCase();
+      log(`[${label}] startupScan enabled — triggering initial scan`);
+      const result = info.provider.refresh();
+      if (result instanceof Promise) {
+        result.then(
+          () => {
+            log(`[${label}] initial scan completed`);
+            log(`[VERIFY] Store entries after ${info.name} scan: ${problemStore.size()}`);
+          },
+          (err: unknown) => log(`[${label}] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
     }
 
     const autoScannerCfg = configManager.getConfig();

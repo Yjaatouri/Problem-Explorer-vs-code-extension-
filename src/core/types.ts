@@ -57,15 +57,15 @@ export interface Config {
  *
  * - `extensions`: file extensions this provider can scan (e.g. ['.ts','.tsx'])
  * - `realtime`: provider receives diagnostics automatically (language server, VS Code API)
- * - `onSave`: provider should be refreshed when a matching file is saved
- * - `onDemand`: provider supports explicit refresh() calls
+ * - `manualScan`: provider should be triggered on file save/change events
+ * - `startupScan`: provider should run at extension startup
  * - `fullWorkspace`: provider can scan all files (not just the saved one)
  */
 export interface ProviderCapabilities {
   readonly extensions: readonly string[];
   readonly realtime?: boolean;
-  readonly onSave?: boolean;
-  readonly onDemand?: boolean;
+  readonly manualScan?: boolean;
+  readonly startupScan?: boolean;
   readonly fullWorkspace?: boolean;
 }
 
