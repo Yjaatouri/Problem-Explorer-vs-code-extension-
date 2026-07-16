@@ -71,3 +71,22 @@ export interface ProviderCapabilities {
 
 /** Convenience type for badge formatting — just the counts, no severity */
 export type SeverityCounts = Pick<ProblemState, 'errorCount' | 'warningCount' | 'infoCount'>;
+
+/**
+ * Scan progress phase for a single provider.
+ * - `resolving`: discovering projects/configs to scan
+ * - `scanning`: running the tool (tsc, eslint, etc.)
+ * - `parsing`: parsing tool output
+ * - `writing`: writing results to the store
+ * - `completed`: scan finished successfully
+ * - `cancelled`: scan was aborted
+ * - `error`: scan failed
+ */
+export type ScanPhase = 'resolving' | 'scanning' | 'parsing' | 'writing' | 'completed' | 'cancelled' | 'error';
+
+export interface ScanProgress {
+  readonly providerName: string;
+  readonly phase: ScanPhase;
+  readonly message?: string;
+  readonly detail?: string;
+}

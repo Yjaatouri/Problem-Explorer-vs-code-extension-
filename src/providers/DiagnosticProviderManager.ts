@@ -1,5 +1,6 @@
 import { Event, EventEmitter, Disposable, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
+import { ScanProgress } from '../core/types';
 import { chainCounters } from '../forensicLogger';
 
 export enum ProviderState {
@@ -45,6 +46,9 @@ export class DiagnosticProviderManager {
   private readonly _onDidUpdateAll = new EventEmitter<Uri[]>();
   readonly onDidUpdateAll: Event<Uri[]> = this._onDidUpdateAll.event;
 
+  private readonly _onDidScanProgress = new EventEmitter<ScanProgress>();
+  readonly onDidScanProgress: Event<ScanProgress> = this._onDidScanProgress.event;
+
   private readonly providerSubscriptions = new Map<string, Disposable>();
 
   get size(): number { return this.entries.size; }
@@ -63,12 +67,17 @@ export class DiagnosticProviderManager {
     const entry: ProviderEntry = { provider, metadata: resolved, state: ProviderState.idle };
     this.entries.set(name, entry);
 
-    const sub = provider.onDidUpdate((uris: Uri[]) => {
+    const updateSub = provider.onDidUpdate((uris: Uri[]) => {
       chainCounters.dpmOnDidUpdateReceived++;
       console.log(`[LOG:DPMgr] onDidUpdate received from "${name}" — ${uris.length} URIs — firing _onDidUpdateAll`);
       this._onDidUpdateAll.fire(uris);
     });
-    this.providerSubscriptions.set(name, sub);
+    const progressSub = provider.onDidProgressScan((progress: ScanProgress) => {
+      chainCounters.dpmOnProgressReceived++;
+      console.log(`[LOG:DPMgr] onDidProgressScan from "${name}" — phase=${progress.phase} msg=${progress.message ?? ''}`);
+      this._onDidScanProgress.fire(progress);
+    });
+    this.providerSubscriptions.set(name, Disposable.from(updateSub, progressSub));
 
     this._onDidRegister.fire({
       name,
@@ -239,6 +248,7 @@ export class DiagnosticProviderManager {
     this._onDidUnregister.dispose();
     this._onDidChangeProviderState.dispose();
     this._onDidUpdateAll.dispose();
+    this._onDidScanProgress.dispose();
   }
 
   private sortedEntries(): Array<[string, ProviderEntry]> {

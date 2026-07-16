@@ -1,6 +1,6 @@
 import { Event, Disposable, Uri } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProviderCapabilities } from '../core/types';
+import { ProviderCapabilities, ScanProgress } from '../core/types';
 
 export interface DiagnosticProvider extends Disposable {
   readonly name: string;
@@ -11,6 +11,7 @@ export interface DiagnosticProvider extends Disposable {
   readonly capabilities: ProviderCapabilities;
 
   onDidUpdate: Event<Uri[]>;
+  readonly onDidProgressScan: Event<ScanProgress>;
 
   initialize(): void | Promise<void>;
   start(): void;

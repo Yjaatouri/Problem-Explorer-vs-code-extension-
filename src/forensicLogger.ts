@@ -25,6 +25,8 @@ export const chainCounters = {
   providerOnDidUpdateFired: 0,
   /** Step D: DiagnosticProviderManager.onDidUpdate subscriber received the event */
   dpmOnDidUpdateReceived: 0,
+  /** Step D1: DiagnosticProviderManager.onDidProgressScan subscriber received progress */
+  dpmOnProgressReceived: 0,
   /** Step D2: VSDiagnosticsProvider.onDidUpdateAll subscriber received the event */
   vsDiagOnDidUpdateAllReceived: 0,
   /** Step E: VSDiagnosticsProvider.flushUpdates debounced function executed */
@@ -54,6 +56,7 @@ export function dumpChainReport(): string {
     `[CHAIN:REPORT] provider.runScan() returned URIs: ${c.providerRunScanReturned}`,
     `[CHAIN:REPORT] provider._onDidUpdate.fire(): ${c.providerOnDidUpdateFired}`,
     `[CHAIN:REPORT] DPM onDidUpdate received: ${c.dpmOnDidUpdateReceived}`,
+    `[CHAIN:REPORT] DPM onDidProgressScan received: ${c.dpmOnProgressReceived}`,
     `[CHAIN:REPORT] VSDiag onDidUpdateAll received: ${c.vsDiagOnDidUpdateAllReceived}`,
     `[CHAIN:REPORT] VSDiag flushUpdates executed: ${c.vsDiagFlushUpdatesExecuted}`,
     `[CHAIN:REPORT] updateAncestors returned URIs: ${c.updateAncestorsReturned}`,

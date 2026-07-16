@@ -1,27 +1,43 @@
 import { commands, Disposable, ExtensionContext, StatusBarAlignment, StatusBarItem, window } from 'vscode';
+import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
+import { ScanProgress } from '../core/types';
 
 /**
  * Scan Workspace button for the status bar.
  *
- * - Shows a clickable status bar item
- * - While a scan is running the text switches to a spinner and the button becomes inert
- * - Tracks scanning state via a context key (`problemExplorer.scanning`) so other UI
- *   elements (e.g. the explorer/title button) can react to it
+ * - Shows a clickable status bar item with real-time scan progress
+ * - Displays the current provider and phase while scanning
+ * - Becomes inert while a scan is running
+ * - Tracks scanning state via `problemExplorer.scanning` context key
  */
 export class ScanWorkspaceButton implements Disposable {
   private readonly item: StatusBarItem;
+  private readonly manager: DiagnosticProviderManager;
   private _scanning = false;
+  private _progressTimer: ReturnType<typeof setTimeout> | undefined;
 
-  /** Command ID exposed so package.json menus can reference it too */
   static readonly COMMAND_ID = 'problemExplorer.runScanWorkspace';
 
-  constructor(context: ExtensionContext, log: (msg: string) => void) {
+  constructor(
+    context: ExtensionContext,
+    manager: DiagnosticProviderManager,
+    log: (msg: string) => void,
+  ) {
+    this.manager = manager;
     this.item = window.createStatusBarItem(StatusBarAlignment.Left, 2);
     this.item.name = 'Problem Explorer Scan Workspace';
     this.item.text = '$(search) Scan Workspace';
     this.item.tooltip = 'Run a full workspace scan (tsc + ESLint)';
     this.item.command = ScanWorkspaceButton.COMMAND_ID;
     this.item.show();
+
+    // Subscribe to real-time scan progress from the manager
+    context.subscriptions.push(
+      this.manager.onDidScanProgress((progress: ScanProgress) => {
+        if (!this._scanning) return;
+        this.updateProgressItem(progress);
+      }),
+    );
 
     context.subscriptions.push(
       commands.registerCommand(ScanWorkspaceButton.COMMAND_ID, async () => {
@@ -31,7 +47,8 @@ export class ScanWorkspaceButton implements Disposable {
         }
 
         this._scanning = true;
-        this.updateItem();
+        this.item.text = '$(sync~spin) Starting...';
+        this.item.tooltip = 'Workspace scan in progress';
         commands.executeCommand('setContext', 'problemExplorer.scanning', true);
 
         try {
@@ -40,8 +57,17 @@ export class ScanWorkspaceButton implements Disposable {
           log(`[SCAN-BUTTON] Scan failed: ${e instanceof Error ? e.message : String(e)}`);
         } finally {
           this._scanning = false;
-          this.updateItem();
+          this.item.text = '$(search) Scan Workspace';
+          this.item.tooltip = 'Run a full workspace scan (tsc + ESLint)';
           commands.executeCommand('setContext', 'problemExplorer.scanning', false);
+
+          // Briefly show completed state
+          this.item.text = '$(check) Done';
+          if (this._progressTimer) clearTimeout(this._progressTimer);
+          this._progressTimer = setTimeout(() => {
+            this.item.text = '$(search) Scan Workspace';
+            this._progressTimer = undefined;
+          }, 3000);
         }
       }),
     );
@@ -49,17 +75,20 @@ export class ScanWorkspaceButton implements Disposable {
     context.subscriptions.push(this);
   }
 
-  private updateItem(): void {
-    if (this._scanning) {
-      this.item.text = '$(sync~spin) Scanning...';
-      this.item.tooltip = 'Workspace scan in progress';
-    } else {
-      this.item.text = '$(search) Scan Workspace';
-      this.item.tooltip = 'Run a full workspace scan (tsc + ESLint)';
-    }
+  private updateProgressItem(progress: ScanProgress): void {
+    const phaseIcon = progress.phase === 'completed' || progress.phase === 'writing'
+      ? '$(check)'
+      : progress.phase === 'cancelled' || progress.phase === 'error'
+        ? '$(alert)'
+        : '$(sync~spin)';
+
+    const label = progress.message ?? progress.phase;
+    this.item.text = `${phaseIcon} ${label}`;
+    this.item.tooltip = `Scanning: ${progress.providerName} — ${progress.phase}${progress.detail ? ` (${progress.detail})` : ''}`;
   }
 
   dispose(): void {
+    if (this._progressTimer) clearTimeout(this._progressTimer);
     this.item.dispose();
   }
 }

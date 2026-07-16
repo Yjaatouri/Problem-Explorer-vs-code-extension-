@@ -1,7 +1,7 @@
 import { Event, EventEmitter, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProblemState, ProblemSeverity, TscConfig, ProviderCapabilities } from '../core/types';
+import { ProblemState, ProblemSeverity, TscConfig, ProviderCapabilities, ScanProgress } from '../core/types';
 import { ProjectResolver, TypeScriptProject } from '../typescript/ProjectResolver';
 import { TscRunner, TscRunOptions, DEFAULT_TSC_TIMEOUT_MS } from '../typescript/TscRunner';
 import { TscOutputParser, TscDiagnostic } from '../typescript/TscOutputParser';
@@ -42,6 +42,8 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   private readonly _store: ProblemStore;
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
+  private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();
+  readonly onDidProgressScan: Event<ScanProgress> = this._onDidProgressScan.event;
   private _disposed = false;
   private _scanning = false;
   private _pendingRefresh = false;
@@ -176,6 +178,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     this.stop();
     this._store.unconfigureProvider(this.name);
     this._onDidUpdate.dispose();
+    this._onDidProgressScan.dispose();
   }
 
   releaseOwnership(): void {
@@ -208,17 +211,26 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     const scanStart = performance.now();
 
     try {
-      if (signal.aborted) return [];
+      if (signal.aborted) {
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+        return [];
+      }
+
+      this._onDidProgressScan.fire({ providerName: this.name, phase: 'resolving', message: 'Resolving TypeScript projects...' });
 
       const resolveStart = performance.now();
       const projects = await this.projectResolver.resolveAll();
       timing.resolveProjectsMs = performance.now() - resolveStart;
-      if (signal.aborted) return [];
+      if (signal.aborted) {
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+        return [];
+      }
 
       if (projects.length === 0) {
         const msg = 'No tsconfig.json found or TypeScript not available in workspace.';
         console.log(`[TSC] ${msg}`);
         this._lastScanErrors.push({ tsconfigPath: '', message: msg });
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: msg });
         return [];
       }
 
@@ -226,7 +238,13 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
       const tscStart = performance.now();
       for (const project of projects) {
-        if (signal.aborted) break;
+        if (signal.aborted) {
+          this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+          break;
+        }
+
+        const projectLabel = path.basename(project.projectRoot);
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: `Scanning ${projectLabel}...`, detail: project.tsconfigPath });
 
         console.log(`[TSC] Running project: ${project.tsconfigPath}`);
         console.log(`[TSC]   typescriptPath: ${project.typescriptPath}`);
@@ -252,7 +270,10 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
           continue;
         }
 
-        if (result.cancelled) break;
+        if (result.cancelled) {
+          this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+          break;
+        }
 
         if (result.timedOut) {
           this._lastScanErrors.push({
@@ -278,6 +299,8 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
           continue;
         }
 
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'parsing', message: `Parsing ${projectLabel} output...` });
+
         const combined = result.stderr + '\n' + result.stdout;
         const parseStart = performance.now();
         const parsed = this.outputParser.parse(combined);
@@ -299,6 +322,8 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
       this.abortController = undefined;
 
+      this._onDidProgressScan.fire({ providerName: this.name, phase: 'writing', message: 'Writing results to store...' });
+
       const writeStart = performance.now();
       const result = this.writeToStore(allDiagnostics);
       timing.storeWriteMs = performance.now() - writeStart;
@@ -313,6 +338,8 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         }
       }
 
+      this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: `Completed in ${timing.totalMs.toFixed(0)}ms` });
+
       return result;
     } finally {
       this._scanning = false;
@@ -323,6 +350,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         if (!this._disposed && changed.length > 0) {
           this._onDidUpdate.fire(changed);
         }
+      }
+      if (this._disposed) {
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Provider disposed' });
       }
     }
   }

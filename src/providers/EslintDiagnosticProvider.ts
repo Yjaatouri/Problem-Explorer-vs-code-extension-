@@ -1,7 +1,7 @@
 import { Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProblemState, ProblemSeverity, EslintConfig, ProviderCapabilities } from '../core/types';
+import { ProblemState, ProblemSeverity, EslintConfig, ProviderCapabilities, ScanProgress } from '../core/types';
 import { EslintRunner, EslintRunOptions, EslintDiagnostic } from '../typescript/EslintRunner';
 import { chainCounters } from '../forensicLogger';
 import * as path from 'path';
@@ -40,6 +40,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   private readonly _store: ProblemStore;
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
+  private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();
+  readonly onDidProgressScan: Event<ScanProgress> = this._onDidProgressScan.event;
   private _disposed = false;
   private _scanning = false;
   private _pendingRefresh = false;
@@ -162,6 +164,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     this._disposed = true;
     this.stop();
     this._onDidUpdate.dispose();
+    this._onDidProgressScan.dispose();
   }
 
   releaseOwnership(): void {
@@ -199,7 +202,12 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     const scanStart = performance.now();
 
     try {
-      if (signal.aborted) return [];
+      if (signal.aborted) {
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+        return [];
+      }
+
+      this._onDidProgressScan.fire({ providerName: this.name, phase: 'resolving', message: 'Resolving ESLint projects...' });
 
       const workspaceFolders = this.getWorkspaceFolders();
       console.log(`[ESLINT] Workspace folders: ${workspaceFolders.length}`);
@@ -207,6 +215,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         const msg = 'No workspace folders open.';
         console.log(`[ESLINT] ${msg}`);
         this._lastScanErrors.push({ folder: '', message: msg });
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: msg });
         return [];
       }
 
@@ -215,7 +224,10 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       const resolveStart = performance.now();
       const foldersWithEslint = await this.findFoldersWithEslint(workspaceFolders);
       timing.resolveFoldersMs = performance.now() - resolveStart;
-      if (signal.aborted) return [];
+      if (signal.aborted) {
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+        return [];
+      }
 
       for (const f of workspaceFolders) {
         const hasEslint = foldersWithEslint.some(ef => ef.uri.toString() === f.uri.toString());
@@ -226,12 +238,18 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         const msg = 'No ESLint configuration found in any workspace folder.';
         console.log(`[ESLINT] ${msg}`);
         this._lastScanErrors.push({ folder: '', message: msg });
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: msg });
         return [];
       }
 
       const eslintStart = performance.now();
       for (const folder of foldersWithEslint) {
-        if (signal.aborted) break;
+        if (signal.aborted) {
+          this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+          break;
+        }
+
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: `Scanning ${folder.name}...` });
 
         console.log(`[ESLINT] Running ESLint in: ${folder.uri.fsPath}`);
         const options: EslintRunOptions = {
@@ -261,6 +279,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
           console.log(`[ESLINT] "${folder.name}" — error: ${result.error}`);
         }
 
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'parsing', message: `Parsing ${folder.name} output...` });
+
         console.log(`[ESLINT] "${folder.name}" — exitCode=${result.exitCode}, stdout=${result.stdout.length} chars`);
 
         const parseStart = performance.now();
@@ -281,6 +301,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
       this.abortController = undefined;
 
+      this._onDidProgressScan.fire({ providerName: this.name, phase: 'writing', message: 'Writing results to store...' });
+
       const writeStart = performance.now();
       const changed = this.writeToStore(allDiagnostics);
       timing.storeWriteMs = performance.now() - writeStart;
@@ -295,6 +317,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         }
       }
 
+      this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: `Completed in ${timing.totalMs.toFixed(0)}ms` });
+
       return changed;
     } finally {
       this._scanning = false;
@@ -304,6 +328,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         if (!this._disposed && changed.length > 0) {
           this._onDidUpdate.fire(changed);
         }
+      }
+      if (this._disposed) {
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Provider disposed' });
       }
     }
   }

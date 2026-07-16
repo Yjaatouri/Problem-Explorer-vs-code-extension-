@@ -1,8 +1,8 @@
-import { Uri, Event } from 'vscode';
+import { Uri, Event, EventEmitter } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../diagnostics/diagnosticsManager';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProblemState, ProviderCapabilities } from '../core/types';
+import { ProblemState, ProviderCapabilities, ScanProgress } from '../core/types';
 
 export class VSCodeDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'vscodeDiagnostics';
@@ -13,6 +13,8 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
     startupScan: false,
   };
   private readonly manager: DiagnosticsManager;
+  private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();
+  readonly onDidProgressScan: Event<ScanProgress> = this._onDidProgressScan.event;
 
   get store(): ProblemStore {
     return this.manager.store;
@@ -51,12 +53,15 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
   }
 
   refresh(): void {
+    this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: 'Reading VS Code diagnostics...' });
     this.manager.refresh();
+    this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: 'VS Code diagnostics refreshed' });
   }
 
   dispose(): void {
     this.store.unconfigureProvider(this.name);
     this.manager.dispose();
+    this._onDidProgressScan.dispose();
   }
 
   releaseOwnership(): void {

@@ -180,7 +180,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     }
 
     // Scan Workspace button (status bar + explorer toolbar)
-    new ScanWorkspaceButton(context, log);
+    new ScanWorkspaceButton(context, diagProviderManager, log);
     log('[VERIFY] ScanWorkspaceButton created');
 
     let prevTscEnabled = tscCfg.enabled;

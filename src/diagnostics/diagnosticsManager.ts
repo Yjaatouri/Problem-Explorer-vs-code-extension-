@@ -12,7 +12,7 @@ import {
 } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
 import { toProblemState, applySeverityOverrides } from './severityMapper';
-import { ProblemState, ProviderCapabilities } from '../core/types';
+import { ProblemState, ProviderCapabilities, ScanProgress } from '../core/types';
 import { precompilePatterns } from '../performance/ignoreFilter';
 import { DiagnosticProvider } from '../providers/DiagnosticProvider';
 
@@ -49,9 +49,11 @@ export class DiagnosticsManager implements DiagnosticProvider {
   private diagListener: Disposable | undefined;
   private pollTimer: NodeJS.Timeout | undefined;
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
+  private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();
   private readonly _log: (msg: string) => void;
 
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
+  readonly onDidProgressScan: Event<ScanProgress> = this._onDidProgressScan.event;
 
   get scanning(): boolean {
     return false;
@@ -162,6 +164,7 @@ export class DiagnosticsManager implements DiagnosticProvider {
     this._disposed = true;
     this.stop();
     this._onDidUpdate.dispose();
+    this._onDidProgressScan.dispose();
   }
 
   /** Run fullScan on an interval until diagnostics arrive (max 10 attempts at 2s). */
