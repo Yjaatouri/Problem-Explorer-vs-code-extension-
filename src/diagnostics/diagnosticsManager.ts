@@ -49,6 +49,18 @@ export class DiagnosticsManager implements DiagnosticProvider {
 
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
 
+  get scanning(): boolean {
+    return false;
+  }
+
+  get autoScan(): boolean {
+    return true;
+  }
+
+  get enabled(): boolean {
+    return true;
+  }
+
   get store(): ProblemStore {
     return this._store;
   }

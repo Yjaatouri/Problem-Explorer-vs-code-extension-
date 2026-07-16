@@ -197,7 +197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     );
 
     const autoScannerCfg = configManager.getConfig();
-    const autoScanner = new AutoScanner(tscProvider, eslintProvider, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
+    const autoScanner = new AutoScanner(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
     autoScanner.start();
     context.subscriptions.push(autoScanner);
 

@@ -1,25 +1,36 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace } from 'vscode';
-import { TscDiagnosticProvider } from '../providers/TscDiagnosticProvider';
-import { EslintDiagnosticProvider } from '../providers/EslintDiagnosticProvider';
+import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import { AUTO_SCAN_EXTENSIONS_TSC, AUTO_SCAN_EXTENSIONS_ESLINT } from '../core/constants';
+
+interface ScanTarget {
+  providerName: string;
+  extensions: readonly string[];
+}
+
+const SCAN_TARGETS: ScanTarget[] = [
+  { providerName: 'tsc', extensions: AUTO_SCAN_EXTENSIONS_TSC },
+  { providerName: 'eslint', extensions: AUTO_SCAN_EXTENSIONS_ESLINT },
+];
 
 export class AutoScanner implements Disposable {
   private readonly disposables: Disposable[] = [];
   private readonly statusItem: StatusBarItem;
-  private _tscQueued = false;
-  private _eslintQueued = false;
+  private readonly manager: DiagnosticProviderManager;
+  private readonly log: (msg: string) => void;
+  private readonly queuedProviders = new Set<string>();
   private _activeScans = 0;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _debounceMs: number;
   private _enabled = true;
 
   constructor(
-    private readonly tscProvider: TscDiagnosticProvider | undefined,
-    private readonly eslintProvider: EslintDiagnosticProvider | undefined,
-    private readonly log: (msg: string) => void,
+    manager: DiagnosticProviderManager,
+    log: (msg: string) => void,
     debounceMs: number = 2000,
     enabled: boolean = true,
   ) {
+    this.manager = manager;
+    this.log = log;
     this._debounceMs = debounceMs;
     this._enabled = enabled;
     this.statusItem = window.createStatusBarItem(StatusBarAlignment.Left, 1);
@@ -53,14 +64,15 @@ export class AutoScanner implements Disposable {
     if (!this._enabled) return;
 
     const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
-    const needsTsc = this.tscProvider?.enabled && this.tscProvider?.autoScan && AUTO_SCAN_EXTENSIONS_TSC.includes(ext);
-    const needsEslint = this.eslintProvider?.enabled && this.eslintProvider?.autoScan && AUTO_SCAN_EXTENSIONS_ESLINT.includes(ext);
 
-    if (!needsTsc && !needsEslint) return;
+    for (const target of SCAN_TARGETS) {
+      if (!target.extensions.includes(ext)) continue;
+      const provider = this.manager.get(target.providerName);
+      if (!provider || !provider.enabled || !provider.autoScan) continue;
+      this.queuedProviders.add(target.providerName);
+    }
 
-    if (needsTsc) this._tscQueued = true;
-    if (needsEslint) this._eslintQueued = true;
-
+    if (this.queuedProviders.size === 0) return;
     this._schedule();
   }
 
@@ -77,44 +89,42 @@ export class AutoScanner implements Disposable {
   }
 
   private _cancelActiveScans(): void {
-    if (this.tscProvider?.scanning) {
-      this.log('[AUTO-SCAN] Cancelling in-progress tsc scan');
-      this.tscProvider.stop();
-    }
-    if (this.eslintProvider?.scanning) {
-      this.log('[AUTO-SCAN] Cancelling in-progress eslint scan');
-      this.eslintProvider.stop();
+    for (const target of SCAN_TARGETS) {
+      const provider = this.manager.get(target.providerName);
+      if (provider?.scanning) {
+        this.log(`[AUTO-SCAN] Cancelling in-progress ${target.providerName} scan`);
+        provider.stop();
+      }
     }
   }
 
   private async _flush(): Promise<void> {
-    const runTsc = this._tscQueued;
-    const runEslint = this._eslintQueued;
-    this._tscQueued = false;
-    this._eslintQueued = false;
+    if (this.queuedProviders.size === 0) return;
 
-    if (!runTsc && !runEslint) return;
+    const names = Array.from(this.queuedProviders);
+    this.queuedProviders.clear();
 
     this._updateStatus(true);
 
     const promises: Promise<void>[] = [];
 
-    if (runTsc && this.tscProvider) {
-      this.log('[AUTO-SCAN] Triggering tsc auto-scan...');
-      promises.push(
-        this.tscProvider.refresh().then(() => {
-          this.log('[AUTO-SCAN] tsc scan completed');
-        }),
-      );
-    }
+    for (const name of names) {
+      const provider = this.manager.get(name);
+      if (!provider) continue;
 
-    if (runEslint && this.eslintProvider) {
-      this.log('[AUTO-SCAN] Triggering eslint auto-scan...');
-      promises.push(
-        this.eslintProvider.refresh().then(() => {
-          this.log('[AUTO-SCAN] eslint scan completed');
-        }),
-      );
+      this.log(`[AUTO-SCAN] Triggering ${name} auto-scan...`);
+      const result = provider.refresh();
+      if (result instanceof Promise) {
+        promises.push(
+          result.then(() => {
+            this.log(`[AUTO-SCAN] ${name} scan completed`);
+            this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
+          }),
+        );
+      } else {
+        this.log(`[AUTO-SCAN] ${name} scan completed`);
+        this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
+      }
     }
 
     await Promise.all(promises);

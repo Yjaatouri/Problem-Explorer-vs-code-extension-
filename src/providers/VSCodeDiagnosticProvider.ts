@@ -12,6 +12,18 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
     return this.manager.store;
   }
 
+  get scanning(): boolean {
+    return this.manager.scanning;
+  }
+
+  get autoScan(): boolean {
+    return this.manager.autoScan;
+  }
+
+  get enabled(): boolean {
+    return true;
+  }
+
   get onDidUpdate(): Event<Uri[]> {
     return this.manager.onDidUpdate;
   }
