@@ -202,6 +202,24 @@ export class DiagnosticProviderManager {
     }
   }
 
+  async refreshByNames(names: string[]): Promise<void> {
+    this.ensureNotDisposed();
+    const promises: Promise<void>[] = [];
+    for (const name of names) {
+      const entry = this.entries.get(name);
+      if (!entry) continue;
+      try {
+        const result = entry.provider.refresh();
+        if (result instanceof Promise) {
+          promises.push(result);
+        }
+      } catch (e) {
+        console.error(`[DiagnosticProviderManager] refresh "${name}" failed:`, e);
+      }
+    }
+    await Promise.all(promises);
+  }
+
   dispose(): void {
     if (this._disposed) return;
     this._disposed = true;

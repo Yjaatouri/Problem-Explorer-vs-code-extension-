@@ -18,6 +18,7 @@ import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 import { AutoScanController } from './scanner/AutoScanner';
+import { StartupScanController } from './scanner/StartupScanController';
 
 console.log('[LOG:DIST_LOADED]');
 
@@ -156,30 +157,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const eslintCfg = configManager.getConfig().eslint;
     log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled + ', eslint.enabled=' + eslintCfg.enabled);
 
-    // Start all providers with startupScan capability
-    for (const info of diagProviderManager.all()) {
-      if (!info.provider.capabilities.startupScan) continue;
-      if (!info.provider.enabled) continue;
-
-      // Respect per-provider config guards
-      if (info.name === 'tsc' && !tscCfg.scanOnStartup) {
-        log(`[TSC] startupScan enabled but scanOnStartup config is false — skipping`);
-        continue;
-      }
-
-      const label = info.name.toUpperCase();
-      log(`[${label}] startupScan enabled — triggering initial scan`);
-      const result = info.provider.refresh();
-      if (result instanceof Promise) {
-        result.then(
-          () => {
-            log(`[${label}] initial scan completed`);
-            log(`[VERIFY] Store entries after ${info.name} scan: ${problemStore.size()}`);
-          },
-          (err: unknown) => log(`[${label}] initial scan failed: ${err instanceof Error ? err.message : String(err)}`),
-        );
-      }
-    }
+    // Start all providers with startupScan capability (non-blocking)
+    const startupController = new StartupScanController(
+      diagProviderManager,
+      log,
+      (name) => name === 'tsc' && !tscCfg.scanOnStartup,
+    );
+    startupController.run();
+    context.subscriptions.push(startupController);
 
     const autoScannerCfg = configManager.getConfig();
     const autoScanController = new AutoScanController(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
