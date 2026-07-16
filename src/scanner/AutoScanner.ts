@@ -1,19 +1,16 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace } from 'vscode';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
-import { AUTO_SCAN_EXTENSIONS_TSC, AUTO_SCAN_EXTENSIONS_ESLINT } from '../core/constants';
+import { DiagnosticProvider } from '../providers/DiagnosticProvider';
 import { chainCounters } from '../forensicLogger';
 
-interface ScanTarget {
-  providerName: string;
-  extensions: readonly string[];
-}
-
-const SCAN_TARGETS: ScanTarget[] = [
-  { providerName: 'tsc', extensions: AUTO_SCAN_EXTENSIONS_TSC },
-  { providerName: 'eslint', extensions: AUTO_SCAN_EXTENSIONS_ESLINT },
-];
-
-export class AutoScanner implements Disposable {
+/**
+ * AutoScanController matches file-change events to providers by their
+ * declared capabilities, then refreshes only matching scan providers.
+ *
+ * Providers never decide when to scan — the controller does.
+ * Providers only answer the question: "Scan now."
+ */
+export class AutoScanController implements Disposable {
   private readonly disposables: Disposable[] = [];
   private readonly statusItem: StatusBarItem;
   private readonly manager: DiagnosticProviderManager;
@@ -43,7 +40,10 @@ export class AutoScanner implements Disposable {
 
   start(): void {
     this.disposables.push(
-      workspace.onDidSaveTextDocument((doc) => this.onFileChanged(doc.uri)),
+      workspace.onDidSaveTextDocument((doc) => {
+        console.log(`[LOG:SAVE] Step1: onDidSaveTextDocument uri=${doc.uri.fsPath}`);
+        this.onFileChanged(doc.uri);
+      }),
       workspace.onDidCreateFiles((e) => {
         for (const uri of e.files) this.onFileChanged(uri);
       }),
@@ -62,20 +62,56 @@ export class AutoScanner implements Disposable {
   }
 
   private onFileChanged(uri: Uri): void {
-    if (!this._enabled) return;
-
-    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
-
-    for (const target of SCAN_TARGETS) {
-      if (!target.extensions.includes(ext)) continue;
-      const provider = this.manager.get(target.providerName);
-      if (!provider || !provider.enabled || !provider.autoScan) continue;
-      this.queuedProviders.add(target.providerName);
-      chainCounters.autoScannerTriggered++;
+    console.log(`[LOG:SAVE] Step2: AutoScanController.onFileChanged uri=${uri.fsPath}`);
+    if (!this._enabled) {
+      console.log(`[LOG:SAVE] Step2: auto-scan disabled, returning`);
+      return;
     }
 
-    if (this.queuedProviders.size === 0) return;
+    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
+    console.log(`[LOG:SAVE] Step2: ext=${ext}`);
+
+    const candidates = this.findScanProviders(ext);
+    console.log(`[LOG:SAVE] Step2: ${candidates.length} candidate(s) for ext ${ext}`);
+
+    for (const provider of candidates) {
+      this.queuedProviders.add(provider.name);
+      chainCounters.autoScannerTriggered++;
+      console.log(`[LOG:SAVE] Step2: queued ${provider.name} for scan`);
+    }
+
+    if (this.queuedProviders.size === 0) {
+      console.log(`[LOG:SAVE] Step2: no providers queued for ext ${ext}`);
+      return;
+    }
     this._schedule();
+  }
+
+  /**
+   * Find all registered providers whose capabilities match the given extension.
+   * - Provider must be enabled and support onSave scanning
+   * - Provider's extensions list must include the file extension
+   * - Realtime providers are excluded (they push on their own)
+   */
+  private findScanProviders(ext: string): DiagnosticProvider[] {
+    const matches: DiagnosticProvider[] = [];
+    for (const info of this.manager.all()) {
+      const caps = info.provider.capabilities;
+      if (!caps.onSave || !info.provider.enabled || !info.provider.autoScan) {
+        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (onSave=${caps.onSave} enabled=${info.provider.enabled} autoScan=${info.provider.autoScan})`);
+        continue;
+      }
+      if (caps.realtime) {
+        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (realtime — pushes independently)`);
+        continue;
+      }
+      if (!caps.extensions.includes(ext)) {
+        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (ext ${ext} not in [${caps.extensions.join(',')}])`);
+        continue;
+      }
+      matches.push(info.provider);
+    }
+    return matches;
   }
 
   private _schedule(): void {
@@ -91,10 +127,10 @@ export class AutoScanner implements Disposable {
   }
 
   private _cancelActiveScans(): void {
-    for (const target of SCAN_TARGETS) {
-      const provider = this.manager.get(target.providerName);
+    for (const providerName of this.queuedProviders) {
+      const provider = this.manager.get(providerName);
       if (provider?.scanning) {
-        this.log(`[AUTO-SCAN] Cancelling in-progress ${target.providerName} scan`);
+        this.log(`[AUTO-SCAN] Cancelling in-progress ${providerName} scan`);
         provider.stop();
       }
     }

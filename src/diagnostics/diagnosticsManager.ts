@@ -12,7 +12,7 @@ import {
 } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
 import { toProblemState, applySeverityOverrides } from './severityMapper';
-import { ProblemState } from '../core/types';
+import { ProblemState, ProviderCapabilities } from '../core/types';
 import { precompilePatterns } from '../performance/ignoreFilter';
 import { DiagnosticProvider } from '../providers/DiagnosticProvider';
 
@@ -37,6 +37,10 @@ const defaultDelegate: DiagnosticsDelegate = {
 /** Ingests VS Code diagnostic events, converts them to `ProblemState`, and writes to ProblemStore */
 export class DiagnosticsManager implements DiagnosticProvider {
   readonly name = 'vscodeDiagnostics';
+  readonly capabilities: ProviderCapabilities = {
+    extensions: [],
+    realtime: true,
+  };
   private readonly _store: ProblemStore;
   private readonly delegate: DiagnosticsDelegate;
   private severityOverrides: Record<string, Record<string, string>> | undefined;

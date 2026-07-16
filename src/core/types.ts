@@ -51,5 +51,23 @@ export interface Config {
   readonly eslint: EslintConfig;
 }
 
+/**
+ * Declares what a provider supports so the AutoScanController can match
+ * file-save events to providers without knowing provider names.
+ *
+ * - `extensions`: file extensions this provider can scan (e.g. ['.ts','.tsx'])
+ * - `realtime`: provider receives diagnostics automatically (language server, VS Code API)
+ * - `onSave`: provider should be refreshed when a matching file is saved
+ * - `onDemand`: provider supports explicit refresh() calls
+ * - `fullWorkspace`: provider can scan all files (not just the saved one)
+ */
+export interface ProviderCapabilities {
+  readonly extensions: readonly string[];
+  readonly realtime?: boolean;
+  readonly onSave?: boolean;
+  readonly onDemand?: boolean;
+  readonly fullWorkspace?: boolean;
+}
+
 /** Convenience type for badge formatting — just the counts, no severity */
 export type SeverityCounts = Pick<ProblemState, 'errorCount' | 'warningCount' | 'infoCount'>;

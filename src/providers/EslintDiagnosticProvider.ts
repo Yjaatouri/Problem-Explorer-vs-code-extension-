@@ -1,7 +1,7 @@
 import { Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProblemState, ProblemSeverity, EslintConfig } from '../core/types';
+import { ProblemState, ProblemSeverity, EslintConfig, ProviderCapabilities } from '../core/types';
 import { EslintRunner, EslintRunOptions, EslintDiagnostic } from '../typescript/EslintRunner';
 import { chainCounters } from '../forensicLogger';
 import * as path from 'path';
@@ -30,6 +30,12 @@ const DEFAULT_DEBOUNCE_MS = 300;
 
 export class EslintDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'eslint';
+  readonly capabilities: ProviderCapabilities = {
+    extensions: ['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte'],
+    onSave: true,
+    onDemand: true,
+    fullWorkspace: true,
+  };
   private readonly _store: ProblemStore;
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;

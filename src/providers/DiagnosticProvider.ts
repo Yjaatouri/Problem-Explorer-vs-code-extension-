@@ -1,5 +1,6 @@
 import { Event, Disposable, Uri } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
+import { ProviderCapabilities } from '../core/types';
 
 export interface DiagnosticProvider extends Disposable {
   readonly name: string;
@@ -7,6 +8,7 @@ export interface DiagnosticProvider extends Disposable {
   readonly scanning: boolean;
   readonly autoScan: boolean;
   readonly enabled: boolean;
+  readonly capabilities: ProviderCapabilities;
 
   onDidUpdate: Event<Uri[]>;
 

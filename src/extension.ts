@@ -17,7 +17,7 @@ import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
 import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
-import { AutoScanner } from './scanner/AutoScanner';
+import { AutoScanController } from './scanner/AutoScanner';
 
 console.log('[LOG:DIST_LOADED]');
 
@@ -176,9 +176,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     }
 
     const autoScannerCfg = configManager.getConfig();
-    const autoScanner = new AutoScanner(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
-    autoScanner.start();
-    context.subscriptions.push(autoScanner);
+    const autoScanController = new AutoScanController(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
+    autoScanController.start();
+    context.subscriptions.push(autoScanController);
 
     let prevTscEnabled = tscCfg.enabled;
     let prevEslintEnabled = eslintCfg.enabled;
@@ -193,7 +193,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         const currEslint = currCfg.eslint;
         prevTscEnabled = currTsc.enabled;
         prevEslintEnabled = currEslint.enabled;
-        autoScanner.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
+        autoScanController.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
           tscProvider.refresh();

@@ -2,10 +2,14 @@ import { Uri, Event } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../diagnostics/diagnosticsManager';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProblemState } from '../core/types';
+import { ProblemState, ProviderCapabilities } from '../core/types';
 
 export class VSCodeDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'vscodeDiagnostics';
+  readonly capabilities: ProviderCapabilities = {
+    extensions: [],
+    realtime: true,
+  };
   private readonly manager: DiagnosticsManager;
 
   get store(): ProblemStore {

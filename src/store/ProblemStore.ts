@@ -41,12 +41,14 @@ export class ProblemStore {
         const currentPriority = this.providerPriorities.get(currentOwner) ?? -1;
         const newPriority = this.providerPriorities.get(providerName) ?? -1;
         if (newPriority < currentPriority) {
+          console.log(`[LOG:STORE] Step5: set() REJECTED — lower priority ${providerName} (${newPriority}) < ${currentOwner} (${currentPriority}) for ${key}`);
           return false;
         }
       }
     }
     const old = this.storage.get(key);
     if (old !== undefined && !this.hasChanged(old, state)) {
+      console.log(`[LOG:STORE] Step5: set() SKIPPED — unchanged state for ${key}`);
       return false;
     }
     const existed = old !== undefined;
@@ -63,8 +65,12 @@ export class ProblemStore {
       this.ownerByKey.set(key, providerName);
     }
     this.version++;
+    console.log(`[LOG:STORE] Step5: set() ${existed ? 'UPDATED' : 'ADDED'} key=${key} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
     if (this.batchDepth === 0) {
+      console.log(`[LOG:STORE] Step6: _onDidChange.fire(${existed ? 'updated' : 'added'}) uri=${uri.fsPath}`);
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
+    } else {
+      console.log(`[LOG:STORE] Step6: _onDidChange.fire() DEFERRED — batchDepth=${this.batchDepth}`);
     }
     return true;
   }

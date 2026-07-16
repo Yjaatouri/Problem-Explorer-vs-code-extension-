@@ -1,7 +1,7 @@
 import { Event, EventEmitter, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProblemState, ProblemSeverity, TscConfig } from '../core/types';
+import { ProblemState, ProblemSeverity, TscConfig, ProviderCapabilities } from '../core/types';
 import { ProjectResolver, TypeScriptProject } from '../typescript/ProjectResolver';
 import { TscRunner, TscRunOptions, DEFAULT_TSC_TIMEOUT_MS } from '../typescript/TscRunner';
 import { TscOutputParser, TscDiagnostic } from '../typescript/TscOutputParser';
@@ -32,6 +32,12 @@ const DEFAULT_DEBOUNCE_MS = 300;
 
 export class TscDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'tsc';
+  readonly capabilities: ProviderCapabilities = {
+    extensions: ['.ts', '.tsx'],
+    onSave: true,
+    onDemand: true,
+    fullWorkspace: true,
+  };
   private readonly _store: ProblemStore;
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
