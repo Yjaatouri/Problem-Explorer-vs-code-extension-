@@ -60,6 +60,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   private _lastScanTiming: ScanTiming | undefined;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _currentProject: string | undefined;
+  private _maxConcurrentScans = 1;
 
   get store(): ProblemStore {
     return this._store;
@@ -101,6 +102,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     this._enabled = cfg.enabled;
     this._autoScan = cfg.autoScan;
     this.timeoutMs = cfg.timeout;
+    this._maxConcurrentScans = cfg.maxConcurrentScans;
     this.projectResolver.useWorkspaceVersion = cfg.useWorkspaceVersion;
   }
 
@@ -237,10 +239,12 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       console.log(`[TSC] Resolved ${projects.length} TypeScript project(s) from tsconfig.json`);
 
       const tscStart = performance.now();
-      for (const project of projects) {
+      const semaphore = this.makeSemaphore(this._maxConcurrentScans);
+      await Promise.all(projects.map(async (project) => {
+        await semaphore.acquire();
         if (signal.aborted) {
-          this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
-          break;
+          semaphore.release();
+          return;
         }
 
         const projectLabel = path.basename(project.projectRoot);
@@ -267,12 +271,15 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
             tsconfigPath: project.tsconfigPath,
             message: err instanceof Error ? err.message : String(err),
           });
-          continue;
+          this._currentProject = undefined;
+          semaphore.release();
+          return;
         }
 
         if (result.cancelled) {
-          this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
-          break;
+          this._currentProject = undefined;
+          semaphore.release();
+          return;
         }
 
         if (result.timedOut) {
@@ -280,7 +287,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
             tsconfigPath: project.tsconfigPath,
             message: result.error ?? 'Timed out',
           });
-          continue;
+          this._currentProject = undefined;
+          semaphore.release();
+          return;
         }
 
         if (result.error) {
@@ -288,7 +297,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
             tsconfigPath: project.tsconfigPath,
             message: result.error,
           });
-          continue;
+          this._currentProject = undefined;
+          semaphore.release();
+          return;
         }
 
         if (result.exitCode !== 0 && this.isConfigError(result)) {
@@ -296,7 +307,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
             tsconfigPath: project.tsconfigPath,
             message: result.stderr || result.stdout || `tsc exited with code ${result.exitCode}`,
           });
-          continue;
+          this._currentProject = undefined;
+          semaphore.release();
+          return;
         }
 
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'parsing', message: `Parsing ${projectLabel} output...` });
@@ -317,7 +330,8 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         }
 
         this._currentProject = undefined;
-      }
+        semaphore.release();
+      }));
       timing.tscRunsMs = performance.now() - tscStart;
 
       this.abortController = undefined;
@@ -388,6 +402,22 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     }
 
     return changed;
+  }
+
+  private makeSemaphore(concurrency: number): { acquire: () => Promise<void>; release: () => void } {
+    if (concurrency <= 1) return { acquire: () => Promise.resolve(), release: () => {} };
+    let running = 0;
+    const queue: (() => void)[] = [];
+    const acquire = () => new Promise<void>((resolve) => {
+      running++;
+      if (running <= concurrency) { resolve(); return; }
+      queue.push(resolve);
+    });
+    const release = () => {
+      running--;
+      if (queue.length > 0) { running++; const next = queue.shift()!; next(); }
+    };
+    return { acquire, release };
   }
 
   private aggregateFileState(diagnostics: TscDiagnostic[]): ProblemState {

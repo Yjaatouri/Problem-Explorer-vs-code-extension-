@@ -55,6 +55,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   private _lastScanErrors: EslintScanError[] = [];
   private _lastScanDurationMs = 0;
   private _lastScanTiming: EslintScanTiming | undefined;
+  private _maxConcurrentScans = 2;
+  private _cachedFolders: { folders: WorkspaceFolder[]; timestamp: number } | undefined;
+  private _folderCacheTtlMs = 60_000;
 
   get store(): ProblemStore {
     return this._store;
@@ -104,6 +107,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     this._enabled = cfg.enabled;
     this._autoScan = cfg.autoScan;
     this.timeoutMs = cfg.timeout;
+    this._maxConcurrentScans = cfg.maxConcurrentScans;
   }
 
   async initialize(): Promise<void> {
@@ -243,10 +247,12 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       }
 
       const eslintStart = performance.now();
-      for (const folder of foldersWithEslint) {
+      const semaphore = this.makeSemaphore(this._maxConcurrentScans);
+      await Promise.all(foldersWithEslint.map(async (folder) => {
+        await semaphore.acquire();
         if (signal.aborted) {
-          this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
-          break;
+          semaphore.release();
+          return;
         }
 
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: `Scanning ${folder.name}...` });
@@ -265,14 +271,16 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(`[ESLINT] Spawn error in "${folder.name}": ${msg}`);
           this._lastScanErrors.push({ folder: folder.name, message: msg });
-          continue;
+          semaphore.release();
+          return;
         }
 
         if (result.cancelled || result.timedOut) {
           const msg = result.error ?? (result.timedOut ? 'ESLint timed out' : 'ESLint cancelled');
           console.log(`[ESLINT] "${folder.name}" — ${msg}`);
           this._lastScanErrors.push({ folder: folder.name, message: msg });
-          continue;
+          semaphore.release();
+          return;
         }
 
         if (result.error) {
@@ -296,7 +304,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
             allDiagnostics.set(key, [diag]);
           }
         }
-      }
+        semaphore.release();
+      }));
       timing.eslintRunsMs = performance.now() - eslintStart;
 
       this.abortController = undefined;
@@ -340,6 +349,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   private async findFoldersWithEslint(folders: readonly WorkspaceFolder[]): Promise<WorkspaceFolder[]> {
+    if (this._cachedFolders && Date.now() - this._cachedFolders.timestamp < this._folderCacheTtlMs) {
+      return this._cachedFolders.folders;
+    }
     const fs = await import('fs/promises');
     const result: WorkspaceFolder[] = [];
 
@@ -386,6 +398,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       }
     }
 
+    this._cachedFolders = { folders: result, timestamp: Date.now() };
     return result;
   }
 
@@ -401,6 +414,22 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     }
 
     return changed;
+  }
+
+  private makeSemaphore(concurrency: number): { acquire: () => Promise<void>; release: () => void } {
+    if (concurrency <= 1) return { acquire: () => Promise.resolve(), release: () => {} };
+    let running = 0;
+    const queue: (() => void)[] = [];
+    const acquire = () => new Promise<void>((resolve) => {
+      running++;
+      if (running <= concurrency) { resolve(); return; }
+      queue.push(resolve);
+    });
+    const release = () => {
+      running--;
+      if (queue.length > 0) { running++; const next = queue.shift()!; next(); }
+    };
+    return { acquire, release };
   }
 
   private aggregateFileState(diagnostics: EslintDiagnostic[]): ProblemState {

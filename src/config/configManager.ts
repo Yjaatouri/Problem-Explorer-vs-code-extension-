@@ -86,6 +86,7 @@ export class ConfigManager implements Disposable {
       enabled: cfg.get<boolean>('eslint.enabled', true),
       autoScan: cfg.get<boolean>('eslint.autoScan', false),
       timeout: cfg.get<number>('eslint.timeout', 120000),
+      maxConcurrentScans: cfg.get<number>('eslint.maxConcurrentScans', 2),
     };
   }
 }

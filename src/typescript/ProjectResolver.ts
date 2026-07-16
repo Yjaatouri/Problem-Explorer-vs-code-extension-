@@ -57,19 +57,38 @@ const defaultDelegate: ProjectResolverDelegate = {
   },
 };
 
+const _CACHE_MISS = Symbol('CACHE_MISS');
 export class ProjectResolver {
   private readonly delegate: ProjectResolverDelegate;
   private _useWorkspaceVersion = true;
+  private _cachedProjects: TypeScriptProject[] | undefined;
+  private _cachedAt = 0;
+  private _cacheTtlMs = 60_000;
+  private _tsModuleCache = new Map<string, { path: string; version: string } | typeof _CACHE_MISS>();
 
-  constructor(delegate?: ProjectResolverDelegate) {
+  constructor(delegate?: ProjectResolverDelegate, cacheTtlMs?: number) {
     this.delegate = delegate ?? defaultDelegate;
+    if (cacheTtlMs !== undefined) this._cacheTtlMs = cacheTtlMs;
+  }
+
+  clearCache(): void {
+    this._cachedProjects = undefined;
+    this._cachedAt = 0;
+    this._tsModuleCache.clear();
   }
 
   set useWorkspaceVersion(value: boolean) {
-    this._useWorkspaceVersion = value;
+    if (value !== this._useWorkspaceVersion) {
+      this._useWorkspaceVersion = value;
+      this._tsModuleCache.clear();
+    }
   }
 
   async resolveAll(): Promise<TypeScriptProject[]> {
+    if (this._cachedProjects && Date.now() - this._cachedAt < this._cacheTtlMs) {
+      return this._cachedProjects;
+    }
+
     const projects: TypeScriptProject[] = [];
 
     if (this.delegate.workspaceFolders.length === 0) {
@@ -85,6 +104,8 @@ export class ProjectResolver {
       }
     }
 
+    this._cachedProjects = projects;
+    this._cachedAt = Date.now();
     return projects;
   }
 
@@ -108,36 +129,46 @@ export class ProjectResolver {
   }
 
   resolveTypeScriptModule(fromDir: string): { path: string; version: string } | undefined {
+    const cached = this._tsModuleCache.get(fromDir);
+    if (cached === _CACHE_MISS) return undefined;
+    if (cached !== undefined) return cached;
+
+    let result: { path: string; version: string } | undefined;
+
     console.log(`[TSC] resolveTypeScriptModule fromDir=${fromDir}`);
 
     // 1. Try workspace TypeScript (traverse up for node_modules/typescript)
     if (this._useWorkspaceVersion) {
-      const workspaceTypeScript = this.traverseUpForTypeScript(fromDir);
-      if (workspaceTypeScript) {
+      result = this.traverseUpForTypeScript(fromDir);
+      if (result) {
         console.log(`[TSC] Using workspace TypeScript`);
-        console.log(`[TSC] Version: ${workspaceTypeScript.version}`);
-        console.log(`[TSC] Compiler: ${path.join(workspaceTypeScript.path, 'lib', 'tsc.js')}`);
-        return workspaceTypeScript;
+        console.log(`[TSC] Version: ${result.version}`);
+        console.log(`[TSC] Compiler: ${path.join(result.path, 'lib', 'tsc.js')}`);
+      } else {
+        console.log(`[TSC] Workspace TypeScript: not found`);
       }
-      console.log(`[TSC] Workspace TypeScript: not found`);
     } else {
       console.log(`[TSC] Workspace TypeScript: skipped (useWorkspaceVersion=false)`);
     }
 
-    // 2. Try VS Code bundled TypeScript
-    console.log(`[TSC] Checking VS Code bundled TypeScript...`);
-    const vsCodeTypeScript = this.getVSCodeTypeScript();
-    if (vsCodeTypeScript) {
-      console.log(`[TSC] Using VS Code TypeScript`);
-      console.log(`[TSC] Version: ${vsCodeTypeScript.version}`);
-      console.log(`[TSC] Compiler: ${path.join(vsCodeTypeScript.path, 'lib', 'tsc.js')}`);
-      return vsCodeTypeScript;
+    // 2. Fallback to VS Code bundled TypeScript
+    if (!result) {
+      console.log(`[TSC] Checking VS Code bundled TypeScript...`);
+      result = this.getVSCodeTypeScript();
+      if (result) {
+        console.log(`[TSC] Using VS Code TypeScript`);
+        console.log(`[TSC] Version: ${result.version}`);
+        console.log(`[TSC] Compiler: ${path.join(result.path, 'lib', 'tsc.js')}`);
+      }
     }
 
-    // 3. No runnable compiler found
-    console.log(`[TSC] No runnable TypeScript compiler found`);
-    console.log(`[TSC]   Action: Install TypeScript in your workspace (npm install typescript --save-dev)`);
-    return undefined;
+    if (!result) {
+      console.log(`[TSC] No runnable TypeScript compiler found`);
+      console.log(`[TSC]   Action: Install TypeScript in your workspace (npm install typescript --save-dev)`);
+    }
+
+    this._tsModuleCache.set(fromDir, result ?? _CACHE_MISS);
+    return result;
   }
 
   private traverseUpForTypeScript(startDir: string): { path: string; version: string } | undefined {
