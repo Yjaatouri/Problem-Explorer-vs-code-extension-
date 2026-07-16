@@ -209,16 +209,21 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       if (signal.aborted) return [];
 
       if (projects.length === 0) {
-        this._lastScanErrors.push({
-          tsconfigPath: '',
-          message: 'No tsconfig.json found or TypeScript not available in workspace.',
-        });
+        const msg = 'No tsconfig.json found or TypeScript not available in workspace.';
+        console.log(`[TSC] ${msg}`);
+        this._lastScanErrors.push({ tsconfigPath: '', message: msg });
         return [];
       }
+
+      console.log(`[TSC] Resolved ${projects.length} TypeScript project(s) from tsconfig.json`);
 
       const tscStart = performance.now();
       for (const project of projects) {
         if (signal.aborted) break;
+
+        console.log(`[TSC] Running project: ${project.tsconfigPath}`);
+        console.log(`[TSC]   typescriptPath: ${project.typescriptPath}`);
+        console.log(`[TSC]   typescriptVersion: ${project.typescriptVersion}`);
 
         this._currentProject = project.projectRoot;
 

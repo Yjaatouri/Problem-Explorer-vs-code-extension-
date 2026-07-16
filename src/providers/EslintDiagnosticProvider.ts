@@ -195,11 +195,11 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       if (signal.aborted) return [];
 
       const workspaceFolders = this.getWorkspaceFolders();
+      console.log(`[ESLINT] Workspace folders: ${workspaceFolders.length}`);
       if (workspaceFolders.length === 0) {
-        this._lastScanErrors.push({
-          folder: '',
-          message: 'No workspace folders open.',
-        });
+        const msg = 'No workspace folders open.';
+        console.log(`[ESLINT] ${msg}`);
+        this._lastScanErrors.push({ folder: '', message: msg });
         return [];
       }
 
@@ -210,11 +210,15 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       timing.resolveFoldersMs = performance.now() - resolveStart;
       if (signal.aborted) return [];
 
+      for (const f of workspaceFolders) {
+        const hasEslint = foldersWithEslint.some(ef => ef.uri.toString() === f.uri.toString());
+        console.log(`[ESLINT] Folder "${f.name}": ESLint config ${hasEslint ? '' : 'NOT '}found`);
+      }
+
       if (foldersWithEslint.length === 0) {
-        this._lastScanErrors.push({
-          folder: '',
-          message: 'No ESLint configuration found in any workspace folder.',
-        });
+        const msg = 'No ESLint configuration found in any workspace folder.';
+        console.log(`[ESLINT] ${msg}`);
+        this._lastScanErrors.push({ folder: '', message: msg });
         return [];
       }
 
@@ -222,6 +226,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       for (const folder of foldersWithEslint) {
         if (signal.aborted) break;
 
+        console.log(`[ESLINT] Running ESLint in: ${folder.uri.fsPath}`);
         const options: EslintRunOptions = {
           cwd: folder.uri.fsPath,
           signal,
@@ -232,20 +237,24 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         try {
           result = await this.runner.run(options);
         } catch (err) {
-          this._lastScanErrors.push({
-            folder: folder.name,
-            message: err instanceof Error ? err.message : String(err),
-          });
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`[ESLINT] Spawn error in "${folder.name}": ${msg}`);
+          this._lastScanErrors.push({ folder: folder.name, message: msg });
           continue;
         }
 
         if (result.cancelled || result.timedOut) {
-          this._lastScanErrors.push({
-            folder: folder.name,
-            message: result.error ?? (result.timedOut ? 'ESLint timed out' : 'ESLint cancelled'),
-          });
+          const msg = result.error ?? (result.timedOut ? 'ESLint timed out' : 'ESLint cancelled');
+          console.log(`[ESLINT] "${folder.name}" — ${msg}`);
+          this._lastScanErrors.push({ folder: folder.name, message: msg });
           continue;
         }
+
+        if (result.error) {
+          console.log(`[ESLINT] "${folder.name}" — error: ${result.error}`);
+        }
+
+        console.log(`[ESLINT] "${folder.name}" — exitCode=${result.exitCode}, stdout=${result.stdout.length} chars`);
 
         const parseStart = performance.now();
         const diagnostics = this.runner.parseOutput(result.stdout);

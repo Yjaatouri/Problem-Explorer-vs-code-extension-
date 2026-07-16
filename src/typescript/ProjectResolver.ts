@@ -110,31 +110,52 @@ export class ProjectResolver {
 
   resolveTypeScriptModule(fromDir: string): { path: string; version: string } | undefined {
     if (this._useWorkspaceVersion) {
+      console.log(`[TSC] resolveTypeScriptModule useWorkspaceVersion=true fromDir=${fromDir}`);
       const workspaceTypeScript = this.traverseUpForTypeScript(fromDir);
-      if (workspaceTypeScript) return workspaceTypeScript;
+      if (workspaceTypeScript) {
+        console.log(`[TSC] Workspace TypeScript: found`);
+        console.log(`[TSC] Version: ${workspaceTypeScript.version}`);
+        console.log(`[TSC] Compiler: ${path.join(workspaceTypeScript.path, 'lib', 'tsc.js')}`);
+        return workspaceTypeScript;
+      }
+      console.log(`[TSC] Workspace TypeScript: not found`);
+      console.log(`[TSC] Falling back to npx --package typescript tsc`);
       return { path: NPX_SENTINEL, version: 'npx' };
     }
 
+    console.log(`[TSC] resolveTypeScriptModule useWorkspaceVersion=false fromDir=${fromDir}`);
+    console.log(`[TSC] Checking VS Code bundled TypeScript...`);
     const vsCodeTypeScript = this.getVSCodeTypeScript();
-    if (vsCodeTypeScript) return vsCodeTypeScript;
+    if (vsCodeTypeScript) {
+      console.log(`[TSC] Using VS Code TypeScript`);
+      console.log(`[TSC] Version: ${vsCodeTypeScript.version}`);
+      console.log(`[TSC] Compiler: ${path.join(vsCodeTypeScript.path, 'lib', 'tsc.js')}`);
+      return vsCodeTypeScript;
+    }
 
+    console.log(`[TSC] No runnable TypeScript compiler found`);
     return undefined;
   }
 
   private traverseUpForTypeScript(startDir: string): { path: string; version: string } | undefined {
     let current = path.resolve(startDir);
+    console.log(`[TSC] traverseUpForTypeScript start=${current}`);
 
     for (let i = 0; i < 20; i++) {
-      const packageJsonPath = path.join(current, 'node_modules', 'typescript', 'package.json');
-      const pkg = this.delegate.readPackageJson(packageJsonPath);
+      const candidatePkgJson = path.join(current, 'node_modules', 'typescript', 'package.json');
+      console.log(`[TSC] traverseUp: checking ${candidatePkgJson}`);
+      const pkg = this.delegate.readPackageJson(candidatePkgJson);
       if (pkg && typeof pkg.version === 'string') {
-        const tsDir = path.dirname(packageJsonPath);
-        if (this.tscExists(tsDir)) {
+        const tsDir = path.dirname(candidatePkgJson);
+        const hasTsc = this.tscExists(tsDir);
+        console.log(`[TSC] traverseUp: found version=${pkg.version} tsc.js=${hasTsc} at ${tsDir}`);
+        if (hasTsc) {
           return {
             path: tsDir,
             version: pkg.version,
           };
         }
+        console.log(`[TSC] traverseUp: skipping — no lib/tsc.js at ${path.join(tsDir, 'lib', 'tsc.js')}`);
       }
 
       const parent = path.dirname(current);
@@ -142,16 +163,24 @@ export class ProjectResolver {
       current = parent;
     }
 
+    console.log(`[TSC] traverseUpForTypeScript: exhausted search (no valid TypeScript found)`);
     return undefined;
   }
 
   private getVSCodeTypeScript(): { path: string; version: string } | undefined {
     const extPath = this.delegate.getExtensionPath(VSCODE_TS_EXTENSION_ID);
-    if (!extPath) return undefined;
+    if (!extPath) {
+      console.log(`[TSC] VS Code extension '${VSCODE_TS_EXTENSION_ID}' not found`);
+      return undefined;
+    }
+    console.log(`[TSC] VS Code extension path: ${extPath}`);
 
     // Try per-extension node_modules (legacy VS Code structure)
     const perExtTsc = path.join(extPath, 'node_modules', 'typescript');
-    if (this.tscExists(perExtTsc)) {
+    console.log(`[TSC] Checking per-extension path: ${perExtTsc}`);
+    const perExtHasTsc = this.tscExists(perExtTsc);
+    console.log(`[TSC] per-extension lib/tsc.js: ${perExtHasTsc}`);
+    if (perExtHasTsc) {
       const perExtPkg = path.join(perExtTsc, 'package.json');
       const pkg = this.delegate.readPackageJson(perExtPkg);
       if (pkg && typeof pkg.version === 'string') {
@@ -161,7 +190,10 @@ export class ProjectResolver {
 
     // Try shared extensions node_modules (modern VS Code ≥1.96)
     const sharedExtTsc = path.resolve(extPath, '..', 'node_modules', 'typescript');
-    if (this.tscExists(sharedExtTsc)) {
+    console.log(`[TSC] Checking shared path: ${sharedExtTsc}`);
+    const sharedHasTsc = this.tscExists(sharedExtTsc);
+    console.log(`[TSC] shared lib/tsc.js: ${sharedHasTsc}`);
+    if (sharedHasTsc) {
       const sharedExtPkg = path.join(sharedExtTsc, 'package.json');
       const pkg = this.delegate.readPackageJson(sharedExtPkg);
       if (pkg && typeof pkg.version === 'string') {
@@ -169,6 +201,7 @@ export class ProjectResolver {
       }
     }
 
+    console.log(`[TSC] VS Code TypeScript: invalid (missing lib/tsc.js at both candidate paths)`);
     return undefined;
   }
 }
