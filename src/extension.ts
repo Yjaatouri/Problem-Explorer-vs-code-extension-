@@ -19,6 +19,7 @@ import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 import { AutoScanController } from './scanner/AutoScanner';
 import { StartupScanController } from './scanner/StartupScanController';
+import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
 
 console.log('[LOG:DIST_LOADED]');
 
@@ -170,6 +171,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const autoScanController = new AutoScanController(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
     autoScanController.start();
     context.subscriptions.push(autoScanController);
+
+    // Scan Workspace button (status bar + explorer toolbar)
+    new ScanWorkspaceButton(context, log);
+    log('[VERIFY] ScanWorkspaceButton created');
 
     let prevTscEnabled = tscCfg.enabled;
     let prevEslintEnabled = eslintCfg.enabled;

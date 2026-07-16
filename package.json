@@ -282,6 +282,15 @@
           "description": "Automatically scan ESLint when JavaScript/TypeScript files change"
         }
       }
+    },
+    "menus": {
+      "explorer/title": [
+        {
+          "command": "problemExplorer.runScanWorkspace",
+          "when": "explorerViewletVisible",
+          "group": "navigation"
+        }
+      ]
     }
   },
   "scripts": {
