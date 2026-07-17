@@ -23,7 +23,7 @@ export class AutoScanController implements Disposable {
   constructor(
     manager: DiagnosticProviderManager,
     log: (msg: string) => void,
-    debounceMs: number = 2000,
+    debounceMs: number = 300,
     enabled: boolean = true,
   ) {
     this.manager = manager;

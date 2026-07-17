@@ -16,7 +16,7 @@ export const COLORS = {
 } as const;
 
 export const PROCESSING_DEBOUNCE_MS = 50;
-export const AUTO_SCAN_DEBOUNCE_MS = 2000;
+export const AUTO_SCAN_DEBOUNCE_MS = 300;
 export const AUTO_SCAN_EXTENSIONS_TSC = ['.ts', '.tsx'];
 export const AUTO_SCAN_EXTENSIONS_ESLINT = ['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte'];
 
