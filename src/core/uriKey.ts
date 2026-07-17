@@ -1,6 +1,7 @@
 import { Uri } from 'vscode';
+import { LruCache } from './LruCache';
 
-const uriKeyCache = new Map<string, string>();
+const uriKeyCache = new LruCache<string, string>(10_000);
 
 /**
  * Produce a canonical string key for a URI so equivalent URIs map to the
