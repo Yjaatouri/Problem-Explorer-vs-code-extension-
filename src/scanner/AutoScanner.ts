@@ -1,6 +1,7 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace } from 'vscode';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import { chainCounters } from '../forensicLogger';
+import { debugLog } from '../core/debug';
 
 export class AutoScanController implements Disposable {
   private readonly disposables: Disposable[] = [];
@@ -35,28 +36,28 @@ export class AutoScanController implements Disposable {
     this.disposables.push(
       workspace.onDidSaveTextDocument((doc) => {
         const ts = Date.now();
-        console.log(`[AUDIT:${ts}] Step1: onDidSaveTextDocument uri=${doc.uri.fsPath}`);
+        debugLog(`[AUDIT:${ts}] Step1: onDidSaveTextDocument uri=${doc.uri.fsPath}`);
         this.onFileChanged(doc.uri);
-        console.log(`[AUDIT:${Date.now()}] Step1: onDidSaveTextDocument EXIT elapsed=${Date.now() - ts}ms`);
+        debugLog(`[AUDIT:${Date.now()}] Step1: onDidSaveTextDocument EXIT elapsed=${Date.now() - ts}ms`);
       }),
       workspace.onDidCreateFiles((e) => {
         const ts = Date.now();
         for (const uri of e.files) {
-          console.log(`[AUDIT:${ts}] Step1: onDidCreateFiles uri=${uri.fsPath}`);
+          debugLog(`[AUDIT:${ts}] Step1: onDidCreateFiles uri=${uri.fsPath}`);
           this.onFileChanged(uri);
         }
       }),
       workspace.onDidDeleteFiles((e) => {
         const ts = Date.now();
         for (const uri of e.files) {
-          console.log(`[AUDIT:${ts}] Step1: onDidDeleteFiles uri=${uri.fsPath}`);
+          debugLog(`[AUDIT:${ts}] Step1: onDidDeleteFiles uri=${uri.fsPath}`);
           this.onFileChanged(uri);
         }
       }),
       workspace.onDidRenameFiles((e) => {
         const ts = Date.now();
         for (const { newUri } of e.files) {
-          console.log(`[AUDIT:${ts}] Step1: onDidRenameFiles uri=${newUri.fsPath}`);
+          debugLog(`[AUDIT:${ts}] Step1: onDidRenameFiles uri=${newUri.fsPath}`);
           this.onFileChanged(newUri);
         }
       }),
@@ -67,65 +68,65 @@ export class AutoScanController implements Disposable {
     const ts = Date.now();
     this._debounceMs = debounceMs;
     this._enabled = enabled;
-    console.log(`[AUDIT:${ts}] updateConfig debounceMs=${debounceMs} enabled=${enabled}`);
+    debugLog(`[AUDIT:${ts}] updateConfig debounceMs=${debounceMs} enabled=${enabled}`);
   }
 
   private onFileChanged(uri: Uri): void {
     const ts = Date.now();
     const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
-    console.log(`[AUDIT:${ts}] Step2: onFileChanged uri=${uri.fsPath} ext=${ext} _enabled=${this._enabled} queued=[${Array.from(this.queuedProviders).join(',')}]`);
+    debugLog(`[AUDIT:${ts}] Step2: onFileChanged uri=${uri.fsPath} ext=${ext} _enabled=${this._enabled} queued=[${Array.from(this.queuedProviders).join(',')}]`);
 
     if (!this._enabled) {
-      console.log(`[AUDIT:${ts}] Step2: EARLY RETURN — auto-scan disabled _enabled=false`);
+      debugLog(`[AUDIT:${ts}] Step2: EARLY RETURN — auto-scan disabled _enabled=false`);
       return;
     }
 
     const ownerName = this.manager.getOwner(ext);
-    console.log(`[AUDIT:${ts}] Step2: getOwner("${ext}") → ${ownerName ?? '(undefined)'}`);
+    debugLog(`[AUDIT:${ts}] Step2: getOwner("${ext}") → ${ownerName ?? '(undefined)'}`);
     if (!ownerName) {
-      console.log(`[AUDIT:${ts}] Step2: EARLY RETURN — no provider owns extension "${ext}"`);
+      debugLog(`[AUDIT:${ts}] Step2: EARLY RETURN — no provider owns extension "${ext}"`);
       return;
     }
 
     this.queuedProviders.add(ownerName);
     chainCounters.autoScannerTriggered++;
-    console.log(`[AUDIT:${ts}] Step2: queued provider="${ownerName}" queued=[${Array.from(this.queuedProviders).join(',')}]`);
+    debugLog(`[AUDIT:${ts}] Step2: queued provider="${ownerName}" queued=[${Array.from(this.queuedProviders).join(',')}]`);
     this._schedule(ts);
-    console.log(`[AUDIT:${Date.now()}] Step2: onFileChanged EXIT elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] Step2: onFileChanged EXIT elapsed=${Date.now() - ts}ms`);
   }
 
   private _schedule(callerTs?: number): void {
     const ts = callerTs ?? Date.now();
     const hasTimer = this._debounceTimer !== undefined;
-    console.log(`[AUDIT:${ts}] Step3: _schedule _debounceTimer=${hasTimer} _flushing=${this._flushing} queued=[${Array.from(this.queuedProviders).join(',')}]`);
+    debugLog(`[AUDIT:${ts}] Step3: _schedule _debounceTimer=${hasTimer} _flushing=${this._flushing} queued=[${Array.from(this.queuedProviders).join(',')}]`);
 
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
-      console.log(`[AUDIT:${ts}] Step3: cleared existing debounce timer`);
+      debugLog(`[AUDIT:${ts}] Step3: cleared existing debounce timer`);
     } else if (!this._flushing) {
-      console.log(`[AUDIT:${ts}] Step3: no active timer and not flushing — calling _cancelActiveScans`);
+      debugLog(`[AUDIT:${ts}] Step3: no active timer and not flushing — calling _cancelActiveScans`);
       this._cancelActiveScans(ts);
     } else {
-      console.log(`[AUDIT:${ts}] Step3: no active timer BUT _flushing=true — skipping _cancelActiveScans`);
+      debugLog(`[AUDIT:${ts}] Step3: no active timer BUT _flushing=true — skipping _cancelActiveScans`);
     }
 
-    console.log(`[AUDIT:${ts}] Step3: setting debounce timer for ${this._debounceMs}ms`);
+    debugLog(`[AUDIT:${ts}] Step3: setting debounce timer for ${this._debounceMs}ms`);
     this._debounceTimer = setTimeout(() => {
       const fireTs = Date.now();
-      console.log(`[AUDIT:${fireTs}] Step3: debounce timer FIRED (after ${fireTs - ts}ms)`);
+      debugLog(`[AUDIT:${fireTs}] Step3: debounce timer FIRED (after ${fireTs - ts}ms)`);
       this._debounceTimer = undefined;
       this._flush(fireTs);
     }, this._debounceMs);
-    console.log(`[AUDIT:${Date.now()}] Step3: _schedule EXIT elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] Step3: _schedule EXIT elapsed=${Date.now() - ts}ms`);
   }
 
   private _cancelActiveScans(callerTs?: number): void {
     const ts = callerTs ?? Date.now();
-    console.log(`[AUDIT:${ts}] Step3a: _cancelActiveScans queued=[${Array.from(this.queuedProviders).join(',')}]`);
+    debugLog(`[AUDIT:${ts}] Step3a: _cancelActiveScans queued=[${Array.from(this.queuedProviders).join(',')}]`);
     for (const providerName of this.queuedProviders) {
       const provider = this.manager.get(providerName);
       const isScanning = provider?.scanning ?? false;
-      console.log(`[AUDIT:${ts}] Step3a: provider="${providerName}" exists=${provider !== undefined} scanning=${isScanning}`);
+      debugLog(`[AUDIT:${ts}] Step3a: provider="${providerName}" exists=${provider !== undefined} scanning=${isScanning}`);
       if (provider?.scanning) {
         this.log(`[AUTO-SCAN] Cancelling in-progress ${providerName} scan`);
         provider.stop();
@@ -135,14 +136,14 @@ export class AutoScanController implements Disposable {
 
   private async _flush(callerTs?: number): Promise<void> {
     const ts = callerTs ?? Date.now();
-    console.log(`[AUDIT:${ts}] Step4: _flush ENTER queueSize=${this.queuedProviders.size} _flushing=${this._flushing}`);
+    debugLog(`[AUDIT:${ts}] Step4: _flush ENTER queueSize=${this.queuedProviders.size} _flushing=${this._flushing}`);
 
     if (this.queuedProviders.size === 0) {
-      console.log(`[AUDIT:${ts}] Step4: EARLY RETURN — queuedProviders is empty`);
+      debugLog(`[AUDIT:${ts}] Step4: EARLY RETURN — queuedProviders is empty`);
       return;
     }
     if (this._flushing) {
-      console.log(`[AUDIT:${ts}] Step4: EARLY RETURN — already flushing, queued providers WILL BE DROPPED: [${Array.from(this.queuedProviders).join(',')}]`);
+      debugLog(`[AUDIT:${ts}] Step4: EARLY RETURN — already flushing, queued providers WILL BE DROPPED: [${Array.from(this.queuedProviders).join(',')}]`);
       return;
     }
     this._flushing = true;
@@ -150,7 +151,7 @@ export class AutoScanController implements Disposable {
 
     const names = Array.from(this.queuedProviders);
     this.queuedProviders.clear();
-    console.log(`[AUDIT:${ts}] Step4: captured providers=[${names.join(',')}] queue cleared`);
+    debugLog(`[AUDIT:${ts}] Step4: captured providers=[${names.join(',')}] queue cleared`);
 
     this._updateStatus(true);
 
@@ -158,9 +159,9 @@ export class AutoScanController implements Disposable {
 
     for (const name of names) {
       const provider = this.manager.get(name);
-      console.log(`[AUDIT:${ts}] Step4: refresh provider="${name}" exists=${provider !== undefined}`);
+      debugLog(`[AUDIT:${ts}] Step4: refresh provider="${name}" exists=${provider !== undefined}`);
       if (!provider) {
-        console.log(`[AUDIT:${ts}] Step4: SKIP — provider "${name}" not found in manager`);
+        debugLog(`[AUDIT:${ts}] Step4: SKIP — provider "${name}" not found in manager`);
         continue;
       }
       chainCounters.autoScannerFlushProviderRun++;
@@ -171,32 +172,32 @@ export class AutoScanController implements Disposable {
         promises.push(
           result.then(() => {
             const endTs = Date.now();
-            console.log(`[AUDIT:${endTs}] Step4: ${name} scan completed`);
+            debugLog(`[AUDIT:${endTs}] Step4: ${name} scan completed`);
             this.log(`[AUTO-SCAN] ${name} scan completed`);
             this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
           }).catch((err: Error) => {
             const errTs = Date.now();
-            console.log(`[AUDIT:${errTs}] Step4: ${name} scan FAILED: ${err.message ?? String(err)}`);
+            debugLog(`[AUDIT:${errTs}] Step4: ${name} scan FAILED: ${err.message ?? String(err)}`);
             this.log(`[AUTO-SCAN] ${name} scan failed: ${err.message ?? String(err)}`);
           }),
         );
       } else {
-        console.log(`[AUDIT:${ts}] Step4: ${name} refresh returned synchronously`);
+        debugLog(`[AUDIT:${ts}] Step4: ${name} refresh returned synchronously`);
         this.log(`[AUTO-SCAN] ${name} scan completed`);
         this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
       }
     }
 
     try {
-      console.log(`[AUDIT:${ts}] Step4: awaiting ${promises.length} refresh promises...`);
+      debugLog(`[AUDIT:${ts}] Step4: awaiting ${promises.length} refresh promises...`);
       await Promise.all(promises);
     } finally {
       this._updateStatus(false);
       this._flushing = false;
       const elapsed = Date.now() - ts;
-      console.log(`[AUDIT:${Date.now()}] Step4: flush complete, _flushing=false queued=[${Array.from(this.queuedProviders).join(',')}] elapsed=${elapsed}ms`);
+      debugLog(`[AUDIT:${Date.now()}] Step4: flush complete, _flushing=false queued=[${Array.from(this.queuedProviders).join(',')}] elapsed=${elapsed}ms`);
       if (this.queuedProviders.size > 0) {
-        console.log(`[AUDIT:${Date.now()}] Step4: re-scheduling flush for ${this.queuedProviders.size} queued providers`);
+        debugLog(`[AUDIT:${Date.now()}] Step4: re-scheduling flush for ${this.queuedProviders.size} queued providers`);
         this._debounceTimer = setTimeout(() => {
           const reTs = Date.now();
           this._debounceTimer = undefined;
@@ -204,7 +205,7 @@ export class AutoScanController implements Disposable {
         }, this._debounceMs);
       }
     }
-    console.log(`[AUDIT:${Date.now()}] Step4: _flush EXIT elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] Step4: _flush EXIT elapsed=${Date.now() - ts}ms`);
   }
 
   private _updateStatus(active: boolean): void {

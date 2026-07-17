@@ -9,6 +9,7 @@ import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
 import { chainCounters } from '../forensicLogger';
+import { debugLog } from '../core/debug';
 
 export class VSDiagnosticsProvider extends BaseProblemProvider {
   private diagEventCount = 0;
@@ -33,25 +34,25 @@ public get eventCount(): number { return this.diagEventCount; }
       const ts = Date.now();
       this.diagEventCount++;
       chainCounters.vsDiagOnDidUpdateAllReceived++;
-      console.log(`[AUDIT:${ts}] VSDiag.onDidUpdateAll HANDLER ENTER changed=${changed.length} pendingUris=${this.pendingUris.size} flushExists=${!!this.flushUpdates}`);
+      debugLog(`[AUDIT:${ts}] VSDiag.onDidUpdateAll HANDLER ENTER changed=${changed.length} pendingUris=${this.pendingUris.size} flushExists=${!!this.flushUpdates}`);
       for (let i = 0; i < changed.length; i++) {
         this.pendingUris.add(changed[i].toString());
       }
-      console.log(`[AUDIT:${ts}] VSDiag.onDidUpdateAll added ${changed.length} URIs to pending, pendingUris now=${this.pendingUris.size}`);
+      debugLog(`[AUDIT:${ts}] VSDiag.onDidUpdateAll added ${changed.length} URIs to pending, pendingUris now=${this.pendingUris.size}`);
       if (changed.length > 0) {
-        console.log(`[AUDIT:${ts}] VSDiag.onDidUpdateAll → calling flushUpdates()`);
+        debugLog(`[AUDIT:${ts}] VSDiag.onDidUpdateAll → calling flushUpdates()`);
         this.flushUpdates?.();
-        console.log(`[AUDIT:${Date.now()}] VSDiag.onDidUpdateAll → flushUpdates() returned`);
+        debugLog(`[AUDIT:${Date.now()}] VSDiag.onDidUpdateAll → flushUpdates() returned`);
       } else {
-        console.log(`[AUDIT:${ts}] VSDiag.onDidUpdateAll EARLY RETURN — changed.length=0`);
+        debugLog(`[AUDIT:${ts}] VSDiag.onDidUpdateAll EARLY RETURN — changed.length=0`);
       }
-      console.log(`[AUDIT:${Date.now()}] VSDiag.onDidUpdateAll HANDLER EXIT elapsed=${Date.now() - ts}ms`);
+      debugLog(`[AUDIT:${Date.now()}] VSDiag.onDidUpdateAll HANDLER EXIT elapsed=${Date.now() - ts}ms`);
     }));
   }
 
   private notifyApi(uris: vscode.Uri[]): void {
     const ts = Date.now();
-    console.log(`[AUDIT:${ts}] VSDiag.notifyApi() ENTER uris=${uris.length}`);
+    debugLog(`[AUDIT:${ts}] VSDiag.notifyApi() ENTER uris=${uris.length}`);
     let notified = 0;
     for (let i = 0; i < uris.length; i++) {
       const folder = vscode.workspace.getWorkspaceFolder(uris[i]);
@@ -59,10 +60,10 @@ public get eventCount(): number { return this.diagEventCount; }
         this.apiManager.notifyChanged(uris[i], folder.uri);
         notified++;
       } else {
-        console.log(`[AUDIT:${Date.now()}] VSDiag.notifyApi() SKIP — no workspace folder for uri=${uris[i].fsPath}`);
+        debugLog(`[AUDIT:${Date.now()}] VSDiag.notifyApi() SKIP — no workspace folder for uri=${uris[i].fsPath}`);
       }
     }
-    console.log(`[AUDIT:${Date.now()}] VSDiag.notifyApi() RETURN notified=${notified}/${uris.length}`);
+    debugLog(`[AUDIT:${Date.now()}] VSDiag.notifyApi() RETURN notified=${notified}/${uris.length}`);
   }
 
   markPending(uri: vscode.Uri): void {
@@ -77,84 +78,84 @@ public get eventCount(): number { return this.diagEventCount; }
     this.flushUpdates = debounce(() => {
       const ts = Date.now();
       chainCounters.vsDiagFlushUpdatesExecuted++;
-      console.log(`[AUDIT:${ts}] flushUpdates() ENTER pendingUris=${this.pendingUris.size} dirtyUris=${this.dirtyUris.size}`);
+      debugLog(`[AUDIT:${ts}] flushUpdates() ENTER pendingUris=${this.pendingUris.size} dirtyUris=${this.dirtyUris.size}`);
       for (const uriStr of this.pendingUris) {
         const uri = vscode.Uri.parse(uriStr);
         this.dirtyUris.add(uriStr);
         const ancestorsStart = Date.now();
         const ancestors = this.folderStatusManager.updateAncestors(uri);
         const ancestorsMs = Date.now() - ancestorsStart;
-        console.log(`[AUDIT:${Date.now()}] flushUpdates() updateAncestors(uri=${uriStr.split('/').pop() || uriStr}) returned ${ancestors.length} ancestors in ${ancestorsMs}ms`);
+        debugLog(`[AUDIT:${Date.now()}] flushUpdates() updateAncestors(uri=${uriStr.split('/').pop() || uriStr}) returned ${ancestors.length} ancestors in ${ancestorsMs}ms`);
         const apiStart = Date.now();
         this.notifyApi(ancestors);
-        console.log(`[AUDIT:${Date.now()}] flushUpdates() notifyApi(${ancestors.length}) completed in ${Date.now() - apiStart}ms`);
+        debugLog(`[AUDIT:${Date.now()}] flushUpdates() notifyApi(${ancestors.length}) completed in ${Date.now() - apiStart}ms`);
         for (let k = 0; k < ancestors.length; k++) {
           this.dirtyUris.add(ancestors[k].toString());
         }
       }
       this.pendingUris.clear();
-      console.log(`[AUDIT:${Date.now()}] flushUpdates() pendingUris cleared, dirtyUris now=${this.dirtyUris.size}`);
+      debugLog(`[AUDIT:${Date.now()}] flushUpdates() pendingUris cleared, dirtyUris now=${this.dirtyUris.size}`);
 
       if (this.dirtyUris.size > 0) {
         const uris = Array.from(this.dirtyUris, (s) => vscode.Uri.parse(s));
         const dirtyCount = this.dirtyUris.size;
         this.dirtyUris.clear();
         chainCounters.fireDidChangeWithUris++;
-        console.log(`[AUDIT:${Date.now()}] flushUpdates() → decorationEngine.fireDidChange(${dirtyCount} URIs)`);
+        debugLog(`[AUDIT:${Date.now()}] flushUpdates() → decorationEngine.fireDidChange(${dirtyCount} URIs)`);
         const decoStart = Date.now();
         this.decorationEngine.fireDidChange(uris);
-        console.log(`[AUDIT:${Date.now()}] flushUpdates() fireDidChange completed in ${Date.now() - decoStart}ms`);
+        debugLog(`[AUDIT:${Date.now()}] flushUpdates() fireDidChange completed in ${Date.now() - decoStart}ms`);
       } else {
-        console.log(`[AUDIT:${Date.now()}] flushUpdates() EARLY RETURN — dirtyUris.size=0, NOT calling fireDidChange`);
+        debugLog(`[AUDIT:${Date.now()}] flushUpdates() EARLY RETURN — dirtyUris.size=0, NOT calling fireDidChange`);
       }
       const sbStart = Date.now();
       this.statusBarManager.update();
-      console.log(`[AUDIT:${Date.now()}] flushUpdates() statusBar.update() completed in ${Date.now() - sbStart}ms`);
+      debugLog(`[AUDIT:${Date.now()}] flushUpdates() statusBar.update() completed in ${Date.now() - sbStart}ms`);
       const ttStart = Date.now();
       this.trendTracker.takeSnapshot();
-      console.log(`[AUDIT:${Date.now()}] flushUpdates() trendTracker.takeSnapshot() completed in ${Date.now() - ttStart}ms`);
-      console.log(`[AUDIT:${Date.now()}] flushUpdates() COMPLETE total=${Date.now() - ts}ms`);
+      debugLog(`[AUDIT:${Date.now()}] flushUpdates() trendTracker.takeSnapshot() completed in ${Date.now() - ttStart}ms`);
+      debugLog(`[AUDIT:${Date.now()}] flushUpdates() COMPLETE total=${Date.now() - ts}ms`);
     }, PROCESSING_DEBOUNCE_MS);
 
     if ((vscode.workspace.workspaceFolders?.length ?? 0) > 0) {
       // Flush any URIs that were queued before flushUpdates was initialized (e.g., from initializeAll scans)
       if (this.pendingUris.size > 0) {
-        console.log(`[AUDIT:${Date.now()}] VSDiag.onStart() flushing ${this.pendingUris.size} pre-queued pending URIs`);
+        debugLog(`[AUDIT:${Date.now()}] VSDiag.onStart() flushing ${this.pendingUris.size} pre-queued pending URIs`);
         this.flushUpdates();
       }
 
       const rebuildStart = Date.now();
       const changedFolders = this.folderStatusManager.rebuildAll();
-      console.log(`[AUDIT:${Date.now()}] VSDiag.onStart() rebuildAll returned ${changedFolders.length} folders in ${Date.now() - rebuildStart}ms`);
+      debugLog(`[AUDIT:${Date.now()}] VSDiag.onStart() rebuildAll returned ${changedFolders.length} folders in ${Date.now() - rebuildStart}ms`);
       for (let i = 0; i < changedFolders.length; i++) {
         const folder = vscode.workspace.getWorkspaceFolder(changedFolders[i]);
         if (folder) {
           this.apiManager.notifyChanged(changedFolders[i], folder.uri);
         }
       }
-      console.log(`[AUDIT:${Date.now()}] VSDiag.onStart() → decorationEngine.fireDidChange(${changedFolders.length} folders)`);
+      debugLog(`[AUDIT:${Date.now()}] VSDiag.onStart() → decorationEngine.fireDidChange(${changedFolders.length} folders)`);
       this.decorationEngine.fireDidChange(changedFolders);
       this.statusBarManager.update();
     }
-    console.log(`[AUDIT:${Date.now()}] VSDiag.onStart() EXIT`);
+    debugLog(`[AUDIT:${Date.now()}] VSDiag.onStart() EXIT`);
   }
 
   protected onRefresh(): void {
     const ts = Date.now();
-    console.log(`[AUDIT:${ts}] VSDiag.onRefresh() ENTER`);
+    debugLog(`[AUDIT:${ts}] VSDiag.onRefresh() ENTER`);
     this.manager.refreshAll();
     const rebuildStart = Date.now();
     const changedFolders = this.folderStatusManager.rebuildAll();
-    console.log(`[AUDIT:${Date.now()}] VSDiag.onRefresh() rebuildAll returned ${changedFolders.length} folders in ${Date.now() - rebuildStart}ms`);
+    debugLog(`[AUDIT:${Date.now()}] VSDiag.onRefresh() rebuildAll returned ${changedFolders.length} folders in ${Date.now() - rebuildStart}ms`);
     for (let i = 0; i < changedFolders.length; i++) {
       const folder = vscode.workspace.getWorkspaceFolder(changedFolders[i]);
       if (folder) {
         this.apiManager.notifyChanged(changedFolders[i], folder.uri);
       }
     }
-    console.log(`[AUDIT:${Date.now()}] VSDiag.onRefresh() → decorationEngine.fireDidChange(${changedFolders.length})`);
+    debugLog(`[AUDIT:${Date.now()}] VSDiag.onRefresh() → decorationEngine.fireDidChange(${changedFolders.length})`);
     this.decorationEngine.fireDidChange(changedFolders);
     this.statusBarManager.update();
-    console.log(`[AUDIT:${Date.now()}] VSDiag.onRefresh() COMPLETE total=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] VSDiag.onRefresh() COMPLETE total=${Date.now() - ts}ms`);
   }
 }

@@ -19,6 +19,7 @@ import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 import { AutoScanController } from './scanner/AutoScanner';
 import { StartupScanController } from './scanner/StartupScanController';
 import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
+import { setConfigManager } from './core/debug';
 
 console.log('[LOG:DIST_LOADED]');
 
@@ -72,6 +73,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 }, log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
+    setConfigManager(configManager);
+    setConfigManager(configManager);
     const tscProvider = new TscDiagnosticProvider(
       problemStore,
       undefined, undefined, undefined,

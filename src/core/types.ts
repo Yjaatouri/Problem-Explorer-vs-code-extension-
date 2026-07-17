@@ -48,6 +48,7 @@ export interface Config {
   readonly severityOverrides: Record<string, Record<string, string>> | undefined;
   readonly autoScanEnabled: boolean;
   readonly autoScanDelay: number;
+  readonly debug: boolean;
   readonly typescript: TscConfig;
   readonly eslint: EslintConfig;
 }

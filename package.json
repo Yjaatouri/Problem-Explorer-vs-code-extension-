@@ -232,6 +232,11 @@
           "minimum": 500,
           "description": "Delay in milliseconds before triggering an auto-scan after file changes"
         },
+        "problemExplorer.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging for diagnostics pipeline"
+        },
         "problemExplorer.typescript.enabled": {
           "type": "boolean",
           "default": true,

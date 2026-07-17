@@ -1,0 +1,1 @@
+export { setConfigManager, getConfigManager, debugLog } from '../config/configHolder';

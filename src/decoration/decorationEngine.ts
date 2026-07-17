@@ -16,6 +16,7 @@ import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
 import { chainCounters } from '../forensicLogger';
+import { debugLog } from '../core/debug';
 
 export const forensicCounters = {
   provideFileDecorationCalls: 0,
@@ -96,12 +97,12 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     const configEnabled = this.config?.enabled ?? true;
     const folder = this.delegate.getWorkspaceFolder(uri);
     const status = this.problemStore.get(uri);
-    console.log(`[AUDIT:${ts}] DECO.provideFileDecoration() #${callNum} uri=${fsPath.split('\\').pop() || fsPath} enabled=${configEnabled} wsFolder=${!!folder} storeHit=${!!status} sev=${status?.severity ?? 'none'}`);
+    debugLog(`[AUDIT:${ts}] DECO.provideFileDecoration() #${callNum} uri=${fsPath.split('\\').pop() || fsPath} enabled=${configEnabled} wsFolder=${!!folder} storeHit=${!!status} sev=${status?.severity ?? 'none'}`);
 
     if (!folder) {
       forensicCounters.returnUndefined++;
       forensicCounters.reasonNoWsFolder++;
-      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — no workspace folder`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — no workspace folder`);
       return undefined;
     }
 
@@ -111,7 +112,7 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       if (this.config && !this.config.enabled) {
         forensicCounters.returnUndefined++;
         forensicCounters.reasonDisabled++;
-        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — disabled by config`);
+        debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — disabled by config`);
         return undefined;
       }
 
@@ -119,7 +120,7 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
         if (ignored) {
           forensicCounters.returnUndefined++;
           forensicCounters.reasonIgnored++;
-          console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — ignored by pattern`);
+          debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — ignored by pattern`);
           return undefined;
         }
       }
@@ -127,7 +128,7 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       if (!status || status.severity === ProblemSeverity.None) {
         forensicCounters.returnUndefined++;
         forensicCounters.reasonNoStatus++;
-        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — no status / None severity`);
+        debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — no status / None severity`);
         return undefined;
       }
 
@@ -138,24 +139,24 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       ) {
         forensicCounters.returnUndefined++;
         forensicCounters.reasonShowWarnings++;
-        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — showWarnings=false`);
+        debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — showWarnings=false`);
         return undefined;
       }
 
       const deco = this.toDecoration(status);
       if (!deco) {
         forensicCounters.returnUndefined++;
-        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — toDecoration returned undefined`);
+        debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — toDecoration returned undefined`);
         return undefined;
       }
       forensicCounters.returnDecoration++;
       const decoStr = `badge="${deco.badge ?? 'none'}" tooltip="${deco.tooltip}" color=${deco.color?.id ?? 'none'}`;
-      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN ${decoStr} elapsed=${Date.now() - ts}ms`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN ${decoStr} elapsed=${Date.now() - ts}ms`);
       return deco;
     } catch (err: unknown) {
       forensicCounters.returnUndefined++;
       forensicCounters.reasonException++;
-      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} EXCEPTION: ${err instanceof Error ? err.message : String(err)}`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} EXCEPTION: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }
@@ -167,9 +168,9 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
    */
   fireDidChange(uris: Uri | Uri[] | undefined): void {
     const ts = Date.now();
-    console.log(`[AUDIT:${ts}] DECO.fireDidChange() ENTER type=${uris === undefined ? 'undefined' : Array.isArray(uris) ? `Array(${uris.length})` : 'single'} coalescedUris=${this._coalescedUris.size} hasTimer=${this._coalesceTimer !== undefined}`);
+    debugLog(`[AUDIT:${ts}] DECO.fireDidChange() ENTER type=${uris === undefined ? 'undefined' : Array.isArray(uris) ? `Array(${uris.length})` : 'single'} coalescedUris=${this._coalescedUris.size} hasTimer=${this._coalesceTimer !== undefined}`);
     if (uris === undefined) {
-      console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() full refresh — flushing coalesced then firing undefined`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.fireDidChange() full refresh — flushing coalesced then firing undefined`);
       this._flushCoalesced();
       this._fire(undefined);
       return;
@@ -180,15 +181,15 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       for (let i = 0; i < uris.length; i++) {
         this._coalescedUris.add(uris[i].toString());
       }
-      console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() added ${uris.length} URIs to coalesced set, now=${this._coalescedUris.size}`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.fireDidChange() added ${uris.length} URIs to coalesced set, now=${this._coalescedUris.size}`);
     } else {
       chainCounters.fireDidChangeWithUris++;
       this._coalescedUris.add(uris.toString());
-      console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() added 1 URI to coalesced set, now=${this._coalescedUris.size}`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.fireDidChange() added 1 URI to coalesced set, now=${this._coalescedUris.size}`);
     }
 
     this._scheduleCoalescedFire();
-    console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() RETURN (coalesced fire scheduled) elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] DECO.fireDidChange() RETURN (coalesced fire scheduled) elapsed=${Date.now() - ts}ms`);
   }
 
   /**
@@ -211,35 +212,35 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     forensicCounters.fireDidChangeCalls++;
     if (uris === undefined) {
       forensicCounters.fireDidChangeUndefined++;
-      console.log(`[AUDIT:${ts}] DECO._fire() UNDEFINED (full refresh) call#=${forensicCounters.fireDidChangeCalls} storeSize=${this.problemStore.size()}`);
+      debugLog(`[AUDIT:${ts}] DECO._fire() UNDEFINED (full refresh) call#=${forensicCounters.fireDidChangeCalls} storeSize=${this.problemStore.size()}`);
     } else if (Array.isArray(uris)) {
       forensicCounters.fireDidChangeArray++;
-      console.log(`[AUDIT:${ts}] DECO._fire() Array(${uris.length}) call#=${forensicCounters.fireDidChangeCalls} storeSize=${this.problemStore.size()}`);
+      debugLog(`[AUDIT:${ts}] DECO._fire() Array(${uris.length}) call#=${forensicCounters.fireDidChangeCalls} storeSize=${this.problemStore.size()}`);
       for (let i = 0; i < Math.min(uris.length, 5); i++) {
-        console.log(`[AUDIT:${ts}] DECO._fire()   [${i}]=${uris[i].fsPath.split('\\').pop() || uris[i].fsPath}`);
+        debugLog(`[AUDIT:${ts}] DECO._fire()   [${i}]=${uris[i].fsPath.split('\\').pop() || uris[i].fsPath}`);
       }
       if (uris.length > 5) {
-        console.log(`[AUDIT:${ts}] DECO._fire()   ... and ${uris.length - 5} more`);
+        debugLog(`[AUDIT:${ts}] DECO._fire()   ... and ${uris.length - 5} more`);
       }
     } else {
       forensicCounters.fireDidChangeSingle++;
-      console.log(`[AUDIT:${ts}] DECO._fire() single uri=${uris.fsPath}`);
+      debugLog(`[AUDIT:${ts}] DECO._fire() single uri=${uris.fsPath}`);
     }
-    console.log(`[AUDIT:${Date.now()}] DECO._fire() → _onDidChangeFileDecorations.fire()`);
+    debugLog(`[AUDIT:${Date.now()}] DECO._fire() → _onDidChangeFileDecorations.fire()`);
     this._onDidChangeFileDecorations.fire(uris);
-    console.log(`[AUDIT:${Date.now()}] DECO._fire() RETURN elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] DECO._fire() RETURN elapsed=${Date.now() - ts}ms`);
   }
 
   private _scheduleCoalescedFire(): void {
     const ts = Date.now();
     if (this._coalesceTimer !== undefined) {
-      console.log(`[AUDIT:${ts}] DECO._scheduleCoalescedFire() SKIP — timer already pending`);
+      debugLog(`[AUDIT:${ts}] DECO._scheduleCoalescedFire() SKIP — timer already pending`);
       return;
     }
-    console.log(`[AUDIT:${ts}] DECO._scheduleCoalescedFire() setting setTimeout(0) coalescedUris=${this._coalescedUris.size}`);
+    debugLog(`[AUDIT:${ts}] DECO._scheduleCoalescedFire() setting setTimeout(0) coalescedUris=${this._coalescedUris.size}`);
     this._coalesceTimer = setTimeout(() => {
       const fireTs = Date.now();
-      console.log(`[AUDIT:${fireTs}] DECO._scheduleCoalescedFire() timer FIRED (latency=${fireTs - ts}ms)`);
+      debugLog(`[AUDIT:${fireTs}] DECO._scheduleCoalescedFire() timer FIRED (latency=${fireTs - ts}ms)`);
       this._coalesceTimer = undefined;
       this._flushCoalesced();
     }, 0);
@@ -247,16 +248,16 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
 
   private _flushCoalesced(): void {
     const ts = Date.now();
-    console.log(`[AUDIT:${ts}] DECO._flushCoalesced() ENTER coalescedUris=${this._coalescedUris.size}`);
+    debugLog(`[AUDIT:${ts}] DECO._flushCoalesced() ENTER coalescedUris=${this._coalescedUris.size}`);
     if (this._coalescedUris.size === 0) {
-      console.log(`[AUDIT:${ts}] DECO._flushCoalesced() EARLY RETURN — no coalesced URIs`);
+      debugLog(`[AUDIT:${ts}] DECO._flushCoalesced() EARLY RETURN — no coalesced URIs`);
       return;
     }
     const uris = Array.from(this._coalescedUris, (s) => Uri.parse(s));
     this._coalescedUris.clear();
-    console.log(`[AUDIT:${Date.now()}] DECO._flushCoalesced() → _fire(${uris.length} URIs)`);
+    debugLog(`[AUDIT:${Date.now()}] DECO._flushCoalesced() → _fire(${uris.length} URIs)`);
     this._fire(uris);
-    console.log(`[AUDIT:${Date.now()}] DECO._flushCoalesced() RETURN elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] DECO._flushCoalesced() RETURN elapsed=${Date.now() - ts}ms`);
   }
 
   private toDecoration(status: ProblemState): FileDecoration | undefined {
@@ -282,25 +283,25 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
         severityLabel = 'Info';
         break;
       default:
-        console.log(`[AUDIT:${ts}] DECO.toDecoration() RETURN undefined — unknown severity=${status.severity}`);
+        debugLog(`[AUDIT:${ts}] DECO.toDecoration() RETURN undefined — unknown severity=${status.severity}`);
         return undefined;
     }
 
     const style = this.config?.badgeStyle ?? 'letter';
-    console.log(`[AUDIT:${ts}] DECO.toDecoration() severity=${severityLabel} errors=${status.errorCount} warnings=${status.warningCount} infos=${status.infoCount} fileCount=${status.fileCount} style=${style} initialBadge="${badge}"`);
+    debugLog(`[AUDIT:${ts}] DECO.toDecoration() severity=${severityLabel} errors=${status.errorCount} warnings=${status.warningCount} infos=${status.infoCount} fileCount=${status.fileCount} style=${style} initialBadge="${badge}"`);
 
     if (style !== 'letter') {
       badge = getBadge(status.severity, status, style);
-      console.log(`[AUDIT:${Date.now()}] DECO.toDecoration() non-letter style="${style}" — getBadge returned "${badge}"`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.toDecoration() non-letter style="${style}" — getBadge returned "${badge}"`);
     }
     if (badge.length > 2) {
       const before = badge;
       badge = '9+';
-      console.log(`[AUDIT:${Date.now()}] DECO.toDecoration() badge truncated "${before}" → "${badge}" (length > 2)`);
+      debugLog(`[AUDIT:${Date.now()}] DECO.toDecoration() badge truncated "${before}" → "${badge}" (length > 2)`);
     }
 
     const tooltip = this.formatTooltip(status);
-    console.log(`[AUDIT:${Date.now()}] DECO.toDecoration() RETURN badge="${badge}" color=${color.id} tooltip="${tooltip}" elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] DECO.toDecoration() RETURN badge="${badge}" color=${color.id} tooltip="${tooltip}" elapsed=${Date.now() - ts}ms`);
 
     return {
       badge: badge.length > 0 ? badge : undefined,

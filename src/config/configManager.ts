@@ -52,7 +52,7 @@ export class ConfigManager implements Disposable {
     return this.config;
   }
 
-  private readConfig(): Config {
+private readConfig(): Config {
     const cfg = this.delegate.getConfiguration(SETTINGS_SECTION);
     return {
       enabled: cfg.get<boolean>('enabled', true),
@@ -65,6 +65,7 @@ export class ConfigManager implements Disposable {
       severityOverrides: cfg.get<Record<string, Record<string, string>> | undefined>('severityOverrides', undefined),
       autoScanEnabled: cfg.get<boolean>('autoScan.enabled', false),
       autoScanDelay: cfg.get<number>('autoScanDelay', 2000),
+      debug: cfg.get<boolean>('debug', false),
       typescript: this.readTscConfig(cfg),
       eslint: this.readEslintConfig(cfg),
     };

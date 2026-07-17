@@ -4,6 +4,7 @@ import { ProblemState } from '../core/types';
 import { normalizeUriKey, getParentKey } from '../core/uriKey';
 import { aggregateStatuses } from './propagationStrategy';
 import { chainCounters } from '../forensicLogger';
+import { debugLog } from '../core/debug';
 
 export interface FolderWorkspace {
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined;
@@ -40,13 +41,13 @@ export class FolderStatusManager {
    */
   updateAncestors(fileUri: Uri): Uri[] {
     const ts = Date.now();
-    console.log(`[AUDIT:${ts}] FSM.updateAncestors() ENTER uri=${fileUri.fsPath}`);
+    debugLog(`[AUDIT:${ts}] FSM.updateAncestors() ENTER uri=${fileUri.fsPath}`);
     const folder = this.wf.getWorkspaceFolder(fileUri);
     if (!folder) {
-      console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() EARLY RETURN — no workspace folder for uri`);
+      debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() EARLY RETURN — no workspace folder for uri`);
       return [];
     }
-    console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() workspaceFolder="${folder.name}" root=${folder.uri.fsPath}`);
+    debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() workspaceFolder="${folder.name}" root=${folder.uri.fsPath}`);
 
     const changed: Uri[] = [];
     let childKey = normalizeUriKey(fileUri);
@@ -75,14 +76,14 @@ export class FolderStatusManager {
         const parentUri = Uri.parse(parentKey);
         if (this.problemStore.setFolderAggregate(parentUri, status)) {
           changed.push(parentUri);
-          console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate UPDATED`);
+          debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate UPDATED`);
         } else {
-          console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate UNCHANGED`);
+          debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate UNCHANGED`);
         }
       } else if (this.problemStore.isFolderAggregate(Uri.parse(parentKey))) {
         this.problemStore.delete(Uri.parse(parentKey));
         changed.push(Uri.parse(parentKey));
-        console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate REMOVED`);
+        debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate REMOVED`);
       }
 
       // Walk up
@@ -108,20 +109,20 @@ export class FolderStatusManager {
       const rootStatus = this.aggregateFromIndex(rootStr);
       if (this.problemStore.setFolderAggregate(rootUri, rootStatus)) {
         changed.push(rootUri);
-        console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate UPDATED`);
+        debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate UPDATED`);
       } else {
-        console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate UNCHANGED`);
+        debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate UNCHANGED`);
       }
     } else if (this.problemStore.isFolderAggregate(rootUri)) {
       this.problemStore.delete(rootUri);
       changed.push(rootUri);
-      console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate REMOVED`);
+      debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate REMOVED`);
     }
 
     if (changed.length > 0) {
       chainCounters.updateAncestorsReturned++;
     }
-    console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() RETURN changed=${changed.length} depth=${walkDepth} totalMs=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] FSM.updateAncestors() RETURN changed=${changed.length} depth=${walkDepth} totalMs=${Date.now() - ts}ms`);
     return changed;
   }
 

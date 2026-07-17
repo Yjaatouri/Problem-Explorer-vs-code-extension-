@@ -2,6 +2,7 @@ import { Event, EventEmitter, Uri } from 'vscode';
 import { ProblemStoreChange } from '../models/ProblemStoreChange';
 import { ProblemState, ProblemSeverity } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
+import { debugLog } from '../core/debug';
 
 export class ProblemStore {
   private readonly storage = new Map<string, ProblemState>();
@@ -36,24 +37,24 @@ export class ProblemStore {
   set(uri: Uri, state: ProblemState, providerName?: string): boolean {
     const ts = Date.now();
     const key = normalizeUriKey(uri);
-    console.log(`[AUDIT:${ts}] STORE.set() ENTER uri=${uri.fsPath} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
+    debugLog(`[AUDIT:${ts}] STORE.set() ENTER uri=${uri.fsPath} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
     if (providerName !== undefined) {
       const currentOwner = this.ownerByKey.get(key);
       if (currentOwner !== undefined) {
         const currentPriority = this.providerPriorities.get(currentOwner) ?? -1;
         const newPriority = this.providerPriorities.get(providerName) ?? -1;
         if (newPriority < currentPriority) {
-          console.log(`[AUDIT:${Date.now()}] STORE.set() REJECTED — lower priority provider="${providerName}" (pri=${newPriority}) < currentOwner="${currentOwner}" (pri=${currentPriority}) key=${key}`);
+          debugLog(`[AUDIT:${Date.now()}] STORE.set() REJECTED — lower priority provider="${providerName}" (pri=${newPriority}) < currentOwner="${currentOwner}" (pri=${currentPriority}) key=${key}`);
           return false;
         }
-        console.log(`[AUDIT:${Date.now()}] STORE.set() priority OK — provider="${providerName}" (pri=${newPriority}) >= currentOwner="${currentOwner}" (pri=${currentPriority})`);
+        debugLog(`[AUDIT:${Date.now()}] STORE.set() priority OK — provider="${providerName}" (pri=${newPriority}) >= currentOwner="${currentOwner}" (pri=${currentPriority})`);
       } else {
-        console.log(`[AUDIT:${Date.now()}] STORE.set() no current owner for key=${key} — provider="${providerName}" will own it`);
+        debugLog(`[AUDIT:${Date.now()}] STORE.set() no current owner for key=${key} — provider="${providerName}" will own it`);
       }
     }
     const old = this.storage.get(key);
     if (old !== undefined && !this.hasChanged(old, state)) {
-      console.log(`[AUDIT:${Date.now()}] STORE.set() SKIPPED — unchanged state key=${key} oldSeverity=${old.severity} newSeverity=${state.severity} oldErrors=${old.errorCount} newErrors=${state.errorCount}`);
+      debugLog(`[AUDIT:${Date.now()}] STORE.set() SKIPPED — unchanged state key=${key} oldSeverity=${old.severity} newSeverity=${state.severity} oldErrors=${old.errorCount} newErrors=${state.errorCount}`);
       return false;
     }
     const existed = old !== undefined;
@@ -70,12 +71,12 @@ export class ProblemStore {
       this.ownerByKey.set(key, providerName);
     }
     this.version++;
-    console.log(`[AUDIT:${Date.now()}] STORE.set() ${existed ? 'UPDATED' : 'ADDED'} key=${key} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
+    debugLog(`[AUDIT:${Date.now()}] STORE.set() ${existed ? 'UPDATED' : 'ADDED'} key=${key} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
     if (this.batchDepth === 0) {
-      console.log(`[AUDIT:${Date.now()}] STORE.set() firing _onDidChange(${existed ? 'updated' : 'added'}) uri=${uri.fsPath}`);
+      debugLog(`[AUDIT:${Date.now()}] STORE.set() firing _onDidChange(${existed ? 'updated' : 'added'}) uri=${uri.fsPath}`);
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
     } else {
-      console.log(`[AUDIT:${Date.now()}] STORE.set() _onDidChange DEFERRED — batchDepth=${this.batchDepth}`);
+      debugLog(`[AUDIT:${Date.now()}] STORE.set() _onDidChange DEFERRED — batchDepth=${this.batchDepth}`);
     }
     return true;
   }

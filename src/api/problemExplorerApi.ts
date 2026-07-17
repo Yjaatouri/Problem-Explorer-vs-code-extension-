@@ -1,6 +1,7 @@
 import { Disposable, Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState } from '../core/types';
+import { debugLog } from '../core/debug';
 
 /** Abstraction over `workspace.getWorkspaceFolder` for testability */
 export interface WorkspaceFolderDelegate {
@@ -48,9 +49,9 @@ export class ApiManager implements ProblemExplorerAPI, Disposable {
   notifyChanged(uri: Uri, _folderUri: Uri): void {
     const ts = Date.now();
     const status = this.problemStore.get(uri);
-    console.log(`[AUDIT:${ts}] API.notifyChanged() uri=${uri.fsPath.split('\\').pop() || uri.fsPath} storeHit=${!!status} sev=${status?.severity ?? 'none'}`);
+    debugLog(`[AUDIT:${ts}] API.notifyChanged() uri=${uri.fsPath.split('\\').pop() || uri.fsPath} storeHit=${!!status} sev=${status?.severity ?? 'none'}`);
     this._onDidChangeProblemState.fire({ uri, status });
-    console.log(`[AUDIT:${Date.now()}] API.notifyChanged() → _onDidChangeProblemState fired elapsed=${Date.now() - ts}ms`);
+    debugLog(`[AUDIT:${Date.now()}] API.notifyChanged() → _onDidChangeProblemState fired elapsed=${Date.now() - ts}ms`);
   }
 
   dispose(): void {
