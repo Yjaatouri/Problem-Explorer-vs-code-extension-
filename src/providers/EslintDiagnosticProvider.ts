@@ -48,7 +48,6 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   private _scanning = false;
   private _pendingRefresh = false;
   private _enabled = true;
-  private _autoScan = true;
   private readonly runner: EslintRunner;
   private timeoutMs: number;
   private readonly refreshDebounceMs: number;
@@ -91,7 +90,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   get autoScan(): boolean {
-    return this._autoScan;
+    return true;
   }
 
   constructor(
@@ -110,7 +109,6 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
   updateConfig(cfg: EslintConfig): void {
     this._enabled = cfg.enabled;
-    this._autoScan = cfg.autoScan;
     this.timeoutMs = cfg.timeout;
     this._maxConcurrentScans = cfg.maxConcurrentScans;
   }

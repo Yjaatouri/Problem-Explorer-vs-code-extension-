@@ -49,7 +49,6 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   private _scanning = false;
   private _pendingRefresh = false;
   private _enabled = true;
-  private _autoScan = true;
   private readonly projectResolver: ProjectResolver;
   private readonly tscRunner: TscRunner;
   private readonly outputParser: TscOutputParser;
@@ -96,12 +95,11 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   get autoScan(): boolean {
-    return this._autoScan;
+    return true;
   }
 
   updateConfig(cfg: TscConfig): void {
     this._enabled = cfg.enabled;
-    this._autoScan = cfg.autoScan;
     this.timeoutMs = cfg.timeout;
     this._maxConcurrentScans = cfg.maxConcurrentScans;
     this.projectResolver.useWorkspaceVersion = cfg.useWorkspaceVersion;
