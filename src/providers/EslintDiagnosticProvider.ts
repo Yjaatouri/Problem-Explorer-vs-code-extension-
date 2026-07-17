@@ -31,7 +31,7 @@ const DEFAULT_DEBOUNCE_MS = 300;
 export class EslintDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'eslint';
   readonly capabilities: ProviderCapabilities = {
-    extensions: ['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte'],
+    extensions: ['.js', '.jsx', '.vue', '.svelte'],
     realtime: false,
     manualScan: true,
     startupScan: true,
