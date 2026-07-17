@@ -11,7 +11,6 @@ import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
 import { initForensicLogger, forensicLog, dumpChainReport, resetChainCounters } from './forensicLogger';
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { ProblemStore } from './store/ProblemStore';
-import { ProviderManager } from './services/ProviderManager';
 import { DiagnosticProviderManager } from './providers/DiagnosticProviderManager';
 import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
 import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
@@ -65,7 +64,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
           return editor ? editor.document.uri.toString() === uri.toString() : false;
         },
       },
-      (ext) => !diagProviderManager.getOwner(ext),
+      diagProviderManager,
       log,
     );
     const decorationEngine = new DecorationEngine(problemStore, {
@@ -81,16 +80,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const eslintProvider = new EslintDiagnosticProvider(problemStore, diagProviderManager);
     const statusBarManager = new StatusBarManager(problemStore);
 
+    // Provider priorities must match ProblemStore.configureProvider() values below.
+    // DPM uses priority for: (1) ownership routing (non-realtime providers compete by priority),
+    // (2) init/start/stop ordering. ProblemStore uses priority for write-conflict resolution.
     diagProviderManager.register(diagProvider.name, diagProvider, {
-      priority: 10,
+      priority: 5,
       capabilities: ['diagnostics', 'realtime'],
     });
     diagProviderManager.register('tsc', tscProvider, {
-      priority: 8,
+      priority: 10,
       capabilities: ['diagnostics', 'tsc-scan'],
     });
     diagProviderManager.register('eslint', eslintProvider, {
-      priority: 7,
+      priority: 9,
       capabilities: ['diagnostics', 'eslint-scan'],
     });
 
@@ -116,7 +118,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       decorationEngine,
     );
 
-    // Provider ownership priorities in ProblemStore.
+    // Provider ownership priorities in ProblemStore (must match DPM register() priorities above).
     // Compiler (tsc) is authoritative — it performs full project compilation.
     // Linter (eslint) is next — cross-file linting rules.
     // Language server (vscodeDiagnostics) is least authoritative — editor-scoped, incremental.
@@ -145,9 +147,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 
     diagProvider.startInitPoll();
 
-    const providerManager = new ProviderManager();
-    providerManager.register('vsDiagnostics', vsDiagnosticsProvider);
-    providerManager.startAll();
+    vsDiagnosticsProvider.start();
     log('[VERIFY] VSDiagnosticsProvider started');
     log(`[VERIFY] Store entries after init: ${problemStore.size()}`);
 
@@ -260,7 +260,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       tscProvider,
       eslintProvider,
       diagProviderManager,
-      providerManager,
+      vsDiagnosticsProvider,
       decorationEngine,
       apiManager,
       { dispose: () => { trendTracker.stop(); } },

@@ -14,6 +14,7 @@ import { ProblemStore } from '../store/ProblemStore';
 import { toProblemState, applySeverityOverrides } from './severityMapper';
 import { ProblemState, ProviderCapabilities, ScanProgress } from '../core/types';
 import { precompilePatterns } from '../performance/ignoreFilter';
+import { OwnershipQuery } from '../core/ownershipQuery';
 import { DiagnosticProvider } from '../providers/DiagnosticProvider';
 
 /** Abstraction over VS Code API for reading diagnostics, enabling DI in tests */
@@ -51,7 +52,7 @@ export class DiagnosticsManager implements DiagnosticProvider {
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
   private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();
   private readonly _log: (msg: string) => void;
-  private readonly _canProcessExtension: (ext: string) => boolean;
+  private readonly _ownershipQuery: OwnershipQuery;
 
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
   readonly onDidProgressScan: Event<ScanProgress> = this._onDidProgressScan.event;
@@ -79,12 +80,12 @@ export class DiagnosticsManager implements DiagnosticProvider {
   constructor(
     store: ProblemStore,
     delegate?: DiagnosticsDelegate,
-    canProcessExtension?: (ext: string) => boolean,
+    ownershipQuery?: OwnershipQuery,
     log?: (msg: string) => void,
   ) {
     this._store = store;
     this.delegate = delegate ?? defaultDelegate;
-    this._canProcessExtension = canProcessExtension ?? (() => true);
+    this._ownershipQuery = ownershipQuery ?? { isRealtimeExtension: () => true };
     this._log = log ?? (() => {});
   }
 
@@ -220,7 +221,7 @@ export class DiagnosticsManager implements DiagnosticProvider {
     }
 
     const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
-    if (!this._canProcessExtension(ext)) {
+    if (!this._ownershipQuery.isRealtimeExtension(ext)) {
       return;
     }
 

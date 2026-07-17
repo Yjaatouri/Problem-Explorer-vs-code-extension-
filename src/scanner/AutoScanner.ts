@@ -19,6 +19,7 @@ export class AutoScanController implements Disposable {
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _debounceMs: number;
   private _enabled = true;
+  private _flushing = false;
 
   constructor(
     manager: DiagnosticProviderManager,
@@ -85,7 +86,7 @@ export class AutoScanController implements Disposable {
   private _schedule(): void {
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
-    } else {
+    } else if (!this._flushing) {
       this._cancelActiveScans();
     }
     this._debounceTimer = setTimeout(() => {
@@ -106,6 +107,8 @@ export class AutoScanController implements Disposable {
 
   private async _flush(): Promise<void> {
     if (this.queuedProviders.size === 0) return;
+    if (this._flushing) return;
+    this._flushing = true;
     chainCounters.autoScannerFlushCalled++;
 
     const names = Array.from(this.queuedProviders);
@@ -137,8 +140,12 @@ export class AutoScanController implements Disposable {
       }
     }
 
-    await Promise.all(promises);
-    this._updateStatus(false);
+    try {
+      await Promise.all(promises);
+    } finally {
+      this._updateStatus(false);
+      this._flushing = false;
+    }
   }
 
   private _updateStatus(active: boolean): void {

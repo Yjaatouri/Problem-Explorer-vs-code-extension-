@@ -1,8 +1,10 @@
 import { Uri, Event, EventEmitter } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
+import { DiagnosticProviderManager } from './DiagnosticProviderManager';
 import { DiagnosticsManager, DiagnosticsDelegate } from '../diagnostics/diagnosticsManager';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState, ProviderCapabilities, ScanProgress } from '../core/types';
+import { DpmOwnershipQuery } from '../core/ownershipQuery';
 
 export class VSCodeDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'vscodeDiagnostics';
@@ -39,10 +41,11 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
   constructor(
     store: ProblemStore,
     delegate?: DiagnosticsDelegate,
-    canProcessExtension?: (ext: string) => boolean,
+    dpm?: DiagnosticProviderManager,
     log?: (msg: string) => void,
   ) {
-    this.manager = new DiagnosticsManager(store, delegate, canProcessExtension, log);
+    const ownershipQuery = dpm ? new DpmOwnershipQuery(dpm) : undefined;
+    this.manager = new DiagnosticsManager(store, delegate, ownershipQuery, log);
   }
 
   initialize(): void {
