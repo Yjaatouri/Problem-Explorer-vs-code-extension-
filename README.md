@@ -86,6 +86,22 @@ Launch the extension using **Run Extension** (`F5`) inside VS Code.
 | `problemExplorer.warningColor` | `string` \| `null` | `null` | Custom CSS color override for warnings |
 | `problemExplorer.infoColor` | `string` \| `null` | `null` | Custom CSS color override for info diagnostics |
 
+### Auto-Scan
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `problemExplorer.autoScan.enabled` | `boolean` | `true` | Enable or disable automatic background scanning on file save |
+| `problemExplorer.autoScanDelay` | `number` | `2000` | Delay in ms before triggering auto-scan after file changes (min 500) |
+
+Auto-scan runs the configured language tool (TypeScript `tsc --noEmit`, ESLint, etc.) when you save a file. Results appear in the Explorer within seconds.
+
+**Behavior:**
+- Triggered by `onDidSaveTextDocument`, `onDidCreateFiles`, `onDidDeleteFiles`, `onDidRenameFiles`
+- Debounced by `autoScanDelay` (default 2s) to batch rapid saves
+- Only the provider owning the file's extension runs (e.g., `.ts` → TypeScript, `.js` → ESLint)
+- Status bar shows `$(sync~spin) Scanning...` while a scan is in progress
+- Diagnostics update automatically in the Explorer and Status Bar
+
 ### Theme Colors
 
 You can also customize colors via `workbench.colorCustomizations` in `settings.json`:

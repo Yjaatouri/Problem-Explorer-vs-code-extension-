@@ -175,7 +175,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     startupController.run();
     context.subscriptions.push(startupController);
 
-    // AutoScan is disabled by default. Set "problemExplorer.autoScan.enabled": true to re-enable.
+    // AutoScan is enabled by default. Set "problemExplorer.autoScan.enabled": false to disable.
     const autoScannerCfg = configManager.getConfig();
     let autoScanController: AutoScanController | undefined;
     if (autoScannerCfg.autoScanEnabled) {
