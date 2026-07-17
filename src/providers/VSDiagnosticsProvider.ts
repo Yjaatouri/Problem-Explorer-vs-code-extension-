@@ -33,7 +33,6 @@ public get eventCount(): number { return this.diagEventCount; }
       chainCounters.vsDiagOnDidUpdateAllReceived++;
       console.log(`[LOG:VSDiag] onDidUpdateAll RECEIVED — ${changed.length} URIs — pendingUris was ${this.pendingUris.size}`);
       this.log(`[FORENSIC:Step2] onDidUpdate: ${changed.length} changed URIs`);
-      this.notifyApi(changed);
       for (let i = 0; i < changed.length; i++) {
         this.pendingUris.add(changed[i].toString());
       }
