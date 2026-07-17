@@ -68,6 +68,11 @@ class MockProvider implements DiagnosticProvider {
 class FailingProvider implements DiagnosticProvider {
   readonly name: string;
   readonly store = new ProblemStore();
+  readonly capabilities: ProviderCapabilities = { extensions: [] };
+  readonly scanning = false;
+  readonly autoScan = false;
+  readonly enabled = true;
+  readonly onDidProgressScan: DiagnosticProvider['onDidProgressScan'] = () => ({ dispose: () => {} });
   private _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate = this._onDidUpdate.event;
 

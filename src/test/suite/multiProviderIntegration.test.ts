@@ -47,6 +47,11 @@ function makeVsCodeDelegate(
 class DummyProvider implements DiagnosticProvider {
   readonly name: string;
   private readonly _store: ProblemStore;
+  readonly capabilities: import('../../core/types').ProviderCapabilities = { extensions: [] };
+  readonly scanning = false;
+  readonly autoScan = false;
+  readonly enabled = true;
+  readonly onDidProgressScan: import('vscode').Event<import('../../core/types').ScanProgress> = () => ({ dispose: () => {} });
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate = this._onDidUpdate.event;
   private _disposed = false;
@@ -108,6 +113,11 @@ class DummyProvider implements DiagnosticProvider {
 class FailingProvider implements DiagnosticProvider {
   readonly name = 'failing';
   readonly store: ProblemStore;
+  readonly capabilities: import('../../core/types').ProviderCapabilities = { extensions: [] };
+  readonly scanning = false;
+  readonly autoScan = false;
+  readonly enabled = true;
+  readonly onDidProgressScan: import('vscode').Event<import('../../core/types').ScanProgress> = () => ({ dispose: () => {} });
   readonly onDidUpdate: vscode.Event<Uri[]>;
   private _emitter = new EventEmitter<Uri[]>();
   private _disposed = false;

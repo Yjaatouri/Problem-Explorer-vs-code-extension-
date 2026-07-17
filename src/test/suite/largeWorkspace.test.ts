@@ -130,7 +130,7 @@ suite('Large Workspace - Folder Aggregation', () => {
 
   setup(() => {
     store = new ProblemStore();
-    fsm = new ProblemStatusManager(store);
+    fsm = new FolderStatusManager(store);
   });
 
   teardown(() => {

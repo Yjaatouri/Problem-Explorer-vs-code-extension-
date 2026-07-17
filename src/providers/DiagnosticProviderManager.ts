@@ -265,14 +265,16 @@ export class DiagnosticProviderManager {
 
   dispose(): void {
     if (this._disposed) return;
-    this._disposed = true;
     this._started = false;
     for (const [name, entry] of this.entries) {
-      this.setProviderState(name, ProviderState.disposed);
+      const oldState = entry.state;
+      entry.state = ProviderState.disposed;
+      this._onDidChangeProviderState.fire({ name, oldState, newState: ProviderState.disposed });
       // Release ownership before disposing
       try { entry.provider.releaseOwnership?.(); } catch {}
       try { entry.provider.dispose(); } catch {}
     }
+    this._disposed = true;
     this.entries.clear();
     for (const sub of this.providerSubscriptions.values()) {
       try { sub.dispose(); } catch {}

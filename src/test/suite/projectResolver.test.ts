@@ -123,6 +123,8 @@ suite('ProjectResolver', () => {
     assert.ok(result, 'should fall back to VS Code TypeScript');
     assert.strictEqual(result!.version, '5.4.0');
   });
+
+  test('ignores workspace TypeScript when useWorkspaceVersion is false', () => {
     const delegate = makeDelegate({
       moduleExists: () => false,
       readPackageJson: (p) => {

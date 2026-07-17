@@ -60,14 +60,14 @@ suite('FolderStatusManager', () => {
 
   suite('recomputeFolderStatus', () => {
     test('empty folder returns None severity', () => {
-      const s = manager.recomputeFolderStatus(srcUri, rootUri);
+      const s = manager.recomputeFolderStatus(srcUri);
       assert.strictEqual(s.severity, ProblemSeverity.None);
       assert.strictEqual(s.errorCount, 0);
     });
 
     test('single error child', () => {
       store.set(fileA, status(ProblemSeverity.Error));
-      const s = manager.recomputeFolderStatus(srcUri, rootUri);
+      const s = manager.recomputeFolderStatus(srcUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
       assert.strictEqual(s.errorCount, 1);
     });
@@ -75,7 +75,7 @@ suite('FolderStatusManager', () => {
     test('worst severity wins across children', () => {
       store.set(fileA, status(ProblemSeverity.Info));
       store.set(fileB, status(ProblemSeverity.Error));
-      const s = manager.recomputeFolderStatus(srcUri, rootUri);
+      const s = manager.recomputeFolderStatus(srcUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
     });
 
@@ -88,7 +88,7 @@ suite('FolderStatusManager', () => {
         fileB,
         status(ProblemSeverity.Warning, { errorCount: 0, warningCount: 3, infoCount: 2 }),
       );
-      const s = manager.recomputeFolderStatus(srcUri, rootUri);
+      const s = manager.recomputeFolderStatus(srcUri);
       assert.strictEqual(s.errorCount, 2);
       assert.strictEqual(s.warningCount, 4);
       assert.strictEqual(s.infoCount, 2);
@@ -97,7 +97,7 @@ suite('FolderStatusManager', () => {
     test('files at different nesting levels are aggregated', () => {
       store.set(fileA, status(ProblemSeverity.Error));
       store.set(fileRoot, status(ProblemSeverity.Warning));
-      const s = manager.recomputeFolderStatus(rootUri, rootUri);
+      const s = manager.recomputeFolderStatus(rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
       assert.strictEqual(s.errorCount, 1);
       assert.strictEqual(s.warningCount, 1);
@@ -213,21 +213,21 @@ suite('FolderStatusManager', () => {
     test('Error beats Warning', () => {
       store.set(fileA, status(ProblemSeverity.Error));
       store.set(fileB, status(ProblemSeverity.Warning));
-      const s = manager.recomputeFolderStatus(rootUri, rootUri);
+      const s = manager.recomputeFolderStatus(rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Error);
     });
 
     test('Warning beats Info', () => {
       store.set(fileA, status(ProblemSeverity.Warning));
       store.set(fileB, status(ProblemSeverity.Info));
-      const s = manager.recomputeFolderStatus(rootUri, rootUri);
+      const s = manager.recomputeFolderStatus(rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Warning);
     });
 
     test('Info beats None', () => {
       store.set(fileA, status(ProblemSeverity.Info));
       store.set(fileB, status(ProblemSeverity.None));
-      const s = manager.recomputeFolderStatus(rootUri, rootUri);
+      const s = manager.recomputeFolderStatus(rootUri);
       assert.strictEqual(s.severity, ProblemSeverity.Info);
     });
   });

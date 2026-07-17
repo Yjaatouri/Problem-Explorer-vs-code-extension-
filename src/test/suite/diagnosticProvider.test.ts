@@ -7,6 +7,11 @@ import { ProblemSeverity } from '../../core/types';
 class MockDiagnosticProvider implements DiagnosticProvider {
   readonly name: string;
   readonly store: ProblemStore;
+  readonly capabilities: import('../../core/types').ProviderCapabilities = { extensions: [] };
+  readonly scanning = false;
+  readonly autoScan = true;
+  readonly enabled = true;
+  readonly onDidProgressScan: import('vscode').Event<import('../../core/types').ScanProgress> = () => ({ dispose: () => {} });
   private _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate = this._onDidUpdate.event;
   private _isRunning = false;
