@@ -2,13 +2,6 @@ import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace }
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import { chainCounters } from '../forensicLogger';
 
-/**
- * AutoScanController matches file-change events to providers by their
- * declared capabilities, then refreshes only matching scan providers.
- *
- * Providers never decide when to scan — the controller does.
- * Providers only answer the question: "Scan now."
- */
 export class AutoScanController implements Disposable {
   private readonly disposables: Disposable[] = [];
   private readonly statusItem: StatusBarItem;
@@ -41,63 +34,95 @@ export class AutoScanController implements Disposable {
   start(): void {
     this.disposables.push(
       workspace.onDidSaveTextDocument((doc) => {
-        console.log(`[LOG:SAVE] Step1: onDidSaveTextDocument uri=${doc.uri.fsPath}`);
+        const ts = Date.now();
+        console.log(`[AUDIT:${ts}] Step1: onDidSaveTextDocument uri=${doc.uri.fsPath}`);
         this.onFileChanged(doc.uri);
       }),
       workspace.onDidCreateFiles((e) => {
-        for (const uri of e.files) this.onFileChanged(uri);
+        const ts = Date.now();
+        for (const uri of e.files) {
+          console.log(`[AUDIT:${ts}] Step1: onDidCreateFiles uri=${uri.fsPath}`);
+          this.onFileChanged(uri);
+        }
       }),
       workspace.onDidDeleteFiles((e) => {
-        for (const uri of e.files) this.onFileChanged(uri);
+        const ts = Date.now();
+        for (const uri of e.files) {
+          console.log(`[AUDIT:${ts}] Step1: onDidDeleteFiles uri=${uri.fsPath}`);
+          this.onFileChanged(uri);
+        }
       }),
       workspace.onDidRenameFiles((e) => {
-        for (const { newUri } of e.files) this.onFileChanged(newUri);
+        const ts = Date.now();
+        for (const { newUri } of e.files) {
+          console.log(`[AUDIT:${ts}] Step1: onDidRenameFiles uri=${newUri.fsPath}`);
+          this.onFileChanged(newUri);
+        }
       }),
     );
   }
 
   updateConfig(debounceMs: number, enabled: boolean): void {
+    const ts = Date.now();
     this._debounceMs = debounceMs;
     this._enabled = enabled;
+    console.log(`[AUDIT:${ts}] updateConfig debounceMs=${debounceMs} enabled=${enabled}`);
   }
 
   private onFileChanged(uri: Uri): void {
-    console.log(`[LOG:SAVE] Step2: AutoScanController.onFileChanged uri=${uri.fsPath}`);
+    const ts = Date.now();
+    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
+    console.log(`[AUDIT:${ts}] Step2: onFileChanged uri=${uri.fsPath} ext=${ext} _enabled=${this._enabled} queued=[${Array.from(this.queuedProviders).join(',')}]`);
+
     if (!this._enabled) {
-      console.log(`[LOG:SAVE] Step2: auto-scan disabled, returning`);
+      console.log(`[AUDIT:${ts}] Step2: EARLY RETURN — auto-scan disabled _enabled=false`);
       return;
     }
 
-    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
-    console.log(`[LOG:SAVE] Step2: ext=${ext}`);
-
     const ownerName = this.manager.getOwner(ext);
+    console.log(`[AUDIT:${ts}] Step2: getOwner("${ext}") → ${ownerName ?? '(undefined)'}`);
     if (!ownerName) {
-      console.log(`[LOG:SAVE] Step2: no provider owns ext ${ext}`);
+      console.log(`[AUDIT:${ts}] Step2: EARLY RETURN — no provider owns extension "${ext}"`);
       return;
     }
 
     this.queuedProviders.add(ownerName);
     chainCounters.autoScannerTriggered++;
-    console.log(`[LOG:SAVE] Step2: queued ${ownerName} for scan`);
-    this._schedule();
+    console.log(`[AUDIT:${ts}] Step2: queued provider="${ownerName}" queued=[${Array.from(this.queuedProviders).join(',')}]`);
+    this._schedule(ts);
   }
 
-  private _schedule(): void {
+  private _schedule(callerTs?: number): void {
+    const ts = callerTs ?? Date.now();
+    const hasTimer = this._debounceTimer !== undefined;
+    console.log(`[AUDIT:${ts}] Step3: _schedule _debounceTimer=${hasTimer} _flushing=${this._flushing} queued=[${Array.from(this.queuedProviders).join(',')}]`);
+
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
+      console.log(`[AUDIT:${ts}] Step3: cleared existing debounce timer`);
     } else if (!this._flushing) {
-      this._cancelActiveScans();
+      console.log(`[AUDIT:${ts}] Step3: no active timer and not flushing — calling _cancelActiveScans`);
+      this._cancelActiveScans(ts);
+    } else {
+      console.log(`[AUDIT:${ts}] Step3: no active timer BUT _flushing=true — skipping _cancelActiveScans`);
     }
+
+    console.log(`[AUDIT:${ts}] Step3: setting debounce timer for ${this._debounceMs}ms`);
     this._debounceTimer = setTimeout(() => {
+      const fireTs = Date.now();
+      console.log(`[AUDIT:${fireTs}] Step3: debounce timer FIRED (after ${fireTs - ts}ms)`);
       this._debounceTimer = undefined;
-      this._flush();
+      this._flush(fireTs);
     }, this._debounceMs);
   }
 
-  private _cancelActiveScans(): void {
+  private _cancelActiveScans(callerTs?: number): void {
+    const ts = callerTs ?? Date.now();
+    console.log(`[AUDIT:${ts}] Step3a: _cancelActiveScans queued=[${Array.from(this.queuedProviders).join(',')}]`);
     for (const providerName of this.queuedProviders) {
       const provider = this.manager.get(providerName);
+      const isScanning = provider?.scanning ?? false;
+      console.log(`[AUDIT:${ts}] Step3a: provider="${providerName}" exists=${provider !== undefined} scanning=${isScanning}`);
       if (provider?.scanning) {
         this.log(`[AUTO-SCAN] Cancelling in-progress ${providerName} scan`);
         provider.stop();
@@ -105,14 +130,24 @@ export class AutoScanController implements Disposable {
     }
   }
 
-  private async _flush(): Promise<void> {
-    if (this.queuedProviders.size === 0) return;
-    if (this._flushing) return;
+  private async _flush(callerTs?: number): Promise<void> {
+    const ts = callerTs ?? Date.now();
+    console.log(`[AUDIT:${ts}] Step4: _flush ENTER queueSize=${this.queuedProviders.size} _flushing=${this._flushing}`);
+
+    if (this.queuedProviders.size === 0) {
+      console.log(`[AUDIT:${ts}] Step4: EARLY RETURN — queuedProviders is empty`);
+      return;
+    }
+    if (this._flushing) {
+      console.log(`[AUDIT:${ts}] Step4: EARLY RETURN — already flushing, queued providers WILL BE DROPPED: [${Array.from(this.queuedProviders).join(',')}]`);
+      return;
+    }
     this._flushing = true;
     chainCounters.autoScannerFlushCalled++;
 
     const names = Array.from(this.queuedProviders);
     this.queuedProviders.clear();
+    console.log(`[AUDIT:${ts}] Step4: captured providers=[${names.join(',')}] queue cleared`);
 
     this._updateStatus(true);
 
@@ -120,7 +155,11 @@ export class AutoScanController implements Disposable {
 
     for (const name of names) {
       const provider = this.manager.get(name);
-      if (!provider) continue;
+      console.log(`[AUDIT:${ts}] Step4: refresh provider="${name}" exists=${provider !== undefined}`);
+      if (!provider) {
+        console.log(`[AUDIT:${ts}] Step4: SKIP — provider "${name}" not found in manager`);
+        continue;
+      }
       chainCounters.autoScannerFlushProviderRun++;
 
       this.log(`[AUTO-SCAN] Triggering ${name} auto-scan...`);
@@ -128,28 +167,36 @@ export class AutoScanController implements Disposable {
       if (result instanceof Promise) {
         promises.push(
           result.then(() => {
+            const endTs = Date.now();
+            console.log(`[AUDIT:${endTs}] Step4: ${name} scan completed`);
             this.log(`[AUTO-SCAN] ${name} scan completed`);
             this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
           }).catch((err: Error) => {
+            const errTs = Date.now();
+            console.log(`[AUDIT:${errTs}] Step4: ${name} scan FAILED: ${err.message ?? String(err)}`);
             this.log(`[AUTO-SCAN] ${name} scan failed: ${err.message ?? String(err)}`);
           }),
         );
       } else {
+        console.log(`[AUDIT:${ts}] Step4: ${name} refresh returned synchronously`);
         this.log(`[AUTO-SCAN] ${name} scan completed`);
         this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
       }
     }
 
     try {
+      console.log(`[AUDIT:${ts}] Step4: awaiting ${promises.length} refresh promises...`);
       await Promise.all(promises);
     } finally {
       this._updateStatus(false);
       this._flushing = false;
-      // If more providers were queued during the flush, schedule another pass
+      console.log(`[AUDIT:${ts}] Step4: flush complete, _flushing=false queued=[${Array.from(this.queuedProviders).join(',')}]`);
       if (this.queuedProviders.size > 0) {
+        console.log(`[AUDIT:${ts}] Step4: re-scheduling flush for ${this.queuedProviders.size} queued providers`);
         this._debounceTimer = setTimeout(() => {
+          const reTs = Date.now();
           this._debounceTimer = undefined;
-          this._flush();
+          this._flush(reTs);
         }, this._debounceMs);
       }
     }
