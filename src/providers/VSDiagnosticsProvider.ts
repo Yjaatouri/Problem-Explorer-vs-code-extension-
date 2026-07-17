@@ -45,6 +45,7 @@ public get eventCount(): number { return this.diagEventCount; }
       } else {
         console.log(`[AUDIT:${ts}] VSDiag.onDidUpdateAll EARLY RETURN — changed.length=0`);
       }
+      console.log(`[AUDIT:${Date.now()}] VSDiag.onDidUpdateAll HANDLER EXIT elapsed=${Date.now() - ts}ms`);
     }));
   }
 
@@ -135,6 +136,7 @@ public get eventCount(): number { return this.diagEventCount; }
       this.decorationEngine.fireDidChange(changedFolders);
       this.statusBarManager.update();
     }
+    console.log(`[AUDIT:${Date.now()}] VSDiag.onStart() EXIT`);
   }
 
   protected onRefresh(): void {

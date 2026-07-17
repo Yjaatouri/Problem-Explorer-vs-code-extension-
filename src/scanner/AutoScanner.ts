@@ -37,6 +37,7 @@ export class AutoScanController implements Disposable {
         const ts = Date.now();
         console.log(`[AUDIT:${ts}] Step1: onDidSaveTextDocument uri=${doc.uri.fsPath}`);
         this.onFileChanged(doc.uri);
+        console.log(`[AUDIT:${Date.now()}] Step1: onDidSaveTextDocument EXIT elapsed=${Date.now() - ts}ms`);
       }),
       workspace.onDidCreateFiles((e) => {
         const ts = Date.now();
@@ -90,6 +91,7 @@ export class AutoScanController implements Disposable {
     chainCounters.autoScannerTriggered++;
     console.log(`[AUDIT:${ts}] Step2: queued provider="${ownerName}" queued=[${Array.from(this.queuedProviders).join(',')}]`);
     this._schedule(ts);
+    console.log(`[AUDIT:${Date.now()}] Step2: onFileChanged EXIT elapsed=${Date.now() - ts}ms`);
   }
 
   private _schedule(callerTs?: number): void {
@@ -114,6 +116,7 @@ export class AutoScanController implements Disposable {
       this._debounceTimer = undefined;
       this._flush(fireTs);
     }, this._debounceMs);
+    console.log(`[AUDIT:${Date.now()}] Step3: _schedule EXIT elapsed=${Date.now() - ts}ms`);
   }
 
   private _cancelActiveScans(callerTs?: number): void {
@@ -190,9 +193,10 @@ export class AutoScanController implements Disposable {
     } finally {
       this._updateStatus(false);
       this._flushing = false;
-      console.log(`[AUDIT:${ts}] Step4: flush complete, _flushing=false queued=[${Array.from(this.queuedProviders).join(',')}]`);
+      const elapsed = Date.now() - ts;
+      console.log(`[AUDIT:${Date.now()}] Step4: flush complete, _flushing=false queued=[${Array.from(this.queuedProviders).join(',')}] elapsed=${elapsed}ms`);
       if (this.queuedProviders.size > 0) {
-        console.log(`[AUDIT:${ts}] Step4: re-scheduling flush for ${this.queuedProviders.size} queued providers`);
+        console.log(`[AUDIT:${Date.now()}] Step4: re-scheduling flush for ${this.queuedProviders.size} queued providers`);
         this._debounceTimer = setTimeout(() => {
           const reTs = Date.now();
           this._debounceTimer = undefined;
@@ -200,6 +204,7 @@ export class AutoScanController implements Disposable {
         }, this._debounceMs);
       }
     }
+    console.log(`[AUDIT:${Date.now()}] Step4: _flush EXIT elapsed=${Date.now() - ts}ms`);
   }
 
   private _updateStatus(active: boolean): void {

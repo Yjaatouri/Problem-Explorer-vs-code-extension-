@@ -75,6 +75,7 @@ export class DiagnosticProviderManager {
       console.log(`[AUDIT:${ts}] DPM.onDidUpdate handler ENTER provider="${name}" uris=${uris.length} uris=[${uris.map(u => u.fsPath.split('\\').pop() || u.fsPath).join(', ')}]`);
       console.log(`[AUDIT:${ts}] DPM.onDidUpdate → firing _onDidUpdateAll with ${uris.length} URIs`);
       this._onDidUpdateAll.fire(uris);
+      console.log(`[AUDIT:${Date.now()}] DPM.onDidUpdate handler EXIT`);
     });
     const progressSub = provider.onDidProgressScan((progress: ScanProgress) => {
       chainCounters.dpmOnProgressReceived++;
