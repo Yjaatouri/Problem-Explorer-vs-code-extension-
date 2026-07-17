@@ -1,15 +1,15 @@
-import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace } from 'vscode';
+import { Disposable, Uri, workspace } from 'vscode';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
+import { StatusBarManager } from '../statusBar/statusBarManager';
 import { chainCounters } from '../forensicLogger';
 import { debugLog } from '../core/debug';
 
 export class AutoScanController implements Disposable {
   private readonly disposables: Disposable[] = [];
-  private readonly statusItem: StatusBarItem;
   private readonly manager: DiagnosticProviderManager;
+  private readonly statusBar: StatusBarManager;
   private readonly log: (msg: string) => void;
   private readonly queuedProviders = new Set<string>();
-  private _activeScans = 0;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _debounceMs: number;
   private _enabled = true;
@@ -17,19 +17,16 @@ export class AutoScanController implements Disposable {
 
   constructor(
     manager: DiagnosticProviderManager,
+    statusBar: StatusBarManager,
     log: (msg: string) => void,
     debounceMs: number = 300,
     enabled: boolean = true,
   ) {
     this.manager = manager;
+    this.statusBar = statusBar;
     this.log = log;
     this._debounceMs = debounceMs;
     this._enabled = enabled;
-    this.statusItem = window.createStatusBarItem(StatusBarAlignment.Left, 1);
-    this.statusItem.name = 'Problem Explorer Auto-Scan';
-    this.statusItem.text = '$(sync~spin) Scanning...';
-    this.statusItem.tooltip = 'Auto-scan in progress';
-    this.statusItem.hide();
   }
 
   start(): void {
@@ -153,7 +150,7 @@ export class AutoScanController implements Disposable {
     this.queuedProviders.clear();
     debugLog(`[AUDIT:${ts}] Step4: captured providers=[${names.join(',')}] queue cleared`);
 
-    this._updateStatus(true);
+    this.statusBar.setScanning(true, names[0]);
 
     const promises: Promise<void>[] = [];
 
@@ -192,7 +189,7 @@ export class AutoScanController implements Disposable {
       debugLog(`[AUDIT:${ts}] Step4: awaiting ${promises.length} refresh promises...`);
       await Promise.all(promises);
     } finally {
-      this._updateStatus(false);
+      this.statusBar.setScanning(false);
       this._flushing = false;
       const elapsed = Date.now() - ts;
       debugLog(`[AUDIT:${Date.now()}] Step4: flush complete, _flushing=false queued=[${Array.from(this.queuedProviders).join(',')}] elapsed=${elapsed}ms`);
@@ -208,25 +205,10 @@ export class AutoScanController implements Disposable {
     debugLog(`[AUDIT:${Date.now()}] Step4: _flush EXIT elapsed=${Date.now() - ts}ms`);
   }
 
-  private _updateStatus(active: boolean): void {
-    if (active) {
-      this._activeScans++;
-      this.statusItem.text = '$(sync~spin) Scanning...';
-      this.statusItem.show();
-    } else {
-      this._activeScans--;
-      if (this._activeScans <= 0) {
-        this._activeScans = 0;
-        this.statusItem.hide();
-      }
-    }
-  }
-
   dispose(): void {
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
     }
-    this.statusItem.dispose();
     for (const d of this.disposables) {
       d.dispose();
     }

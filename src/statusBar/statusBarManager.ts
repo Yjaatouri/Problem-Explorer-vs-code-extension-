@@ -12,6 +12,8 @@ export class StatusBarManager implements Disposable {
   private readonly item: StatusBarItem;
   private readonly store: ProblemStore;
   private enabled = true;
+  private scanning = false;
+  private scanProvider = '';
 
   constructor(store: ProblemStore) {
     this.store = store;
@@ -23,10 +25,18 @@ export class StatusBarManager implements Disposable {
 
   update(): void {
     const ts = Date.now();
-    debugLog(`[AUDIT:${ts}] SBM.update() ENTER enabled=${this.enabled}`);
+    debugLog(`[AUDIT:${ts}] SBM.update() ENTER enabled=${this.enabled} scanning=${this.scanning}`);
     if (!this.enabled) {
       debugLog(`[AUDIT:${Date.now()}] SBM.update() EARLY RETURN — disabled`);
       this.item.hide();
+      return;
+    }
+
+    if (this.scanning) {
+      this.item.text = `$(sync~spin) Scanning ${this.scanProvider ? `(${this.scanProvider})` : ''}...`;
+      this.item.tooltip = 'Auto-scan in progress';
+      this.item.show();
+      debugLog(`[AUDIT:${Date.now()}] SBM.update() scanning — text="${this.item.text}"`);
       return;
     }
 
@@ -51,8 +61,15 @@ export class StatusBarManager implements Disposable {
       parts.push(`$(info)${totals.infoCount}`);
     }
     this.item.text = parts.join('  ');
+    this.item.tooltip = 'Problem Explorer — click to open Problems panel';
     this.item.show();
     debugLog(`[AUDIT:${Date.now()}] SBM.update() RETURN text="${this.item.text}" elapsed=${Date.now() - ts}ms`);
+  }
+
+  setScanning(scanning: boolean, providerName?: string): void {
+    this.scanning = scanning;
+    this.scanProvider = providerName ?? '';
+    this.update();
   }
 
   setEnabled(enabled: boolean): void {

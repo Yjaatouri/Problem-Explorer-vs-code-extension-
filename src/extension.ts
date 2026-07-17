@@ -179,7 +179,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const autoScannerCfg = configManager.getConfig();
     let autoScanController: AutoScanController | undefined;
     if (autoScannerCfg.autoScanEnabled) {
-      autoScanController = new AutoScanController(diagProviderManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
+      autoScanController = new AutoScanController(diagProviderManager, statusBarManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
       autoScanController.start();
       context.subscriptions.push(autoScanController);
       log('[VERIFY] AutoScanController created (feature flag enabled)');
