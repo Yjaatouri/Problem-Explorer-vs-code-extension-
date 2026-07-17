@@ -145,6 +145,13 @@ export class AutoScanController implements Disposable {
     } finally {
       this._updateStatus(false);
       this._flushing = false;
+      // If more providers were queued during the flush, schedule another pass
+      if (this.queuedProviders.size > 0) {
+        this._debounceTimer = setTimeout(() => {
+          this._debounceTimer = undefined;
+          this._flush();
+        }, this._debounceMs);
+      }
     }
   }
 
