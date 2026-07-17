@@ -223,7 +223,7 @@
         },
         "problemExplorer.autoScan.enabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable or disable automatic background scanning on file changes"
         },
         "problemExplorer.autoScanDelay": {
