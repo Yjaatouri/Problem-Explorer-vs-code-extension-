@@ -134,6 +134,15 @@ export class DiagnosticsManager implements DiagnosticProvider {
 
   initialize(): void {
     if (this._disposed) return;
+    // Only run fullScan if diagnostics already exist. If the language server
+    // hasn't started yet, defer to startInitPoll() and onDidChangeDiagnostics
+    // to avoid a redundant fullScan that would return nothing.
+    const all = this.delegate.getAllDiagnostics();
+    let hasAny = false;
+    for (const [, diags] of all) {
+      if (diags.length > 0) { hasAny = true; break; }
+    }
+    if (!hasAny) return;
     this.fullScan();
   }
 
