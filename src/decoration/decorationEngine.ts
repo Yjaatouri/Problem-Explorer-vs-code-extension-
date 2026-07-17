@@ -149,7 +149,8 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
         return undefined;
       }
       forensicCounters.returnDecoration++;
-      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN decoration badge="${deco.badge ?? 'none'}" tooltip="${deco.tooltip}" color=${deco.color?.id ?? 'none'} elapsed=${Date.now() - ts}ms`);
+      const decoStr = `badge="${deco.badge ?? 'none'}" tooltip="${deco.tooltip}" color=${deco.color?.id ?? 'none'}`;
+      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN ${decoStr} elapsed=${Date.now() - ts}ms`);
       return deco;
     } catch (err: unknown) {
       forensicCounters.returnUndefined++;
@@ -259,35 +260,47 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   }
 
   private toDecoration(status: ProblemState): FileDecoration | undefined {
+    const ts = Date.now();
     let color: ThemeColor;
     let badge: string;
+    let severityLabel: string;
 
     switch (status.severity) {
       case ProblemSeverity.Error:
         color = new ThemeColor(COLORS.ERROR_FOREGROUND);
         badge = BADGE_LETTERS.error;
+        severityLabel = 'Error';
         break;
       case ProblemSeverity.Warning:
         color = new ThemeColor(COLORS.WARNING_FOREGROUND);
         badge = BADGE_LETTERS.warning;
+        severityLabel = 'Warning';
         break;
       case ProblemSeverity.Info:
         color = new ThemeColor(COLORS.INFO_FOREGROUND);
         badge = BADGE_LETTERS.info;
+        severityLabel = 'Info';
         break;
       default:
+        console.log(`[AUDIT:${ts}] DECO.toDecoration() RETURN undefined — unknown severity=${status.severity}`);
         return undefined;
     }
 
     const style = this.config?.badgeStyle ?? 'letter';
+    console.log(`[AUDIT:${ts}] DECO.toDecoration() severity=${severityLabel} errors=${status.errorCount} warnings=${status.warningCount} infos=${status.infoCount} fileCount=${status.fileCount} style=${style} initialBadge="${badge}"`);
+
     if (style !== 'letter') {
       badge = getBadge(status.severity, status, style);
+      console.log(`[AUDIT:${Date.now()}] DECO.toDecoration() non-letter style="${style}" — getBadge returned "${badge}"`);
     }
     if (badge.length > 2) {
+      const before = badge;
       badge = '9+';
+      console.log(`[AUDIT:${Date.now()}] DECO.toDecoration() badge truncated "${before}" → "${badge}" (length > 2)`);
     }
 
     const tooltip = this.formatTooltip(status);
+    console.log(`[AUDIT:${Date.now()}] DECO.toDecoration() RETURN badge="${badge}" color=${color.id} tooltip="${tooltip}" elapsed=${Date.now() - ts}ms`);
 
     return {
       badge: badge.length > 0 ? badge : undefined,
