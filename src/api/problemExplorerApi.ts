@@ -46,8 +46,11 @@ export class ApiManager implements ProblemExplorerAPI, Disposable {
 
   /** Called by extension.ts when diagnostics change. Reads status from ProblemStore and emits the event. */
   notifyChanged(uri: Uri, _folderUri: Uri): void {
+    const ts = Date.now();
     const status = this.problemStore.get(uri);
+    console.log(`[AUDIT:${ts}] API.notifyChanged() uri=${uri.fsPath.split('\\').pop() || uri.fsPath} storeHit=${!!status} sev=${status?.severity ?? 'none'}`);
     this._onDidChangeProblemState.fire({ uri, status });
+    console.log(`[AUDIT:${Date.now()}] API.notifyChanged() → _onDidChangeProblemState fired elapsed=${Date.now() - ts}ms`);
   }
 
   dispose(): void {

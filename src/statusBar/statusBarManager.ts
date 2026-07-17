@@ -21,15 +21,20 @@ export class StatusBarManager implements Disposable {
   }
 
   update(): void {
+    const ts = Date.now();
+    console.log(`[AUDIT:${ts}] SBM.update() ENTER enabled=${this.enabled}`);
     if (!this.enabled) {
+      console.log(`[AUDIT:${Date.now()}] SBM.update() EARLY RETURN — disabled`);
       this.item.hide();
       return;
     }
 
     const totals = this.store.computeTotals();
     const hasAny = totals.errorCount + totals.warningCount + totals.infoCount > 0;
+    console.log(`[AUDIT:${Date.now()}] SBM.update() totals=${JSON.stringify(totals)} hasAny=${hasAny}`);
 
     if (!hasAny) {
+      console.log(`[AUDIT:${Date.now()}] SBM.update() EARLY RETURN — no problems`);
       this.item.hide();
       return;
     }
@@ -46,6 +51,7 @@ export class StatusBarManager implements Disposable {
     }
     this.item.text = parts.join('  ');
     this.item.show();
+    console.log(`[AUDIT:${Date.now()}] SBM.update() RETURN text="${this.item.text}" elapsed=${Date.now() - ts}ms`);
   }
 
   setEnabled(enabled: boolean): void {

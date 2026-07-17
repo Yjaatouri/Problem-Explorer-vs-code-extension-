@@ -39,18 +39,24 @@ export class FolderStatusManager {
    * Uri.parse/Uri.joinPath to avoid per-level object allocations.
    */
   updateAncestors(fileUri: Uri): Uri[] {
+    const ts = Date.now();
+    console.log(`[AUDIT:${ts}] FSM.updateAncestors() ENTER uri=${fileUri.fsPath}`);
     const folder = this.wf.getWorkspaceFolder(fileUri);
     if (!folder) {
+      console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() EARLY RETURN — no workspace folder for uri`);
       return [];
     }
+    console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() workspaceFolder="${folder.name}" root=${folder.uri.fsPath}`);
 
     const changed: Uri[] = [];
     let childKey = normalizeUriKey(fileUri);
     const rootStr = normalizeUriKey(folder.uri);
     let parentKey = getParentKey(childKey);
+    let walkDepth = 0;
 
     // Walk from the file's parent up to (but not including) the workspace root
     while (parentKey !== childKey && parentKey !== rootStr) {
+      walkDepth++;
       let index = this.childIndex.get(parentKey);
 
       const childStatus = this.problemStore.get(Uri.parse(childKey));
@@ -69,10 +75,14 @@ export class FolderStatusManager {
         const parentUri = Uri.parse(parentKey);
         if (this.problemStore.setFolderAggregate(parentUri, status)) {
           changed.push(parentUri);
+          console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate UPDATED`);
+        } else {
+          console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate UNCHANGED`);
         }
       } else if (this.problemStore.isFolderAggregate(Uri.parse(parentKey))) {
         this.problemStore.delete(Uri.parse(parentKey));
         changed.push(Uri.parse(parentKey));
+        console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() depth=${walkDepth} parent=${parentKey} aggregate REMOVED`);
       }
 
       // Walk up
@@ -98,15 +108,20 @@ export class FolderStatusManager {
       const rootStatus = this.aggregateFromIndex(rootStr);
       if (this.problemStore.setFolderAggregate(rootUri, rootStatus)) {
         changed.push(rootUri);
+        console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate UPDATED`);
+      } else {
+        console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate UNCHANGED`);
       }
     } else if (this.problemStore.isFolderAggregate(rootUri)) {
       this.problemStore.delete(rootUri);
       changed.push(rootUri);
+      console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() root=${rootStr} aggregate REMOVED`);
     }
 
     if (changed.length > 0) {
       chainCounters.updateAncestorsReturned++;
     }
+    console.log(`[AUDIT:${Date.now()}] FSM.updateAncestors() RETURN changed=${changed.length} depth=${walkDepth} totalMs=${Date.now() - ts}ms`);
     return changed;
   }
 

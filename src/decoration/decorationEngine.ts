@@ -15,7 +15,6 @@ import { Config, ProblemSeverity, ProblemState } from '../core/types';
 import { COLORS, BADGE_LETTERS } from '../core/constants';
 import { getBadge } from './badgeFormatter';
 import { isIgnored } from '../performance/ignoreFilter';
-import { normalizeUriKey } from '../core/uriKey';
 import { chainCounters } from '../forensicLogger';
 
 export const forensicCounters = {
@@ -69,7 +68,6 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
   private config: Config | undefined;
-  private readonly _log: (msg: string) => void;
 
   // Coalescing state: batch multiple fireDidChange calls into a single array fire
   private _coalesceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -80,7 +78,7 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     private readonly delegate: DecorationEngineDelegate = defaultDecorationDelegate,
     log?: (msg: string) => void,
   ) {
-    this._log = log ?? (() => { /* no-op */ });
+    void log;
   }
 
   setConfig(config: Config | undefined): void {
@@ -91,37 +89,29 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     uri: Uri,
     _token: CancellationToken,
   ): FileDecoration | undefined {
+    const ts = Date.now();
     forensicCounters.provideFileDecorationCalls++;
     const callNum = forensicCounters.provideFileDecorationCalls;
-    const now = new Date().toISOString();
     const fsPath = uri.fsPath;
     const configEnabled = this.config?.enabled ?? true;
     const folder = this.delegate.getWorkspaceFolder(uri);
-
-    const explorerUriStr = uri.toString(true);
+    const status = this.problemStore.get(uri);
+    console.log(`[AUDIT:${ts}] DECO.provideFileDecoration() #${callNum} uri=${fsPath.split('\\').pop() || fsPath} enabled=${configEnabled} wsFolder=${!!folder} storeHit=${!!status} sev=${status?.severity ?? 'none'}`);
 
     if (!folder) {
       forensicCounters.returnUndefined++;
       forensicCounters.reasonNoWsFolder++;
-      this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now}`);
-      this._log('  -> RETURN: no workspace folder');
+      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — no workspace folder`);
       return undefined;
     }
 
     const ignored = isIgnored(uri, this.config?.ignorePatterns);
-    const status = this.problemStore.get(uri);
-    const uriKey = normalizeUriKey(uri);
-    const folderKey = normalizeUriKey(folder.uri);
-
-    this._log(`[FORENSIC:Step8] URI consistency: explorerUri=${uri.toString(true)} fsPath=${fsPath} uriKey=${uriKey} folderKey=${folderKey} scheme=${uri.scheme} authority=${uri.authority}`);
-
-    this._log(`[FORENSIC:Step5] provideFileDecoration #${callNum} URI=${explorerUriStr} time=${now} enabled=${configEnabled} wsFolder=${!!folder} ignored=${ignored} storeHit=${!!status} sev=${status?.severity ?? 'none'} uriKey=${uriKey}`);
 
     try {
       if (this.config && !this.config.enabled) {
         forensicCounters.returnUndefined++;
         forensicCounters.reasonDisabled++;
-        this._log('  -> RETURN: disabled by config');
+        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — disabled by config`);
         return undefined;
       }
 
@@ -129,17 +119,15 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
         if (ignored) {
           forensicCounters.returnUndefined++;
           forensicCounters.reasonIgnored++;
-          this._log('  -> RETURN: ignored by pattern');
+          console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — ignored by pattern`);
           return undefined;
         }
-      } else {
-        this._log(`  store HIT: sev=${status.severity}`);
       }
 
       if (!status || status.severity === ProblemSeverity.None) {
         forensicCounters.returnUndefined++;
         forensicCounters.reasonNoStatus++;
-        this._log('  -> RETURN: no status / None severity');
+        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — no status / None severity`);
         return undefined;
       }
 
@@ -150,24 +138,23 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       ) {
         forensicCounters.returnUndefined++;
         forensicCounters.reasonShowWarnings++;
-        this._log('  -> RETURN: showWarnings=false');
+        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — showWarnings=false`);
         return undefined;
       }
 
       const deco = this.toDecoration(status);
       if (!deco) {
         forensicCounters.returnUndefined++;
-        this._log('  -> RETURN: toDecoration returned undefined');
+        console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN undefined — toDecoration returned undefined`);
         return undefined;
       }
       forensicCounters.returnDecoration++;
-      this._log(`[FORENSIC:Step6] DECORATION: badge="${deco.badge ?? 'none'}" badgeLength=${(deco.badge ?? '').length} tooltip="${deco.tooltip}" color=${deco.color?.id ?? 'none'} propagate=${deco.propagate}`);
-      this._log(`  -> RETURNING decoration badge="${deco.badge ?? 'none'}" color=${deco.color?.id ?? 'none'}`);
+      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} RETURN decoration badge="${deco.badge ?? 'none'}" tooltip="${deco.tooltip}" color=${deco.color?.id ?? 'none'} elapsed=${Date.now() - ts}ms`);
       return deco;
     } catch (err: unknown) {
       forensicCounters.returnUndefined++;
       forensicCounters.reasonException++;
-      this._log(`  -> EXCEPTION: ${err instanceof Error ? err.message : String(err)}`);
+      console.log(`[AUDIT:${Date.now()}] DECO.provideFileDecoration() #${callNum} EXCEPTION: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }
@@ -178,8 +165,10 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
    * invalidation requests.
    */
   fireDidChange(uris: Uri | Uri[] | undefined): void {
+    const ts = Date.now();
+    console.log(`[AUDIT:${ts}] DECO.fireDidChange() ENTER type=${uris === undefined ? 'undefined' : Array.isArray(uris) ? `Array(${uris.length})` : 'single'} coalescedUris=${this._coalescedUris.size} hasTimer=${this._coalesceTimer !== undefined}`);
     if (uris === undefined) {
-      // Full refresh — flush pending coalesced URIs first, then fire undefined
+      console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() full refresh — flushing coalesced then firing undefined`);
       this._flushCoalesced();
       this._fire(undefined);
       return;
@@ -190,12 +179,15 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       for (let i = 0; i < uris.length; i++) {
         this._coalescedUris.add(uris[i].toString());
       }
+      console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() added ${uris.length} URIs to coalesced set, now=${this._coalescedUris.size}`);
     } else {
       chainCounters.fireDidChangeWithUris++;
       this._coalescedUris.add(uris.toString());
+      console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() added 1 URI to coalesced set, now=${this._coalescedUris.size}`);
     }
 
     this._scheduleCoalescedFire();
+    console.log(`[AUDIT:${Date.now()}] DECO.fireDidChange() RETURN (coalesced fire scheduled) elapsed=${Date.now() - ts}ms`);
   }
 
   /**
@@ -214,41 +206,56 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   }
 
   private _fire(uris: Uri | Uri[] | undefined): void {
+    const ts = Date.now();
     forensicCounters.fireDidChangeCalls++;
-    const now = new Date().toISOString();
-    const storeSize = this.problemStore.size();
     if (uris === undefined) {
       forensicCounters.fireDidChangeUndefined++;
-      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} UNDEFINED (full refresh) time=${now} storeSize=${storeSize}`);
+      console.log(`[AUDIT:${ts}] DECO._fire() UNDEFINED (full refresh) call#=${forensicCounters.fireDidChangeCalls} storeSize=${this.problemStore.size()}`);
     } else if (Array.isArray(uris)) {
       forensicCounters.fireDidChangeArray++;
-      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} Array(${uris.length}) time=${now} storeSize=${storeSize}`);
-      for (let i = 0; i < Math.min(uris.length, 10); i++) {
-        this._log(`[FORENSIC:Step4]   uri[${i}]=${uris[i].toString(true)}`);
+      console.log(`[AUDIT:${ts}] DECO._fire() Array(${uris.length}) call#=${forensicCounters.fireDidChangeCalls} storeSize=${this.problemStore.size()}`);
+      for (let i = 0; i < Math.min(uris.length, 5); i++) {
+        console.log(`[AUDIT:${ts}] DECO._fire()   [${i}]=${uris[i].fsPath.split('\\').pop() || uris[i].fsPath}`);
       }
-      if (uris.length > 10) {
-        this._log(`[FORENSIC:Step4]   ... and ${uris.length - 10} more`);
+      if (uris.length > 5) {
+        console.log(`[AUDIT:${ts}] DECO._fire()   ... and ${uris.length - 5} more`);
       }
     } else {
       forensicCounters.fireDidChangeSingle++;
-      this._log(`[FORENSIC:Step4] fireDidChange #${forensicCounters.fireDidChangeCalls} single URI=${uris.toString(true)} time=${now} storeSize=${storeSize}`);
+      console.log(`[AUDIT:${ts}] DECO._fire() single uri=${uris.fsPath}`);
     }
+    console.log(`[AUDIT:${Date.now()}] DECO._fire() → _onDidChangeFileDecorations.fire()`);
     this._onDidChangeFileDecorations.fire(uris);
+    console.log(`[AUDIT:${Date.now()}] DECO._fire() RETURN elapsed=${Date.now() - ts}ms`);
   }
 
   private _scheduleCoalescedFire(): void {
-    if (this._coalesceTimer !== undefined) return;
+    const ts = Date.now();
+    if (this._coalesceTimer !== undefined) {
+      console.log(`[AUDIT:${ts}] DECO._scheduleCoalescedFire() SKIP — timer already pending`);
+      return;
+    }
+    console.log(`[AUDIT:${ts}] DECO._scheduleCoalescedFire() setting setTimeout(0) coalescedUris=${this._coalescedUris.size}`);
     this._coalesceTimer = setTimeout(() => {
+      const fireTs = Date.now();
+      console.log(`[AUDIT:${fireTs}] DECO._scheduleCoalescedFire() timer FIRED (latency=${fireTs - ts}ms)`);
       this._coalesceTimer = undefined;
       this._flushCoalesced();
     }, 0);
   }
 
   private _flushCoalesced(): void {
-    if (this._coalescedUris.size === 0) return;
+    const ts = Date.now();
+    console.log(`[AUDIT:${ts}] DECO._flushCoalesced() ENTER coalescedUris=${this._coalescedUris.size}`);
+    if (this._coalescedUris.size === 0) {
+      console.log(`[AUDIT:${ts}] DECO._flushCoalesced() EARLY RETURN — no coalesced URIs`);
+      return;
+    }
     const uris = Array.from(this._coalescedUris, (s) => Uri.parse(s));
     this._coalescedUris.clear();
+    console.log(`[AUDIT:${Date.now()}] DECO._flushCoalesced() → _fire(${uris.length} URIs)`);
     this._fire(uris);
+    console.log(`[AUDIT:${Date.now()}] DECO._flushCoalesced() RETURN elapsed=${Date.now() - ts}ms`);
   }
 
   private toDecoration(status: ProblemState): FileDecoration | undefined {
