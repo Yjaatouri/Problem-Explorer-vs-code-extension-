@@ -3,11 +3,17 @@ import { Uri, EventEmitter } from 'vscode';
 import { DiagnosticProviderManager, ProviderState, ProviderInfo } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { ProblemStore } from '../../store/ProblemStore';
+import { ProviderCapabilities, ScanProgress } from '../../core/types';
 
 
 class MockProvider implements DiagnosticProvider {
   readonly name: string;
   readonly store: ProblemStore;
+  readonly capabilities: ProviderCapabilities;
+  readonly scanning = false;
+  readonly autoScan = true;
+  readonly enabled = true;
+  readonly onDidProgressScan = new EventEmitter<ScanProgress>().event;
   private _onDidUpdate = new EventEmitter<Uri[]>();
   readonly onDidUpdate = this._onDidUpdate.event;
   private _started = false;
@@ -16,9 +22,10 @@ class MockProvider implements DiagnosticProvider {
 
   callOrder: string[] = [];
 
-  constructor(name: string, store: ProblemStore) {
+  constructor(name: string, store: ProblemStore, capabilities?: ProviderCapabilities) {
     this.name = name;
     this.store = store;
+    this.capabilities = capabilities ?? { extensions: [] };
   }
 
   get isStarted(): boolean { return this._started; }
@@ -559,5 +566,85 @@ suite('DiagnosticProviderManager', () => {
     p.callOrder = [];
     assert.strictEqual(manager.size, 0);
     assert.strictEqual(updateCount, countBefore);
+  });
+
+  test('getOwner returns provider name for owned extension', () => {
+    const p = new MockProvider('tsc', store, { extensions: ['.ts', '.tsx'] });
+    manager.register('tsc', p);
+    assert.strictEqual(manager.getOwner('.ts'), 'tsc');
+    assert.strictEqual(manager.getOwner('.tsx'), 'tsc');
+  });
+
+  test('getOwner returns undefined for unowned extension', () => {
+    const p = new MockProvider('tsc', store, { extensions: ['.ts', '.tsx'] });
+    manager.register('tsc', p);
+    assert.strictEqual(manager.getOwner('.js'), undefined);
+    assert.strictEqual(manager.getOwner('.vue'), undefined);
+  });
+
+  test('getOwner returns highest priority provider for overlapping extensions', () => {
+    const low = new MockProvider('low', store, { extensions: ['.ts'] });
+    const high = new MockProvider('high', store, { extensions: ['.ts', '.tsx'] });
+    manager.register('low', low, { priority: 1 });
+    manager.register('high', high, { priority: 100 });
+    assert.strictEqual(manager.getOwner('.ts'), 'high');
+    assert.strictEqual(manager.getOwner('.tsx'), 'high');
+  });
+
+  test('getOwner rebuilds on unregister', () => {
+    const p = new MockProvider('tsc', store, { extensions: ['.ts'] });
+    manager.register('tsc', p);
+    assert.strictEqual(manager.getOwner('.ts'), 'tsc');
+    manager.unregister('tsc');
+    assert.strictEqual(manager.getOwner('.ts'), undefined);
+  });
+
+  test('getOwner rebuilds on register after unregister', () => {
+    const p1 = new MockProvider('p1', store, { extensions: ['.ts'] });
+    const p2 = new MockProvider('p2', store, { extensions: ['.ts'] });
+    manager.register('p1', p1);
+    manager.unregister('p1');
+    manager.register('p2', p2);
+    assert.strictEqual(manager.getOwner('.ts'), 'p2');
+  });
+
+  test('getOwnedExtensions returns extensions for known provider', () => {
+    const p = new MockProvider('tsc', store, { extensions: ['.ts', '.tsx'] });
+    manager.register('tsc', p);
+    const exts = manager.getOwnedExtensions('tsc');
+    assert.ok(exts);
+    assert.strictEqual(exts!.length, 2);
+    assert.ok(exts!.includes('.ts'));
+    assert.ok(exts!.includes('.tsx'));
+  });
+
+  test('getOwnedExtensions returns undefined for unknown provider', () => {
+    assert.strictEqual(manager.getOwnedExtensions('nope'), undefined);
+  });
+
+  test('getOwnedExtensions returns empty array for provider with no extensions', () => {
+    const p = new MockProvider('empty', store, { extensions: [] });
+    manager.register('empty', p);
+    const exts = manager.getOwnedExtensions('empty');
+    assert.ok(exts);
+    assert.strictEqual(exts!.length, 0);
+  });
+
+  test('canProviderProcess returns true for owned extension', () => {
+    const p = new MockProvider('tsc', store, { extensions: ['.ts', '.tsx'] });
+    manager.register('tsc', p);
+    assert.strictEqual(manager.canProviderProcess('tsc', '.ts'), true);
+    assert.strictEqual(manager.canProviderProcess('tsc', '.js'), false);
+  });
+
+  test('canProviderProcess returns false for unknown provider', () => {
+    assert.strictEqual(manager.canProviderProcess('nope', '.ts'), false);
+  });
+
+  test('getOwner is thread-safe; concurrent calls return consistent results', () => {
+    const p = new MockProvider('tsc', store, { extensions: ['.ts'] });
+    manager.register('tsc', p);
+    const results = Array.from({ length: 10 }, () => manager.getOwner('.ts'));
+    assert.ok(results.every((r) => r === 'tsc'));
   });
 });

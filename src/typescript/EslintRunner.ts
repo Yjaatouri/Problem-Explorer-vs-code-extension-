@@ -21,7 +21,6 @@ export interface EslintRunResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte'];
 
 export class EslintRunner {
   private readonly parser = new EslintOutputParser();
@@ -31,7 +30,7 @@ export class EslintRunner {
       cwd,
       eslintPath = 'eslint',
       configPath,
-      ext = DEFAULT_EXTENSIONS,
+      ext = [],
       signal,
       timeoutMs = DEFAULT_TIMEOUT_MS,
     } = options;
@@ -42,7 +41,9 @@ export class EslintRunner {
       args.push('--config', configPath);
     }
 
-    args.push(...ext.map((e) => `**/*${e}`));
+    if (ext.length > 0) {
+      args.push(...ext.map((e) => `**/*${e}`));
+    }
 
     const spawnOpts: SpawnOptions = {
       cwd,

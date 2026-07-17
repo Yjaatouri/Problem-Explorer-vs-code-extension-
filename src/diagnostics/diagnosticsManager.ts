@@ -51,6 +51,7 @@ export class DiagnosticsManager implements DiagnosticProvider {
   private readonly _onDidUpdate = new EventEmitter<Uri[]>();
   private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();
   private readonly _log: (msg: string) => void;
+  private readonly _canProcessExtension: (ext: string) => boolean;
 
   readonly onDidUpdate: Event<Uri[]> = this._onDidUpdate.event;
   readonly onDidProgressScan: Event<ScanProgress> = this._onDidProgressScan.event;
@@ -75,9 +76,15 @@ export class DiagnosticsManager implements DiagnosticProvider {
     return this.severityOverrides;
   }
 
-  constructor(store: ProblemStore, delegate?: DiagnosticsDelegate, log?: (msg: string) => void) {
+  constructor(
+    store: ProblemStore,
+    delegate?: DiagnosticsDelegate,
+    canProcessExtension?: (ext: string) => boolean,
+    log?: (msg: string) => void,
+  ) {
     this._store = store;
     this.delegate = delegate ?? defaultDelegate;
+    this._canProcessExtension = canProcessExtension ?? (() => true);
     this._log = log ?? (() => {});
   }
 
@@ -200,6 +207,11 @@ export class DiagnosticsManager implements DiagnosticProvider {
   private updateUri(uri: Uri, diagnostics: Diagnostic[], changed: Uri[]): void {
     const folder = this.delegate.getWorkspaceFolder(uri);
     if (!folder) {
+      return;
+    }
+
+    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
+    if (!this._canProcessExtension(ext)) {
       return;
     }
 

@@ -36,8 +36,13 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
     return this.manager.onDidUpdate;
   }
 
-  constructor(store: ProblemStore, delegate?: DiagnosticsDelegate, log?: (msg: string) => void) {
-    this.manager = new DiagnosticsManager(store, delegate, log);
+  constructor(
+    store: ProblemStore,
+    delegate?: DiagnosticsDelegate,
+    canProcessExtension?: (ext: string) => boolean,
+    log?: (msg: string) => void,
+  ) {
+    this.manager = new DiagnosticsManager(store, delegate, canProcessExtension, log);
   }
 
   initialize(): void {

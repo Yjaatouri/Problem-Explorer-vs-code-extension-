@@ -1,6 +1,5 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, Uri, window, workspace } from 'vscode';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
-import { DiagnosticProvider } from '../providers/DiagnosticProvider';
 import { chainCounters } from '../forensicLogger';
 
 /**
@@ -71,47 +70,16 @@ export class AutoScanController implements Disposable {
     const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
     console.log(`[LOG:SAVE] Step2: ext=${ext}`);
 
-    const candidates = this.findScanProviders(ext);
-    console.log(`[LOG:SAVE] Step2: ${candidates.length} candidate(s) for ext ${ext}`);
-
-    for (const provider of candidates) {
-      this.queuedProviders.add(provider.name);
-      chainCounters.autoScannerTriggered++;
-      console.log(`[LOG:SAVE] Step2: queued ${provider.name} for scan`);
-    }
-
-    if (this.queuedProviders.size === 0) {
-      console.log(`[LOG:SAVE] Step2: no providers queued for ext ${ext}`);
+    const ownerName = this.manager.getOwner(ext);
+    if (!ownerName) {
+      console.log(`[LOG:SAVE] Step2: no provider owns ext ${ext}`);
       return;
     }
-    this._schedule();
-  }
 
-  /**
-   * Find all registered providers whose capabilities match the given extension.
-   * - Provider must be enabled and support manualScan scanning
-   * - Provider's extensions list must include the file extension
-   * - Realtime providers are excluded (they push on their own)
-   */
-  private findScanProviders(ext: string): DiagnosticProvider[] {
-    const matches: DiagnosticProvider[] = [];
-    for (const info of this.manager.all()) {
-      const caps = info.provider.capabilities;
-      if (!caps.manualScan || !info.provider.enabled || !info.provider.autoScan) {
-        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (manualScan=${caps.manualScan} enabled=${info.provider.enabled} autoScan=${info.provider.autoScan})`);
-        continue;
-      }
-      if (caps.realtime) {
-        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (realtime — pushes independently)`);
-        continue;
-      }
-      if (!caps.extensions.includes(ext)) {
-        console.log(`[LOG:SAVE] Step2: ${info.name} skipped (ext ${ext} not in [${caps.extensions.join(',')}])`);
-        continue;
-      }
-      matches.push(info.provider);
-    }
-    return matches;
+    this.queuedProviders.add(ownerName);
+    chainCounters.autoScannerTriggered++;
+    console.log(`[LOG:SAVE] Step2: queued ${ownerName} for scan`);
+    this._schedule();
   }
 
   private _schedule(): void {

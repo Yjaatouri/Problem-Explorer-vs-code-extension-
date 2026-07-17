@@ -53,15 +53,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     log('Creating core services...');
 
     const problemStore = new ProblemStore();
-    const diagProvider = new VSCodeDiagnosticProvider(problemStore, {
-      getAllDiagnostics: () => vscode.languages.getDiagnostics(),
-      getUriDiagnostics: (uri) => vscode.languages.getDiagnostics(uri),
-      getWorkspaceFolder: (uri) => vscode.workspace.getWorkspaceFolder(uri),
-      isActiveEditorUri: (uri) => {
-        const editor = vscode.window.activeTextEditor;
-        return editor ? editor.document.uri.toString() === uri.toString() : false;
+    const diagProviderManager = new DiagnosticProviderManager();
+    const diagProvider = new VSCodeDiagnosticProvider(
+      problemStore,
+      {
+        getAllDiagnostics: () => vscode.languages.getDiagnostics(),
+        getUriDiagnostics: (uri) => vscode.languages.getDiagnostics(uri),
+        getWorkspaceFolder: (uri) => vscode.workspace.getWorkspaceFolder(uri),
+        isActiveEditorUri: (uri) => {
+          const editor = vscode.window.activeTextEditor;
+          return editor ? editor.document.uri.toString() === uri.toString() : false;
+        },
       },
-    }, log);
+      (ext) => diagProviderManager.canProviderProcess('vscodeDiagnostics', ext),
+      log,
+    );
     const decorationEngine = new DecorationEngine(problemStore, {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 }, log);
@@ -72,11 +78,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       undefined, undefined, undefined,
       configManager.getConfig().typescript.timeout,
     );
-    const eslintProvider = new EslintDiagnosticProvider(problemStore);
+    const eslintProvider = new EslintDiagnosticProvider(problemStore, diagProviderManager);
     const statusBarManager = new StatusBarManager(problemStore);
 
-    const diagProviderManager = new DiagnosticProviderManager();
-    diagProviderManager.register('vscode', diagProvider, {
+    diagProviderManager.register(diagProvider.name, diagProvider, {
       priority: 10,
       capabilities: ['diagnostics', 'realtime'],
     });

@@ -1,5 +1,6 @@
 import { Event, EventEmitter, Uri, WorkspaceFolder, workspace } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
+import { DiagnosticProviderManager } from './DiagnosticProviderManager';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState, ProblemSeverity, EslintConfig, ProviderCapabilities, ScanProgress } from '../core/types';
 import { EslintRunner, EslintRunOptions, EslintDiagnostic } from '../typescript/EslintRunner';
@@ -58,6 +59,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   private _maxConcurrentScans = 2;
   private _cachedFolders: { folders: WorkspaceFolder[]; timestamp: number } | undefined;
   private _folderCacheTtlMs = 60_000;
+  private readonly _manager: DiagnosticProviderManager | undefined;
 
   get store(): ProblemStore {
     return this._store;
@@ -93,11 +95,13 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
   constructor(
     store: ProblemStore,
+    manager?: DiagnosticProviderManager,
     runner?: EslintRunner,
     timeoutMs?: number,
     refreshDebounceMs?: number,
   ) {
     this._store = store;
+    this._manager = manager;
     this.runner = runner ?? new EslintRunner();
     this.timeoutMs = timeoutMs ?? 120_000;
     this.refreshDebounceMs = refreshDebounceMs ?? DEFAULT_DEBOUNCE_MS;
@@ -247,6 +251,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       }
 
       const eslintStart = performance.now();
+      const ownedExts = this._manager?.getOwnedExtensions(this.name) ?? this.capabilities.extensions;
       const semaphore = this.makeSemaphore(this._maxConcurrentScans);
       await Promise.all(foldersWithEslint.map(async (folder) => {
         await semaphore.acquire();
@@ -260,6 +265,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         console.log(`[ESLINT] Running ESLint in: ${folder.uri.fsPath}`);
         const options: EslintRunOptions = {
           cwd: folder.uri.fsPath,
+          ext: [...ownedExts],
           signal,
           timeoutMs: this.timeoutMs,
         };
