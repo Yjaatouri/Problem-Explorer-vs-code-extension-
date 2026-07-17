@@ -149,29 +149,34 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async refresh(): Promise<void> {
+    const ts = Date.now();
+    console.log(`[AUDIT:${ts}] TSC.refresh() ENTER name=${this.name} _enabled=${this._enabled} _disposed=${this._disposed} _scanning=${this._scanning} _pendingRefresh=${this._pendingRefresh}`);
     chainCounters.providerRefreshCalled++;
-    if (this._disposed) { console.log('[LOG:TSC-refresh] DISPOSED — returning'); return; }
-    if (!this._enabled) { console.log('[LOG:TSC-refresh] DISABLED — returning'); return; }
+    if (this._disposed) { console.log(`[AUDIT:${ts}] TSC.refresh() EARLY RETURN — disposed`); return; }
+    if (!this._enabled) { console.log(`[AUDIT:${ts}] TSC.refresh() EARLY RETURN — disabled`); return; }
 
     this._clearDebounce();
+    console.log(`[AUDIT:${ts}] TSC.refresh() debounce cleared, setting ${this.refreshDebounceMs}ms timer`);
 
     return new Promise<void>((resolve) => {
       this._debounceTimer = setTimeout(async () => {
+        const fireTs = Date.now();
+        console.log(`[AUDIT:${fireTs}] TSC.refresh() debounce FIRED (waited ${fireTs - ts}ms)`);
         this._debounceTimer = undefined;
         try {
           const changed = await this.runScan();
-          console.log(`[LOG:TSC-refresh] runScan returned changed.length=${changed.length}`);
+          console.log(`[AUDIT:${Date.now()}] TSC.refresh() runScan returned changed.length=${changed.length} changed=[${changed.map(u => u.fsPath).join(', ')}]`);
           if (changed.length > 0 && !this._disposed) {
             chainCounters.providerRunScanReturned++;
-            console.log(`[LOG:TSC-refresh] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
+            console.log(`[AUDIT:${Date.now()}] TSC.refresh() firing _onDidUpdate with ${changed.length} URIs`);
             this._onDidUpdate.fire(changed);
             chainCounters.providerOnDidUpdateFired++;
-            console.log(`[LOG:TSC-refresh] AFTER _onDidUpdate.fire()`);
+            console.log(`[AUDIT:${Date.now()}] TSC.refresh() _onDidUpdate fired`);
           } else {
-            console.log(`[LOG:TSC-refresh] changed.length=0 OR disposed → SKIPPING _onDidUpdate.fire()`);
+            console.log(`[AUDIT:${Date.now()}] TSC.refresh() SKIP _onDidUpdate — changed.length=${changed.length} _disposed=${this._disposed}`);
           }
         } catch (err) {
-          console.log(`[LOG:TSC-refresh] runScan threw: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(`[AUDIT:${Date.now()}] TSC.refresh() runScan THREW: ${err instanceof Error ? err.message : String(err)}`);
         }
         resolve();
       }, this.refreshDebounceMs);
@@ -199,10 +204,13 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async runScan(): Promise<Uri[]> {
-    if (this._disposed) return [];
-    if (!this._enabled) return [];
+    const ts = Date.now();
+    console.log(`[AUDIT:${ts}] TSC.runScan() ENTER _disposed=${this._disposed} _enabled=${this._enabled} _scanning=${this._scanning}`);
+    if (this._disposed) { console.log(`[AUDIT:${Date.now()}] TSC.runScan() EARLY RETURN — disposed`); return []; }
+    if (!this._enabled) { console.log(`[AUDIT:${Date.now()}] TSC.runScan() EARLY RETURN — disabled`); return []; }
     if (this._scanning) {
       this._pendingRefresh = true;
+      console.log(`[AUDIT:${Date.now()}] TSC.runScan() EARLY RETURN — already scanning, _pendingRefresh set to true`);
       return [];
     }
 
@@ -219,6 +227,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     try {
       if (signal.aborted) {
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+        console.log(`[AUDIT:${Date.now()}] TSC.runScan() EARLY RETURN — signal aborted before resolve`);
         return [];
       }
 
@@ -227,23 +236,24 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       const resolveStart = performance.now();
       const projects = await this.projectResolver.resolveAll();
       timing.resolveProjectsMs = performance.now() - resolveStart;
+      console.log(`[AUDIT:${Date.now()}] TSC.runScan() ProjectResolver.resolveAll() returned ${projects.length} projects in ${timing.resolveProjectsMs.toFixed(0)}ms`);
       if (signal.aborted) {
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
+        console.log(`[AUDIT:${Date.now()}] TSC.runScan() EARLY RETURN — signal aborted after resolve`);
         return [];
       }
 
       if (projects.length === 0) {
         const msg = 'No tsconfig.json found or TypeScript not available in workspace.';
-        console.log(`[TSC] ${msg}`);
+        console.log(`[AUDIT:${Date.now()}] TSC.runScan() EARLY RETURN — ${msg}`);
         this._lastScanErrors.push({ tsconfigPath: '', message: msg });
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: msg });
         return [];
       }
 
-      console.log(`[TSC] Resolved ${projects.length} TypeScript project(s) from tsconfig.json`);
-
       const tscStart = performance.now();
       const semaphore = this.makeSemaphore(this._maxConcurrentScans);
+      let totalDiagsParsed = 0;
       await Promise.all(projects.map(async (project) => {
         await semaphore.acquire();
         if (signal.aborted) {
@@ -254,9 +264,8 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         const projectLabel = path.basename(project.projectRoot);
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: `Scanning ${projectLabel}...`, detail: project.tsconfigPath });
 
-        console.log(`[TSC] Running project: ${project.tsconfigPath}`);
-        console.log(`[TSC]   typescriptPath: ${project.typescriptPath}`);
-        console.log(`[TSC]   typescriptVersion: ${project.typescriptVersion}`);
+        const runnerStart = performance.now();
+        console.log(`[AUDIT:${Date.now()}] TSC.runScan() Running tsc for project=${project.tsconfigPath}`);
 
         this._currentProject = project.projectRoot;
 
@@ -270,7 +279,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         let result;
         try {
           result = await this.tscRunner.run(options);
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() tscRunner.run() completed in ${(performance.now() - runnerStart).toFixed(0)}ms exitCode=${result.exitCode} cancelled=${result.cancelled} timedOut=${result.timedOut} stdout=${result.stdout.length}chars stderr=${result.stderr.length}chars`);
         } catch (err: unknown) {
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() tscRunner.run() THREW: ${err instanceof Error ? err.message : String(err)}`);
           this._lastScanErrors.push({
             tsconfigPath: project.tsconfigPath,
             message: err instanceof Error ? err.message : String(err),
@@ -281,12 +292,14 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         }
 
         if (result.cancelled) {
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() SKIP — runner cancelled`);
           this._currentProject = undefined;
           semaphore.release();
           return;
         }
 
         if (result.timedOut) {
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() SKIP — runner timed out`);
           this._lastScanErrors.push({
             tsconfigPath: project.tsconfigPath,
             message: result.error ?? 'Timed out',
@@ -297,6 +310,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         }
 
         if (result.error) {
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() SKIP — runner error: ${result.error}`);
           this._lastScanErrors.push({
             tsconfigPath: project.tsconfigPath,
             message: result.error,
@@ -307,6 +321,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         }
 
         if (result.exitCode !== 0 && this.isConfigError(result)) {
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() SKIP — config error exitCode=${result.exitCode}`);
           this._lastScanErrors.push({
             tsconfigPath: project.tsconfigPath,
             message: result.stderr || result.stdout || `tsc exited with code ${result.exitCode}`,
@@ -321,10 +336,16 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         const combined = result.stderr + '\n' + result.stdout;
         const parseStart = performance.now();
         const parsed = this.outputParser.parse(combined);
-        timing.parseMs += performance.now() - parseStart;
+        const parseMs = performance.now() - parseStart;
+        timing.parseMs += parseMs;
+        console.log(`[AUDIT:${Date.now()}] TSC.runScan() outputParser.parse() returned ${parsed.length} diagnostics in ${parseMs.toFixed(0)}ms`);
 
+        totalDiagsParsed += parsed.length;
+
+        const fileCount = new Set<string>();
         for (const diag of parsed) {
           const fileKey = path.resolve(diag.file);
+          fileCount.add(fileKey);
           const existing = allDiagnostics.get(fileKey);
           if (existing) {
             existing.push(diag);
@@ -332,11 +353,13 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
             allDiagnostics.set(fileKey, [diag]);
           }
         }
+        console.log(`[AUDIT:${Date.now()}] TSC.runScan() aggregated ${parsed.length} diags across ${fileCount.size} files for project=${projectLabel}`);
 
         this._currentProject = undefined;
         semaphore.release();
       }));
       timing.tscRunsMs = performance.now() - tscStart;
+      console.log(`[AUDIT:${Date.now()}] TSC.runScan() all projects done in ${timing.tscRunsMs.toFixed(0)}ms total parsed=${totalDiagsParsed} total files=${allDiagnostics.size}`);
 
       this.abortController = undefined;
 
@@ -345,6 +368,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       const writeStart = performance.now();
       const result = this.writeToStore(allDiagnostics);
       timing.storeWriteMs = performance.now() - writeStart;
+      console.log(`[AUDIT:${Date.now()}] TSC.runScan() writeToStore returned ${result.length} changed URIs in ${timing.storeWriteMs.toFixed(0)}ms`);
 
       timing.totalMs = performance.now() - scanStart;
       this._lastScanDurationMs = timing.totalMs;
@@ -352,20 +376,23 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
       if (result.length === 0 && this._lastScanErrors.length > 0) {
         for (const e of this._lastScanErrors) {
-          console.log(`[LOG:TSC-error] ${e.tsconfigPath || '(workspace)'} — ${e.message}`);
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() error: ${e.tsconfigPath || '(workspace)'} — ${e.message}`);
         }
       }
 
       this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: `Completed in ${timing.totalMs.toFixed(0)}ms` });
+      console.log(`[AUDIT:${Date.now()}] TSC.runScan() RETURN ${result.length} changed URIs (totalMs=${timing.totalMs.toFixed(0)}ms)`);
 
       return result;
     } finally {
       this._scanning = false;
       this._currentProject = undefined;
+      console.log(`[AUDIT:${Date.now()}] TSC.runScan() finally _scanning=false _pendingRefresh=${this._pendingRefresh}`);
       if (this._pendingRefresh) {
         this._pendingRefresh = false;
         const changed = await this.runScan();
         if (!this._disposed && changed.length > 0) {
+          console.log(`[AUDIT:${Date.now()}] TSC.runScan() pending refresh completed: ${changed.length} URIs`);
           this._onDidUpdate.fire(changed);
         }
       }
@@ -395,16 +422,26 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   private writeToStore(diagnostics: Map<string, TscDiagnostic[]>): Uri[] {
+    const ts = Date.now();
+    console.log(`[AUDIT:${ts}] TSC.writeToStore() ENTER diagFiles=${diagnostics.size} provider="${this.name}"`);
     const changed: Uri[] = [];
+    let accepted = 0;
+    let rejected = 0;
 
     for (const [filePath, fileDiags] of diagnostics) {
       const state = this.aggregateFileState(fileDiags);
       const uri = Uri.file(filePath);
-      if (this._store.set(uri, state, this.name)) {
+      const result = this._store.set(uri, state, this.name);
+      console.log(`[AUDIT:${Date.now()}] TSC.writeToStore() file="${filePath}" diags=${fileDiags.length} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount} store.set()=${result}`);
+      if (result) {
         changed.push(uri);
+        accepted++;
+      } else {
+        rejected++;
       }
     }
 
+    console.log(`[AUDIT:${Date.now()}] TSC.writeToStore() RETURN accepted=${accepted} rejected=${rejected} changed=${changed.length}`);
     return changed;
   }
 

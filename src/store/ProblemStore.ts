@@ -34,21 +34,26 @@ export class ProblemStore {
   }
 
   set(uri: Uri, state: ProblemState, providerName?: string): boolean {
+    const ts = Date.now();
     const key = normalizeUriKey(uri);
+    console.log(`[AUDIT:${ts}] STORE.set() ENTER uri=${uri.fsPath} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
     if (providerName !== undefined) {
       const currentOwner = this.ownerByKey.get(key);
       if (currentOwner !== undefined) {
         const currentPriority = this.providerPriorities.get(currentOwner) ?? -1;
         const newPriority = this.providerPriorities.get(providerName) ?? -1;
         if (newPriority < currentPriority) {
-          console.log(`[LOG:STORE] Step5: set() REJECTED — lower priority ${providerName} (${newPriority}) < ${currentOwner} (${currentPriority}) for ${key}`);
+          console.log(`[AUDIT:${Date.now()}] STORE.set() REJECTED — lower priority provider="${providerName}" (pri=${newPriority}) < currentOwner="${currentOwner}" (pri=${currentPriority}) key=${key}`);
           return false;
         }
+        console.log(`[AUDIT:${Date.now()}] STORE.set() priority OK — provider="${providerName}" (pri=${newPriority}) >= currentOwner="${currentOwner}" (pri=${currentPriority})`);
+      } else {
+        console.log(`[AUDIT:${Date.now()}] STORE.set() no current owner for key=${key} — provider="${providerName}" will own it`);
       }
     }
     const old = this.storage.get(key);
     if (old !== undefined && !this.hasChanged(old, state)) {
-      console.log(`[LOG:STORE] Step5: set() SKIPPED — unchanged state for ${key}`);
+      console.log(`[AUDIT:${Date.now()}] STORE.set() SKIPPED — unchanged state key=${key} oldSeverity=${old.severity} newSeverity=${state.severity} oldErrors=${old.errorCount} newErrors=${state.errorCount}`);
       return false;
     }
     const existed = old !== undefined;
@@ -65,12 +70,12 @@ export class ProblemStore {
       this.ownerByKey.set(key, providerName);
     }
     this.version++;
-    console.log(`[LOG:STORE] Step5: set() ${existed ? 'UPDATED' : 'ADDED'} key=${key} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
+    console.log(`[AUDIT:${Date.now()}] STORE.set() ${existed ? 'UPDATED' : 'ADDED'} key=${key} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
     if (this.batchDepth === 0) {
-      console.log(`[LOG:STORE] Step6: _onDidChange.fire(${existed ? 'updated' : 'added'}) uri=${uri.fsPath}`);
+      console.log(`[AUDIT:${Date.now()}] STORE.set() firing _onDidChange(${existed ? 'updated' : 'added'}) uri=${uri.fsPath}`);
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
     } else {
-      console.log(`[LOG:STORE] Step6: _onDidChange.fire() DEFERRED — batchDepth=${this.batchDepth}`);
+      console.log(`[AUDIT:${Date.now()}] STORE.set() _onDidChange DEFERRED — batchDepth=${this.batchDepth}`);
     }
     return true;
   }
