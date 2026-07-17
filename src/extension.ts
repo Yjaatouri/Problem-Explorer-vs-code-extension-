@@ -65,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
           return editor ? editor.document.uri.toString() === uri.toString() : false;
         },
       },
-      (ext) => diagProviderManager.canProviderProcess('vscodeDiagnostics', ext),
+      (ext) => !diagProviderManager.getOwner(ext),
       log,
     );
     const decorationEngine = new DecorationEngine(problemStore, {

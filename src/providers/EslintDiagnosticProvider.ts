@@ -151,16 +151,20 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     return new Promise<void>((resolve) => {
       this._debounceTimer = setTimeout(async () => {
         this._debounceTimer = undefined;
-        const changed = await this.runScan();
-        console.log(`[LOG:ESLINT-refresh] runScan returned changed.length=${changed.length}`);
-        if (!this._disposed && changed.length > 0) {
-          chainCounters.providerRunScanReturned++;
-          console.log(`[LOG:ESLINT-refresh] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
-          this._onDidUpdate.fire(changed);
-          chainCounters.providerOnDidUpdateFired++;
-          console.log(`[LOG:ESLINT-refresh] AFTER _onDidUpdate.fire()`);
-        } else {
-          console.log(`[LOG:ESLINT-refresh] changed.length=0 OR disposed → SKIPPING _onDidUpdate.fire()`);
+        try {
+          const changed = await this.runScan();
+          console.log(`[LOG:ESLINT-refresh] runScan returned changed.length=${changed.length}`);
+          if (!this._disposed && changed.length > 0) {
+            chainCounters.providerRunScanReturned++;
+            console.log(`[LOG:ESLINT-refresh] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
+            this._onDidUpdate.fire(changed);
+            chainCounters.providerOnDidUpdateFired++;
+            console.log(`[LOG:ESLINT-refresh] AFTER _onDidUpdate.fire()`);
+          } else {
+            console.log(`[LOG:ESLINT-refresh] changed.length=0 OR disposed → SKIPPING _onDidUpdate.fire()`);
+          }
+        } catch (err) {
+          console.log(`[LOG:ESLINT-refresh] runScan threw: ${err instanceof Error ? err.message : String(err)}`);
         }
         resolve();
       }, this.refreshDebounceMs);

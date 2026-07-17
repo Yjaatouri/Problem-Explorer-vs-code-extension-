@@ -158,16 +158,20 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     return new Promise<void>((resolve) => {
       this._debounceTimer = setTimeout(async () => {
         this._debounceTimer = undefined;
-        const changed = await this.runScan();
-        console.log(`[LOG:TSC-refresh] runScan returned changed.length=${changed.length}`);
-        if (changed.length > 0) {
-          chainCounters.providerRunScanReturned++;
-          console.log(`[LOG:TSC-refresh] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
-          this._onDidUpdate.fire(changed);
-          chainCounters.providerOnDidUpdateFired++;
-          console.log(`[LOG:TSC-refresh] AFTER _onDidUpdate.fire()`);
-        } else {
-          console.log(`[LOG:TSC-refresh] changed.length=0 → SKIPPING _onDidUpdate.fire()`);
+        try {
+          const changed = await this.runScan();
+          console.log(`[LOG:TSC-refresh] runScan returned changed.length=${changed.length}`);
+          if (changed.length > 0 && !this._disposed) {
+            chainCounters.providerRunScanReturned++;
+            console.log(`[LOG:TSC-refresh] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
+            this._onDidUpdate.fire(changed);
+            chainCounters.providerOnDidUpdateFired++;
+            console.log(`[LOG:TSC-refresh] AFTER _onDidUpdate.fire()`);
+          } else {
+            console.log(`[LOG:TSC-refresh] changed.length=0 OR disposed → SKIPPING _onDidUpdate.fire()`);
+          }
+        } catch (err) {
+          console.log(`[LOG:TSC-refresh] runScan threw: ${err instanceof Error ? err.message : String(err)}`);
         }
         resolve();
       }, this.refreshDebounceMs);

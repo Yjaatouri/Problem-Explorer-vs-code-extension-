@@ -127,6 +127,8 @@ export class AutoScanController implements Disposable {
           result.then(() => {
             this.log(`[AUTO-SCAN] ${name} scan completed`);
             this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
+          }).catch((err: Error) => {
+            this.log(`[AUTO-SCAN] ${name} scan failed: ${err.message ?? String(err)}`);
           }),
         );
       } else {
