@@ -293,138 +293,154 @@ export class StoreMonitor {
       if (self.reentrant > 0) return self.originalSet(uri, state, providerName);
 
       if (!uri) {
-        self.reportAssertion('nullUri', 'set() called with null/undefined URI');
+        self.safeReportAssertion('nullUri', 'set() called with null/undefined URI');
         return self.originalSet(uri, state, providerName);
       }
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
-      const uriStr = uri.toString();
-      const normKey = normalizeUriKey(uri);
-      const ownerBefore = self.store.getOwningProvider(uri);
-      const stateBefore = self.store.get(uri);
-      const severityBefore = stateBefore?.severity;
-      const errorCountBefore = stateBefore?.errorCount ?? 0;
-      const warningCountBefore = stateBefore?.warningCount ?? 0;
-      const infoCountBefore = stateBefore?.infoCount ?? 0;
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
+        const uriStr = uri.toString();
+        const normKey = normalizeUriKey(uri);
+        const ownerBefore = self.store.getOwningProvider(uri);
+        const stateBefore = self.store.get(uri);
+        const severityBefore = stateBefore?.severity;
+        const errorCountBefore = stateBefore?.errorCount ?? 0;
+        const warningCountBefore = stateBefore?.warningCount ?? 0;
+        const infoCountBefore = stateBefore?.infoCount ?? 0;
 
-      const accepted = self.originalSet(uri, state, providerName);
-      const executionTimeMs = Date.now() - start;
+        const accepted = self.originalSet(uri, state, providerName);
+        const executionTimeMs = Date.now() - start;
 
-      if (accepted) {
-        const ownerAfter = self.store.getOwningProvider(uri);
-        const stateAfter = self.store.get(uri);
-        const severityAfter = stateAfter?.severity;
-        const errorCountAfter = stateAfter?.errorCount ?? 0;
-        const warningCountAfter = stateAfter?.warningCount ?? 0;
-        const infoCountAfter = stateAfter?.infoCount ?? 0;
+        try {
+          if (accepted) {
+            const ownerAfter = self.store.getOwningProvider(uri);
+            const stateAfter = self.store.get(uri);
+            const severityAfter = stateAfter?.severity;
+            const errorCountAfter = stateAfter?.errorCount ?? 0;
+            const warningCountAfter = stateAfter?.warningCount ?? 0;
+            const infoCountAfter = stateAfter?.infoCount ?? 0;
 
-        const hasChanged = self.hasStateChanged(stateBefore, state);
+            const hasChanged = self.hasStateChanged(stateBefore, state);
 
-        self.totalWrites++;
-        self.setDurationSum += executionTimeMs;
-        self.setDurationCount++;
-        if (self.batchStartTime > 0) self.batchWriteCount++;
+            self.totalWrites++;
+            self.setDurationSum += executionTimeMs;
+            self.setDurationCount++;
+            if (self.batchStartTime > 0) self.batchWriteCount++;
 
-        self.reporter.report({
-          type: 'store.set',
-          timestamp: start,
-          traceId,
-          source: 'StoreMonitor',
-          uri: uriStr,
-          provider: providerName,
-          ownerBefore,
-          ownerAfter,
-          stateBefore,
-          stateAfter,
-          severityBefore,
-          severityAfter,
-          errorCountBefore,
-          warningCountBefore,
-          infoCountBefore,
-          errorCountAfter,
-          warningCountAfter,
-          infoCountAfter,
-          hasChanged,
-          accepted: true,
-          executionTimeMs,
-        } as any);
-
-        /* Ownership tracking */
-        if (providerName !== undefined) {
-          if (!ownerBefore) {
-            self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
-            self.ownedUris.set(normKey, providerName);
-            self.reporter.report({
-              type: 'store.ownership.acquired',
+            self.safeReport({
+              type: 'store.set',
               timestamp: start,
               traceId,
               source: 'StoreMonitor',
               uri: uriStr,
               provider: providerName,
-              priority: self.store.getProviderPriority(providerName),
-            } as any);
-          } else if (ownerBefore !== providerName) {
-            self.totalOwnershipConflicts++;
-            if (self.batchStartTime > 0) self.batchConflictCount++;
-            self.decrementOwnerCount(ownerBefore);
-            self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
-            self.ownedUris.set(normKey, providerName);
-            self.reporter.report({
-              type: 'store.ownership.transferred',
+              ownerBefore,
+              ownerAfter,
+              stateBefore,
+              stateAfter,
+              severityBefore,
+              severityAfter,
+              errorCountBefore,
+              warningCountBefore,
+              infoCountBefore,
+              errorCountAfter,
+              warningCountAfter,
+              infoCountAfter,
+              hasChanged,
+              accepted: true,
+              executionTimeMs,
+            });
+
+            /* Ownership tracking */
+            if (providerName !== undefined) {
+              if (!ownerBefore) {
+                self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
+                self.ownedUris.set(normKey, providerName);
+                self.safeReport({
+                  type: 'store.ownership.acquired',
+                  timestamp: start,
+                  traceId,
+                  source: 'StoreMonitor',
+                  uri: uriStr,
+                  provider: providerName,
+                  priority: self.store.getProviderPriority(providerName),
+                });
+              } else if (ownerBefore !== providerName) {
+                self.totalOwnershipConflicts++;
+                if (self.batchStartTime > 0) self.batchConflictCount++;
+                self.decrementOwnerCount(ownerBefore);
+                self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
+                self.ownedUris.set(normKey, providerName);
+                self.safeReport({
+                  type: 'store.ownership.transferred',
+                  timestamp: start,
+                  traceId,
+                  source: 'StoreMonitor',
+                  uri: uriStr,
+                  fromProvider: ownerBefore,
+                  toProvider: providerName,
+                  fromPriority: self.store.getProviderPriority(ownerBefore),
+                  toPriority: self.store.getProviderPriority(providerName),
+                });
+              }
+            }
+          } else {
+            self.totalRejected++;
+            if (self.batchStartTime > 0) self.batchRejectedCount++;
+
+            /* Determine rejection reason */
+            let reason: { reason: 'ownership' | 'unchanged' | 'invalidData' | 'unknown'; detail: string };
+            try {
+              reason = self.determineRejectReason(providerName, ownerBefore, state, stateBefore);
+            } catch (reasonErr) {
+              reason = { reason: 'unknown', detail: `determineRejectReason threw: ${reasonErr instanceof Error ? reasonErr.message : String(reasonErr)}` };
+            }
+            self.safeReport({
+              type: 'store.setRejected',
               timestamp: start,
               traceId,
               source: 'StoreMonitor',
               uri: uriStr,
-              fromProvider: ownerBefore,
-              toProvider: providerName,
-              fromPriority: self.store.getProviderPriority(ownerBefore),
-              toPriority: self.store.getProviderPriority(providerName),
-            } as any);
+              provider: providerName ?? 'unknown',
+              requestedState: state,
+              currentOwner: ownerBefore,
+              currentOwnerPriority: ownerBefore ? self.store.getProviderPriority(ownerBefore) : -1,
+              requesterPriority: providerName ? self.store.getProviderPriority(providerName) : -1,
+              reason: reason.reason,
+              detail: reason.detail,
+              executionTimeMs,
+            });
+
+            /* Ownership rejection event */
+            if (reason.reason === 'ownership' && ownerBefore && providerName) {
+              self.safeReport({
+                type: 'store.ownership.rejected',
+                timestamp: start,
+                traceId,
+                source: 'StoreMonitor',
+                uri: uriStr,
+                requester: providerName,
+                currentOwner: ownerBefore,
+                requesterPriority: self.store.getProviderPriority(providerName),
+                currentOwnerPriority: self.store.getProviderPriority(ownerBefore),
+              });
+            }
           }
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `set wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
-      } else {
-        self.totalRejected++;
-        if (self.batchStartTime > 0) self.batchRejectedCount++;
 
-        /* Determine rejection reason */
-        const reason = self.determineRejectReason(providerName, ownerBefore, state, stateBefore);
-        self.reporter.report({
-          type: 'store.setRejected',
-          timestamp: start,
-          traceId,
-          source: 'StoreMonitor',
-          uri: uriStr,
-          provider: providerName ?? 'unknown',
-          requestedState: state,
-          currentOwner: ownerBefore,
-          currentOwnerPriority: ownerBefore ? self.store.getProviderPriority(ownerBefore) : -1,
-          requesterPriority: providerName ? self.store.getProviderPriority(providerName) : -1,
-          reason: reason.reason,
-          detail: reason.detail,
-          executionTimeMs,
-        } as any);
-
-        /* Ownership rejection event */
-        if (reason.reason === 'ownership' && ownerBefore && providerName) {
-          self.reporter.report({
-            type: 'store.ownership.rejected',
-            timestamp: start,
-            traceId,
-            source: 'StoreMonitor',
-            uri: uriStr,
-            requester: providerName,
-            currentOwner: ownerBefore,
-            requesterPriority: self.store.getProviderPriority(providerName),
-            currentOwnerPriority: self.store.getProviderPriority(ownerBefore),
-          } as any);
+        try {
+          self.sampleAssertions();
+        } catch {
+          /* sampleAssertions already self-protects; swallow defensively */
         }
+        return accepted;
+      } finally {
+        self.reentrant--;
       }
-
-      self.sampleAssertions();
-      self.reentrant--;
-      return accepted;
     };
 
     /* — delete() — */
@@ -433,49 +449,60 @@ export class StoreMonitor {
       if (self.reentrant > 0) return self.originalDelete(uri);
 
       if (!uri) {
-        self.reportAssertion('nullUri', 'delete() called with null/undefined URI');
+        self.safeReportAssertion('nullUri', 'delete() called with null/undefined URI');
         return self.originalDelete(uri);
       }
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
-      const uriStr = uri.toString();
-      const normKey = normalizeUriKey(uri);
-      const stateBefore = self.store.get(uri);
-      const ownerBefore = self.store.getOwningProvider(uri);
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
+        const uriStr = uri.toString();
+        const normKey = normalizeUriKey(uri);
+        const stateBefore = self.store.get(uri);
+        const ownerBefore = self.store.getOwningProvider(uri);
 
-      const accepted = self.originalDelete(uri);
-      const executionTimeMs = Date.now() - start;
+        const accepted = self.originalDelete(uri);
+        const executionTimeMs = Date.now() - start;
 
-      self.reporter.report({
-        type: 'store.delete',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        uri: uriStr,
-        stateBefore,
-        ownerBefore,
-        accepted,
-        executionTimeMs,
-      } as any);
+        try {
+          self.safeReport({
+            type: 'store.delete',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            uri: uriStr,
+            stateBefore,
+            ownerBefore,
+            accepted,
+            executionTimeMs,
+          });
 
-      if (accepted && ownerBefore) {
-        self.decrementOwnerCount(ownerBefore);
-        self.ownedUris.delete(normKey);
-        self.reporter.report({
-          type: 'store.ownership.released',
-          timestamp: start,
-          traceId,
-          source: 'StoreMonitor',
-          uri: uriStr,
-          provider: ownerBefore,
-        } as any);
+          if (accepted && ownerBefore) {
+            self.decrementOwnerCount(ownerBefore);
+            self.ownedUris.delete(normKey);
+            self.safeReport({
+              type: 'store.ownership.released',
+              timestamp: start,
+              traceId,
+              source: 'StoreMonitor',
+              uri: uriStr,
+              provider: ownerBefore,
+            });
+          }
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `delete wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
+
+        try {
+          self.sampleAssertions();
+        } catch {
+          /* swallow defensively */
+        }
+        return accepted;
+      } finally {
+        self.reentrant--;
       }
-
-      self.sampleAssertions();
-      self.reentrant--;
-      return accepted;
     };
 
     /* — clear() — */
@@ -484,34 +511,45 @@ export class StoreMonitor {
       if (self.reentrant > 0) { self.originalClear(); return; }
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
-      const entryCountBefore = self.store.size();
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
+        const entryCountBefore = self.store.size();
 
-      self.originalClear();
-      const executionTimeMs = Date.now() - start;
+        self.originalClear();
+        const executionTimeMs = Date.now() - start;
 
-      /* Reset monitor state to reflect empty store */
-      self.totalWrites = 0;
-      self.totalRejected = 0;
-      self.totalOwnershipConflicts = 0;
-      self.setDurationSum = 0;
-      self.setDurationCount = 0;
-      self.batchCount = 0;
-      self.ownerCounts.clear();
-      self.ownedUris.clear();
+        try {
+          /* Reset monitor state to reflect empty store */
+          self.totalWrites = 0;
+          self.totalRejected = 0;
+          self.totalOwnershipConflicts = 0;
+          self.setDurationSum = 0;
+          self.setDurationCount = 0;
+          self.batchCount = 0;
+          self.ownerCounts.clear();
+          self.ownedUris.clear();
 
-      self.reporter.report({
-        type: 'store.clear',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        entryCountBefore,
-        executionTimeMs,
-      } as any);
+          self.safeReport({
+            type: 'store.clear',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            entryCountBefore,
+            executionTimeMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `clear wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
 
-      self.sampleAssertions();
-      self.reentrant--;
+        try {
+          self.sampleAssertions();
+        } catch {
+          /* swallow defensively */
+        }
+      } finally {
+        self.reentrant--;
+      }
     };
 
     /* — beginBatch() — */
@@ -520,21 +558,28 @@ export class StoreMonitor {
       if (self.reentrant > 0) { self.originalBeginBatch(); return; }
 
       self.reentrant++;
-      const traceId = generateTraceId();
-      self.batchStartTime = Date.now();
-      self.batchWriteCount = 0;
-      self.batchRejectedCount = 0;
-      self.batchConflictCount = 0;
+      try {
+        const traceId = generateTraceId();
+        self.batchStartTime = Date.now();
+        self.batchWriteCount = 0;
+        self.batchRejectedCount = 0;
+        self.batchConflictCount = 0;
 
-      self.originalBeginBatch();
+        self.originalBeginBatch();
 
-      self.reporter.report({
-        type: 'store.beginBatch',
-        timestamp: self.batchStartTime,
-        traceId,
-        source: 'StoreMonitor',
-      } as any);
-      self.reentrant--;
+        try {
+          self.safeReport({
+            type: 'store.beginBatch',
+            timestamp: self.batchStartTime,
+            traceId,
+            source: 'StoreMonitor',
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `beginBatch wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
+      } finally {
+        self.reentrant--;
+      }
     };
 
     /* — endBatch() — */
@@ -543,31 +588,42 @@ export class StoreMonitor {
       if (self.reentrant > 0) { self.originalEndBatch(); return; }
 
       self.reentrant++;
-      const traceId = generateTraceId();
-      const now = Date.now();
-      const durationMs = self.batchStartTime > 0 ? now - self.batchStartTime : 0;
-      const writes = self.batchWriteCount;
-      const rejectedWrites = self.batchRejectedCount;
-      const ownershipConflicts = self.batchConflictCount;
+      try {
+        const traceId = generateTraceId();
+        const now = Date.now();
+        const durationMs = self.batchStartTime > 0 ? now - self.batchStartTime : 0;
+        const writes = self.batchWriteCount;
+        const rejectedWrites = self.batchRejectedCount;
+        const ownershipConflicts = self.batchConflictCount;
 
-      self.originalEndBatch();
+        self.originalEndBatch();
 
-      self.batchCount++;
-      self.batchStartTime = 0;
+        try {
+          self.batchCount++;
+          self.batchStartTime = 0;
 
-      self.reporter.report({
-        type: 'store.endBatch',
-        timestamp: now,
-        traceId,
-        source: 'StoreMonitor',
-        writes,
-        rejectedWrites,
-        ownershipConflicts,
-        durationMs,
-      } as any);
+          self.safeReport({
+            type: 'store.endBatch',
+            timestamp: now,
+            traceId,
+            source: 'StoreMonitor',
+            writes,
+            rejectedWrites,
+            ownershipConflicts,
+            durationMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `endBatch wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
 
-      self.sampleAssertions();
-      self.reentrant--;
+        try {
+          self.sampleAssertions();
+        } catch {
+          /* swallow defensively */
+        }
+      } finally {
+        self.reentrant--;
+      }
     };
 
     /* — configureProvider() — */
@@ -576,22 +632,29 @@ export class StoreMonitor {
       if (self.reentrant > 0) { self.originalConfigureProvider(providerName, priority); return; }
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
 
-      self.originalConfigureProvider(providerName, priority);
-      const executionTimeMs = Date.now() - start;
+        self.originalConfigureProvider(providerName, priority);
+        const executionTimeMs = Date.now() - start;
 
-      self.reporter.report({
-        type: 'store.configureProvider',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        providerName,
-        priority,
-        executionTimeMs,
-      } as any);
-      self.reentrant--;
+        try {
+          self.safeReport({
+            type: 'store.configureProvider',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            providerName,
+            priority,
+            executionTimeMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `configureProvider wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
+      } finally {
+        self.reentrant--;
+      }
     };
 
     /* — releaseOwnership() — */
@@ -600,33 +663,40 @@ export class StoreMonitor {
       if (self.reentrant > 0) { self.originalReleaseOwnership(providerName); return; }
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
-      const releasedCount = self.ownerCounts.get(providerName) ?? 0;
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
+        const releasedCount = self.ownerCounts.get(providerName) ?? 0;
 
-      self.originalReleaseOwnership(providerName);
-      const executionTimeMs = Date.now() - start;
+        self.originalReleaseOwnership(providerName);
+        const executionTimeMs = Date.now() - start;
 
-      /* Reset ownership tracking for this provider */
-      self.ownerCounts.delete(providerName);
-      const staleKeys: string[] = [];
-      for (const [u, p] of self.ownedUris) {
-        if (p === providerName) staleKeys.push(u);
+        try {
+          /* Reset ownership tracking for this provider */
+          self.ownerCounts.delete(providerName);
+          const staleKeys: string[] = [];
+          for (const [u, p] of self.ownedUris) {
+            if (p === providerName) staleKeys.push(u);
+          }
+          for (const key of staleKeys) {
+            self.ownedUris.delete(key);
+          }
+
+          self.safeReport({
+            type: 'store.releaseOwnership',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            providerName,
+            releasedKeys: releasedCount,
+            executionTimeMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `releaseOwnership wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
+      } finally {
+        self.reentrant--;
       }
-      for (const key of staleKeys) {
-        self.ownedUris.delete(key);
-      }
-
-      self.reporter.report({
-        type: 'store.releaseOwnership',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        providerName,
-        releasedKeys: releasedCount,
-        executionTimeMs,
-      } as any);
-      self.reentrant--;
     };
 
     /* — setFolderAggregate() — */
@@ -635,36 +705,47 @@ export class StoreMonitor {
       if (self.reentrant > 0) return self.originalSetFolderAggregate(uri, state);
 
       if (!uri) {
-        self.reportAssertion('nullUri', 'setFolderAggregate() called with null/undefined URI');
+        self.safeReportAssertion('nullUri', 'setFolderAggregate() called with null/undefined URI');
         return self.originalSetFolderAggregate(uri, state);
       }
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
-      const uriStr = uri.toString();
-      const stateBefore = self.store.get(uri);
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
+        const uriStr = uri.toString();
+        const stateBefore = self.store.get(uri);
 
-      const accepted = self.originalSetFolderAggregate(uri, state);
-      const executionTimeMs = Date.now() - start;
+        const accepted = self.originalSetFolderAggregate(uri, state);
+        const executionTimeMs = Date.now() - start;
 
-      const stateAfter = self.store.get(uri);
+        const stateAfter = self.store.get(uri);
 
-      self.reporter.report({
-        type: 'store.setFolderAggregate',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        uri: uriStr,
-        stateBefore,
-        stateAfter,
-        accepted,
-        executionTimeMs,
-      } as any);
+        try {
+          self.safeReport({
+            type: 'store.setFolderAggregate',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            uri: uriStr,
+            stateBefore,
+            stateAfter,
+            accepted,
+            executionTimeMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `setFolderAggregate wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
 
-      self.sampleAssertions();
-      self.reentrant--;
-      return accepted;
+        try {
+          self.sampleAssertions();
+        } catch {
+          /* swallow defensively */
+        }
+        return accepted;
+      } finally {
+        self.reentrant--;
+      }
     };
 
     /* — deleteByPrefix() — */
@@ -673,36 +754,43 @@ export class StoreMonitor {
       if (self.reentrant > 0) return self.originalDeleteByPrefix(prefix);
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
 
-      const deletedCount = self.originalDeleteByPrefix(prefix);
-      const executionTimeMs = Date.now() - start;
+        const deletedCount = self.originalDeleteByPrefix(prefix);
+        const executionTimeMs = Date.now() - start;
 
-      /* Clear ownership tracking for all matching entries */
-      const prefixSlash = prefix + '/';
-      const staleKeys: string[] = [];
-      for (const [key, provider] of self.ownedUris) {
-        if (key === prefix || key.startsWith(prefixSlash)) {
-          staleKeys.push(key);
-          self.decrementOwnerCount(provider);
+        try {
+          /* Clear ownership tracking for all matching entries */
+          const prefixSlash = prefix + '/';
+          const staleKeys: string[] = [];
+          for (const [key, provider] of self.ownedUris) {
+            if (key === prefix || key.startsWith(prefixSlash)) {
+              staleKeys.push(key);
+              self.decrementOwnerCount(provider);
+            }
+          }
+          for (const key of staleKeys) {
+            self.ownedUris.delete(key);
+          }
+
+          self.safeReport({
+            type: 'store.deleteByPrefix',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            prefix,
+            deletedCount,
+            executionTimeMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `deleteByPrefix wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
+        return deletedCount;
+      } finally {
+        self.reentrant--;
       }
-      for (const key of staleKeys) {
-        self.ownedUris.delete(key);
-      }
-
-      self.reporter.report({
-        type: 'store.deleteByPrefix',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        prefix,
-        deletedCount,
-        executionTimeMs,
-      } as any);
-      self.reentrant--;
-      return deletedCount;
     };
 
     /* — movePrefix() — */
@@ -711,40 +799,47 @@ export class StoreMonitor {
       if (self.reentrant > 0) return self.originalMovePrefix(oldPrefix, newPrefix);
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
 
-      const movedCount = self.originalMovePrefix(oldPrefix, newPrefix);
-      const executionTimeMs = Date.now() - start;
+        const movedCount = self.originalMovePrefix(oldPrefix, newPrefix);
+        const executionTimeMs = Date.now() - start;
 
-      /* Re-key ownership tracking for moved entries */
-      if (oldPrefix !== newPrefix) {
-        const oldPrefixSlash = oldPrefix + '/';
-        const rekey: [string, string, string][] = [];
-        for (const [key, provider] of self.ownedUris) {
-          if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
-            const newKey = newPrefix + key.slice(oldPrefix.length);
-            rekey.push([key, newKey, provider]);
+        try {
+          /* Re-key ownership tracking for moved entries */
+          if (oldPrefix !== newPrefix) {
+            const oldPrefixSlash = oldPrefix + '/';
+            const rekey: [string, string, string][] = [];
+            for (const [key, provider] of self.ownedUris) {
+              if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
+                const newKey = newPrefix + key.slice(oldPrefix.length);
+                rekey.push([key, newKey, provider]);
+              }
+            }
+            for (const [oldKey, newKey, provider] of rekey) {
+              self.ownedUris.delete(oldKey);
+              self.ownedUris.set(newKey, provider);
+            }
           }
-        }
-        for (const [oldKey, newKey, provider] of rekey) {
-          self.ownedUris.delete(oldKey);
-          self.ownedUris.set(newKey, provider);
-        }
-      }
 
-      self.reporter.report({
-        type: 'store.movePrefix',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        oldPrefix,
-        newPrefix,
-        movedCount,
-        executionTimeMs,
-      } as any);
-      self.reentrant--;
-      return movedCount;
+          self.safeReport({
+            type: 'store.movePrefix',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            oldPrefix,
+            newPrefix,
+            movedCount,
+            executionTimeMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `movePrefix wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
+        return movedCount;
+      } finally {
+        self.reentrant--;
+      }
     };
 
     /* — unconfigureProvider() — */
@@ -753,21 +848,28 @@ export class StoreMonitor {
       if (self.reentrant > 0) { self.originalUnconfigureProvider(providerName); return; }
 
       self.reentrant++;
-      const start = Date.now();
-      const traceId = generateTraceId();
+      try {
+        const start = Date.now();
+        const traceId = generateTraceId();
 
-      self.originalUnconfigureProvider(providerName);
-      const executionTimeMs = Date.now() - start;
+        self.originalUnconfigureProvider(providerName);
+        const executionTimeMs = Date.now() - start;
 
-      self.reporter.report({
-        type: 'store.unconfigureProvider',
-        timestamp: start,
-        traceId,
-        source: 'StoreMonitor',
-        providerName,
-        executionTimeMs,
-      } as any);
-      self.reentrant--;
+        try {
+          self.safeReport({
+            type: 'store.unconfigureProvider',
+            timestamp: start,
+            traceId,
+            source: 'StoreMonitor',
+            providerName,
+            executionTimeMs,
+          });
+        } catch (telemetryErr) {
+          self.safeReportAssertion('telemetryException', `unconfigureProvider wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+        }
+      } finally {
+        self.reentrant--;
+      }
     };
   }
 
@@ -874,20 +976,20 @@ export class StoreMonitor {
       /* Check running totals */
       const totals = this.store.computeTotals();
       if (totals.errorCount < 0 || totals.warningCount < 0 || totals.infoCount < 0) {
-        this.reportAssertion('totals', `Negative running totals: ${totals.errorCount}e/${totals.warningCount}w/${totals.infoCount}i`);
+        this.safeReportAssertion('totals', `Negative running totals: ${totals.errorCount}e/${totals.warningCount}w/${totals.infoCount}i`);
       }
 
       if (negativeCounts > 0) {
-        this.reportAssertion('negativeCounts', `${negativeCounts} entries have negative counts`);
+        this.safeReportAssertion('negativeCounts', `${negativeCounts} entries have negative counts`);
       }
 
       if (badSeverity > 0) {
-        this.reportAssertion('invalidSeverity', `${badSeverity} entries have invalid severity`);
+        this.safeReportAssertion('invalidSeverity', `${badSeverity} entries have invalid severity`);
       }
 
       /* Check store size sanity */
       if (entryCount !== this.store.size()) {
-        this.reportAssertion('sizeMismatch', `forEachEntry yielded ${entryCount} entries but size() returns ${this.store.size()}`);
+        this.safeReportAssertion('sizeMismatch', `forEachEntry yielded ${entryCount} entries but size() returns ${this.store.size()}`);
       }
 
       /* Check owner missing: every file entry should have a tracked owner */
@@ -899,7 +1001,7 @@ export class StoreMonitor {
           }
         }
         if (missingOwner > 0) {
-          this.reportAssertion('ownerMissing', `${missingOwner} file entries have no tracked owner`);
+          this.safeReportAssertion('ownerMissing', `${missingOwner} file entries have no tracked owner`);
         }
 
         /* Check owner exists for ownedUris entries not in store (stale tracking) */
@@ -911,7 +1013,7 @@ export class StoreMonitor {
           }
         }
         if (staleEntries > 0) {
-          this.reportAssertion('staleOwnership', `${staleEntries} ownedUris entries are not in the store`);
+          this.safeReportAssertion('staleOwnership', `${staleEntries} ownedUris entries are not in the store`);
         }
       }
 
@@ -924,24 +1026,43 @@ export class StoreMonitor {
           if (!hasChild) orphanFolders++;
         });
         if (orphanFolders > 0) {
-          this.reportAssertion('emptyFolderAggregate', `${orphanFolders} folder aggregates have no file children`);
+          this.safeReportAssertion('emptyFolderAggregate', `${orphanFolders} folder aggregates have no file children`);
         }
       }
     } catch (err) {
-      this.reportAssertion('exception', `Assertion threw: ${err instanceof Error ? err.message : String(err)}`);
+      this.safeReportAssertion('exception', `Assertion threw: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  private reportAssertion(assertion: string, detail: string, uri?: string): void {
-    this.reporter.report({
-      type: 'store.assertion.failure',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'StoreMonitor',
-      assertion,
-      detail,
-      uri,
-    } as any);
+  /**
+   * Report a telemetry event without ever throwing.
+   * Used inside wrapper bodies so reporter failures cannot leak the reentrant counter.
+   */
+  private safeReport(event: any): void {
+    try {
+      this.reporter.report(event);
+    } catch {
+      /* swallow — telemetry must never break the store */
+    }
+  }
+
+  /**
+   * Report an assertion failure without ever throwing.
+   * Used in catch blocks where the reporter itself may be the source of failure.
+   */
+  private safeReportAssertion(assertion: string, detail: string): void {
+    try {
+      this.reporter.report({
+        type: 'store.assertion.failure',
+        timestamp: Date.now(),
+        traceId: generateTraceId(),
+        source: 'StoreMonitor',
+        assertion,
+        detail,
+      } as any);
+    } catch {
+      /* swallow */
+    }
   }
 
   /* ------------------------------------------------------------------ */
