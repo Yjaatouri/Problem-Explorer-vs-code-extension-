@@ -963,6 +963,24 @@ export class StoreMonitor {
         const executionTimeMs = Date.now() - start;
 
         try {
+          /* Clean up ownership tracking for this provider */
+          self.ownerCounts.delete(providerName);
+          const staleKeys: string[] = [];
+          for (const [u, p] of self.ownedUris) {
+            if (p === providerName) staleKeys.push(u);
+          }
+          for (const key of staleKeys) {
+            self.safeReport({
+              type: 'store.ownership.released',
+              timestamp: start,
+              traceId,
+              source: 'StoreMonitor',
+              uri: key,
+              provider: providerName,
+            });
+            self.ownedUris.delete(key);
+          }
+
           self.safeReport({
             type: 'store.unconfigureProvider',
             timestamp: start,
