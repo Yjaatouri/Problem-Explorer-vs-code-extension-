@@ -296,6 +296,10 @@ export class StoreMonitor {
         self.safeReportAssertion('nullUri', 'set() called with null/undefined URI');
         return self.originalSet(uri, state, providerName);
       }
+      if (state == null) {
+        self.safeReportAssertion('nullState', 'set() called with null/undefined state');
+        return self.originalSet(uri, state, providerName);
+      }
 
       self.reentrant++;
       try {
@@ -710,6 +714,10 @@ export class StoreMonitor {
 
       if (!uri) {
         self.safeReportAssertion('nullUri', 'setFolderAggregate() called with null/undefined URI');
+        return self.originalSetFolderAggregate(uri, state);
+      }
+      if (state == null) {
+        self.safeReportAssertion('nullState', 'setFolderAggregate() called with null/undefined state');
         return self.originalSetFolderAggregate(uri, state);
       }
 
