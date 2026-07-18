@@ -303,7 +303,19 @@
           "group": "navigation"
         }
       ]
-    }
+    },
+    "customEditors": [
+      {
+        "viewType": "problemExplorer.telemetryLogViewer",
+        "displayName": "Telemetry Log Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.jsonl"
+          }
+        ],
+        "priority": "option"
+      }
+    ]
   },
   "scripts": {
     "build": "webpack --mode production",

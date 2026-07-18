@@ -36,6 +36,7 @@ import { createRuntimeAssertions } from './telemetry/monitors/RuntimeAssertions'
 import { createTimelineGenerator, TimelineGenerator } from './telemetry/monitors/TimelineGenerator';
 import { createSnapshotSystem } from './telemetry/monitors/SnapshotSystem';
 import { createTelemetryFileLogger } from './telemetry/monitors/TelemetryFileLogger';
+import { TelemetryLogEditorProvider } from './telemetry/monitors/TelemetryLogEditorProvider';
 import { DeveloperDashboard } from './telemetry/monitors/DeveloperDashboard';
 
 console.log('[LOG:DIST_LOADED]');
@@ -374,6 +375,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         devDashboard.show();
         log('[TELEMETRY] Developer Dashboard opened');
       }),
+    );
+
+    // TELEMETRY LOG CUSTOM EDITOR
+    context.subscriptions.push(
+      vscode.window.registerCustomEditorProvider(
+        TelemetryLogEditorProvider.viewType,
+        new TelemetryLogEditorProvider(context.extensionUri),
+      ),
     );
 
     log('===== ACTIVATE COMPLETE =====');
