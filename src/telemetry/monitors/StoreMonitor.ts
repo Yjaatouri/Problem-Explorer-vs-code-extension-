@@ -320,7 +320,13 @@ export class StoreMonitor {
     /* — set() — */
     this.store.set = function (uri: Uri, state: ProblemState, providerName?: string): boolean {
       if (self.disposed) return self.originalSet(uri, state, providerName);
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalSet(uri, state, providerName); }
+      if (self.reentrant > 0) {
+        self.nestedEventsSkipped++;
+        const result = self.originalSet(uri, state, providerName);
+        if (result) { self.totalWrites++; if (self.batchStartTime > 0) self.batchWriteCount++; }
+        else { self.totalRejected++; if (self.batchStartTime > 0) self.batchRejectedCount++; }
+        return result;
+      }
 
       if (!uri) {
         self.safeReportAssertion('nullUri', 'set() called with null/undefined URI');
