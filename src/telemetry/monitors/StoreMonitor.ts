@@ -383,8 +383,8 @@ export class StoreMonitor {
               executionTimeMs,
             });
 
-            /* Ownership tracking */
-            if (providerName !== undefined) {
+            /* Ownership tracking — trust store's post-call state (ownerAfter) */
+            if (providerName !== undefined && ownerAfter === providerName) {
               if (!ownerBefore) {
                 self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
                 self.ownedUris.set(normKey, providerName);
