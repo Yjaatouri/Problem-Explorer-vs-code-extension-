@@ -1216,6 +1216,21 @@ export class StoreMonitor {
 
   dispose(): void {
     if (this.disposed) return;
+
+    /* emit final event before restoring originals */
+    const traceId = generateTraceId();
+    this.safeReport({
+      type: 'store.dispose',
+      timestamp: Date.now(),
+      traceId,
+      source: 'StoreMonitor',
+      entryCount: this.store.size(),
+      totalWrites: this.totalWrites,
+      totalRejected: this.totalRejected,
+      totalOwnershipConflicts: this.totalOwnershipConflicts,
+      batchCount: this.batchCount,
+    });
+
     this.disposed = true;
     this.store.set = this.originalSet;
     this.store.delete = this.originalDelete;
@@ -1228,6 +1243,7 @@ export class StoreMonitor {
     this.store.deleteByPrefix = this.originalDeleteByPrefix;
     this.store.movePrefix = this.originalMovePrefix;
     this.store.unconfigureProvider = this.originalUnconfigureProvider;
+    this.store.dispose = this.originalDispose;
   }
 }
 
