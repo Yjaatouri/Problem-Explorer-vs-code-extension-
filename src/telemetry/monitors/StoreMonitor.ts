@@ -738,7 +738,6 @@ export class StoreMonitor {
       try {
         const start = Date.now();
         const traceId = generateTraceId();
-        const releasedCount = self.ownerCounts.get(providerName) ?? 0;
 
         self.originalReleaseOwnership(providerName);
         const executionTimeMs = Date.now() - start;
@@ -746,6 +745,7 @@ export class StoreMonitor {
         try {
           /* Reset ownership tracking for this provider */
           self.ownerCounts.delete(providerName);
+          let actualReleased = 0;
           const staleKeys: string[] = [];
           for (const [u, p] of self.ownedUris) {
             if (p === providerName) staleKeys.push(u);
@@ -753,6 +753,7 @@ export class StoreMonitor {
           for (const key of staleKeys) {
             const provider = self.ownedUris.get(key);
             if (provider !== undefined) {
+              actualReleased++;
               self.safeReport({
                 type: 'store.ownership.released',
                 timestamp: start,
@@ -771,7 +772,7 @@ export class StoreMonitor {
             traceId,
             source: 'StoreMonitor',
             providerName,
-            releasedKeys: releasedCount,
+            releasedKeys: actualReleased,
             executionTimeMs,
           });
         } catch (telemetryErr) {
@@ -1219,7 +1220,7 @@ export class StoreMonitor {
     const traceId = generateTraceId();
     const avg = this.setDurationCount > 0 ? this.setDurationSum / this.setDurationCount : 0;
 
-    this.reporter.report({
+    this.safeReport({
       type: 'store.performance.snapshot',
       timestamp: Date.now(),
       traceId,
@@ -1231,7 +1232,7 @@ export class StoreMonitor {
       batchCount: this.batchCount,
       entryCount: this.store.size(),
       nestedEventsSkipped: this.nestedEventsSkipped,
-    } as any);
+    });
   }
 
   /* ------------------------------------------------------------------ */
