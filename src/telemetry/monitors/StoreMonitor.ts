@@ -281,6 +281,11 @@ export class StoreMonitor {
   /* reentrancy guard — prevents recursive telemetry if an event subscriber calls back into the store */
   private reentrant = 0;
   private nestedEventsSkipped = 0;
+  private nestedSetsSkipped = 0;
+  private nestedDeletesSkipped = 0;
+  private nestedClearsSkipped = 0;
+  private nestedBeginBatchesSkipped = 0;
+  private nestedEndBatchesSkipped = 0;
 
   /* assertion throttling: sample at most once per 500ms */
   private lastAssertionTime = 0;
@@ -322,6 +327,7 @@ export class StoreMonitor {
       if (self.disposed) return self.originalSet(uri, state, providerName);
       if (self.reentrant > 0) {
         self.nestedEventsSkipped++;
+        self.nestedSetsSkipped++;
         const result = self.originalSet(uri, state, providerName);
         if (result) { self.totalWrites++; if (self.batchStartTime > 0) self.batchWriteCount++; }
         else { self.totalRejected++; if (self.batchStartTime > 0) self.batchRejectedCount++; }
@@ -486,7 +492,7 @@ export class StoreMonitor {
     /* — delete() — */
     this.store.delete = function (uri: Uri): boolean {
       if (self.disposed) return self.originalDelete(uri);
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalDelete(uri); }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedDeletesSkipped++; return self.originalDelete(uri); }
 
       if (!uri) {
         self.safeReportAssertion('nullUri', 'delete() called with null/undefined URI');
@@ -548,7 +554,7 @@ export class StoreMonitor {
     /* — clear() — */
     this.store.clear = function (): void {
       if (self.disposed) { self.originalClear(); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalClear(); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedClearsSkipped++; self.originalClear(); return; }
 
       self.reentrant++;
       try {
@@ -567,6 +573,11 @@ export class StoreMonitor {
           self.setDurationSum = 0;
           self.setDurationCount = 0;
           self.nestedEventsSkipped = 0;
+          self.nestedSetsSkipped = 0;
+          self.nestedDeletesSkipped = 0;
+          self.nestedClearsSkipped = 0;
+          self.nestedBeginBatchesSkipped = 0;
+          self.nestedEndBatchesSkipped = 0;
           self.ownerCounts.clear();
           self.ownedUris.clear();
 
@@ -605,7 +616,7 @@ export class StoreMonitor {
     /* — beginBatch() — */
     this.store.beginBatch = function (): void {
       if (self.disposed) { self.originalBeginBatch(); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalBeginBatch(); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedBeginBatchesSkipped++; self.originalBeginBatch(); return; }
 
       self.reentrant++;
       try {
@@ -645,7 +656,7 @@ export class StoreMonitor {
     /* — endBatch() — */
     this.store.endBatch = function (): void {
       if (self.disposed) { self.originalEndBatch(); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalEndBatch(); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedEndBatchesSkipped++; self.originalEndBatch(); return; }
 
       self.reentrant++;
       try {
