@@ -413,7 +413,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     const combined = (result.stderr + result.stdout).toLowerCase();
     return (
       combined.includes('cannot find') ||
-      combined.includes('parse') ||
+      /\bparse\b/.test(combined) ||
       combined.includes('error reading') ||
       combined.includes('unknown option') ||
       combined.includes('cannot execute')

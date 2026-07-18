@@ -222,7 +222,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     log('[FORENSIC:Step7] registerFileDecorationProvider OK — Disposable registered');
     log('[FORENSIC:Step7] provider instance alive: ' + (decorationEngine ? 'YES' : 'NO'));
     log('[FORENSIC:Step7] provider is FileDecorationProvider interface: ' + (typeof decorationEngine.provideFileDecoration === 'function' ? 'YES' : 'NO'));
-    log('[FORENSIC:Step7] provider onDidChangeFileDecorations is Event: ' + (typeof decorationEngine.onDidChangeFileDecorations === 'object' ? 'YES' : 'NO'));
+    log('[FORENSIC:Step7] provider onDidChangeFileDecorations is Event: ' + (typeof decorationEngine.onDidChangeFileDecorations === 'function' ? 'YES' : 'NO'));
+    // Force an initial full refresh so VS Code queries decorations for all visible files
+    setTimeout(() => {
+      decorationEngine.fireDidChange(undefined);
+      log('[FORENSIC:Step7] fired initial full refresh (undefined)');
+    }, 100);
 
     context.subscriptions.push(
       vscode.workspace.onDidDeleteFiles((e) => {
