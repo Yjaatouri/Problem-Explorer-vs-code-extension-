@@ -1,12 +1,13 @@
 import { TelemetryBus, getTelemetryBus, TelemetrySubscription } from './TelemetryBus';
-import { TelemetryEvent, TelemetryConfigManager, now, generateCorrelationId } from './TelemetryConfig';
+import { TelemetryEvent, TraceId, TelemetryConfigManager, now, generateCorrelationId, generateTraceId } from './TelemetryConfig';
+import { getCurrentParentTraceId } from './TraceContext';
 
 /** Interface for telemetry reporters */
 export interface TelemetryReporter {
   /** Report an event if telemetry is enabled */
   report(event: TelemetryEvent): void;
-  /** Report an event with a generated correlation ID */
-  reportWithCorrelation(event: Omit<TelemetryEvent, 'correlationId' | 'timestamp'>): void;
+  /** Report an event with generated trace ID and correlation ID */
+  reportWithTrace(event: Omit<TelemetryEvent, 'traceId' | 'parentTraceId' | 'correlationId' | 'timestamp'>): void;
   /** Subscribe to telemetry events */
   subscribe(eventType: string, listener: (event: TelemetryEvent) => void): TelemetrySubscription;
   /** Subscribe to all telemetry events */
@@ -15,6 +16,21 @@ export interface TelemetryReporter {
   flush(): void;
   /** Dispose the reporter */
   dispose(): void;
+}
+
+/** Create a telemetry event with automatic trace context */
+export function createEvent(
+  type: string,
+  source?: string,
+  traceId?: TraceId,
+  parentTraceId?: TraceId
+): Omit<TelemetryEvent, 'correlationId' | 'timestamp'> {
+  return {
+    type,
+    traceId: traceId ?? generateTraceId(),
+    parentTraceId: parentTraceId ?? getCurrentParentTraceId(),
+    source,
+  };
 }
 
 /** Reporter that publishes to the telemetry bus when enabled, no-op when disabled */
@@ -36,10 +52,14 @@ export class BusTelemetryReporter implements TelemetryReporter {
     this.bus.publish({ ...event, timestamp: event.timestamp ?? now() });
   }
 
-  reportWithCorrelation(event: Omit<TelemetryEvent, 'correlationId' | 'timestamp'>): void {
+  reportWithTrace(event: Omit<TelemetryEvent, 'traceId' | 'parentTraceId' | 'correlationId' | 'timestamp'>): void {
     if (!this.enabled) return;
+    const traceId = generateTraceId();
+    const parentTraceId = getCurrentParentTraceId();
     this.bus.publish({
       ...event,
+      traceId,
+      parentTraceId,
       timestamp: now(),
       correlationId: generateCorrelationId(),
     });
@@ -65,7 +85,7 @@ export class BusTelemetryReporter implements TelemetryReporter {
 /** No-op reporter returned when telemetry is disabled (near-zero overhead) */
 export class NoopTelemetryReporter implements TelemetryReporter {
   report(): void {}
-  reportWithCorrelation(): void {}
+  reportWithTrace(): void {}
   subscribe(): TelemetrySubscription {
     return { eventType: '', dispose: () => {} };
   }

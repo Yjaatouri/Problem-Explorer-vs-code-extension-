@@ -1,5 +1,5 @@
 import { ConfigurationChangeEvent, Event, EventEmitter, workspace } from 'vscode';
-import { TelemetryEvent, isTelemetryEvent } from './TelemetryEvent';
+import { TelemetryEvent, isTelemetryEvent, TraceId, now, generateCorrelationId, generateTraceId } from './TelemetryEvent';
 
 /** Configuration shape for the telemetry system */
 export interface TelemetryConfig {
@@ -81,15 +81,5 @@ export class TelemetryConfigManager {
   }
 }
 
-/** Creates a timestamp for events */
-export function now(): number {
-  return Date.now();
-}
-
-/** Generates a simple correlation ID */
-export function generateCorrelationId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
 /** Re-export for convenience */
-export { TelemetryEvent, isTelemetryEvent };
+export { TelemetryEvent, isTelemetryEvent, TraceId, now, generateCorrelationId, generateTraceId };
