@@ -269,6 +269,10 @@ export class StoreMonitor {
   private batchRejectedCount = 0;
   private batchConflictCount = 0;
   private batchStartTime = 0;
+  private batchDepth = 0;
+
+  /* nested batch state stack — each entry: { startTime, writeCount, rejectedCount, conflictCount } */
+  private batchStateStack: Array<{ startTime: number; writeCount: number; rejectedCount: number; conflictCount: number }> = [];
 
   /* ownership tracking */
   private ownerCounts = new Map<string, number>();
@@ -550,20 +554,25 @@ export class StoreMonitor {
         const executionTimeMs = Date.now() - start;
 
         try {
-          /* Reset all monitor state to reflect empty store */
+          /* Reset non-batch monitor state to reflect empty store */
           self.totalWrites = 0;
           self.totalRejected = 0;
           self.totalOwnershipConflicts = 0;
           self.setDurationSum = 0;
           self.setDurationCount = 0;
-          self.batchCount = 0;
-          self.batchStartTime = 0;
-          self.batchWriteCount = 0;
-          self.batchRejectedCount = 0;
-          self.batchConflictCount = 0;
           self.nestedEventsSkipped = 0;
           self.ownerCounts.clear();
           self.ownedUris.clear();
+
+          /* If not inside a batch, also reset batch state */
+          if (self.batchDepth === 0) {
+            self.batchCount = 0;
+            self.batchStartTime = 0;
+            self.batchWriteCount = 0;
+            self.batchRejectedCount = 0;
+            self.batchConflictCount = 0;
+            self.batchStateStack = [];
+          }
 
           self.safeReport({
             type: 'store.clear',
@@ -594,7 +603,16 @@ export class StoreMonitor {
 
       self.reentrant++;
       try {
-        const traceId = generateTraceId();
+        /* Save outer batch state if already in a batch */
+        if (self.batchDepth > 0) {
+          self.batchStateStack.push({
+            startTime: self.batchStartTime,
+            writeCount: self.batchWriteCount,
+            rejectedCount: self.batchRejectedCount,
+            conflictCount: self.batchConflictCount,
+          });
+        }
+        self.batchDepth++;
         self.batchStartTime = Date.now();
         self.batchWriteCount = 0;
         self.batchRejectedCount = 0;
@@ -603,6 +621,7 @@ export class StoreMonitor {
         self.originalBeginBatch();
 
         try {
+          const traceId = generateTraceId();
           self.safeReport({
             type: 'store.beginBatch',
             timestamp: self.batchStartTime,
@@ -647,6 +666,18 @@ export class StoreMonitor {
             ownershipConflicts,
             durationMs,
           });
+
+          /* Restore outer batch state if nested */
+          self.batchDepth--;
+          if (self.batchDepth > 0) {
+            const prev = self.batchStateStack.pop();
+            if (prev) {
+              self.batchStartTime = prev.startTime;
+              self.batchWriteCount = prev.writeCount;
+              self.batchRejectedCount = prev.rejectedCount;
+              self.batchConflictCount = prev.conflictCount;
+            }
+          }
         } catch (telemetryErr) {
           self.safeReportAssertion('telemetryException', `endBatch wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
