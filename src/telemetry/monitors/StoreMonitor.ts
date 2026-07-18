@@ -186,11 +186,39 @@ export interface StorePerformanceSnapshotEvent {
   readonly entryCount: number;
 }
 
+export interface StoreDeleteByPrefixEvent {
+  readonly type: 'store.deleteByPrefix';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'StoreMonitor';
+  readonly prefix: string;
+  readonly deletedCount: number;
+  readonly executionTimeMs: number;
+}
+
+export interface StoreMovePrefixEvent {
+  readonly type: 'store.movePrefix';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'StoreMonitor';
+  readonly oldPrefix: string;
+  readonly newPrefix: string;
+  readonly movedCount: number;
+  readonly executionTimeMs: number;
+}
+
+export interface StoreUnconfigureProviderEvent {
+  readonly type: 'store.unconfigureProvider';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'StoreMonitor';
+  readonly providerName: string;
+  readonly executionTimeMs: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  StoreMonitor                                                       */
 /* ------------------------------------------------------------------ */
-
-const ASSERTION_SAMPLE_RATE = 0.1;
 
 export class StoreMonitor {
   /* wrapped originals */
@@ -202,6 +230,9 @@ export class StoreMonitor {
   private originalConfigureProvider!: (providerName: string, priority: number) => void;
   private originalReleaseOwnership!: (providerName: string) => void;
   private originalSetFolderAggregate!: (uri: Uri, state: ProblemState) => boolean;
+  private originalDeleteByPrefix!: (prefix: string) => number;
+  private originalMovePrefix!: (oldPrefix: string, newPrefix: string) => number;
+  private originalUnconfigureProvider!: (providerName: string) => void;
 
   /* performance counters */
   private totalWrites = 0;
@@ -218,6 +249,12 @@ export class StoreMonitor {
   /* ownership tracking */
   private ownerCounts = new Map<string, number>();
   private ownedUris = new Map<string, string>();
+
+  /* reentrancy guard — prevents recursive telemetry if an event subscriber calls back into the store */
+  private reentrant = 0;
+
+  /* assertion throttling: sample at most once per 500ms */
+  private lastAssertionTime = 0;
 
   private disposed = false;
 
@@ -242,6 +279,9 @@ export class StoreMonitor {
     this.originalConfigureProvider = this.store.configureProvider.bind(this.store);
     this.originalReleaseOwnership = this.store.releaseOwnership.bind(this.store);
     this.originalSetFolderAggregate = this.store.setFolderAggregate.bind(this.store);
+    this.originalDeleteByPrefix = this.store.deleteByPrefix.bind(this.store);
+    this.originalMovePrefix = this.store.movePrefix.bind(this.store);
+    this.originalUnconfigureProvider = this.store.unconfigureProvider.bind(this.store);
   }
 
   private wrapMethods(): void {
@@ -250,12 +290,14 @@ export class StoreMonitor {
     /* — set() — */
     this.store.set = function (uri: Uri, state: ProblemState, providerName?: string): boolean {
       if (self.disposed) return self.originalSet(uri, state, providerName);
+      if (self.reentrant > 0) return self.originalSet(uri, state, providerName);
 
       if (!uri) {
         self.reportAssertion('nullUri', 'set() called with null/undefined URI');
         return self.originalSet(uri, state, providerName);
       }
 
+      self.reentrant++;
       const start = Date.now();
       const traceId = generateTraceId();
       const uriStr = uri.toString();
@@ -310,7 +352,7 @@ export class StoreMonitor {
         } as any);
 
         /* Ownership tracking */
-        if (providerName) {
+        if (providerName !== undefined) {
           if (!ownerBefore) {
             self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
             self.ownedUris.set(normKey, providerName);
@@ -381,18 +423,21 @@ export class StoreMonitor {
       }
 
       self.sampleAssertions();
+      self.reentrant--;
       return accepted;
     };
 
     /* — delete() — */
     this.store.delete = function (uri: Uri): boolean {
       if (self.disposed) return self.originalDelete(uri);
+      if (self.reentrant > 0) return self.originalDelete(uri);
 
       if (!uri) {
         self.reportAssertion('nullUri', 'delete() called with null/undefined URI');
         return self.originalDelete(uri);
       }
 
+      self.reentrant++;
       const start = Date.now();
       const traceId = generateTraceId();
       const uriStr = uri.toString();
@@ -429,19 +474,32 @@ export class StoreMonitor {
       }
 
       self.sampleAssertions();
+      self.reentrant--;
       return accepted;
     };
 
     /* — clear() — */
     this.store.clear = function (): void {
       if (self.disposed) { self.originalClear(); return; }
+      if (self.reentrant > 0) { self.originalClear(); return; }
 
+      self.reentrant++;
       const start = Date.now();
       const traceId = generateTraceId();
       const entryCountBefore = self.store.size();
 
       self.originalClear();
       const executionTimeMs = Date.now() - start;
+
+      /* Reset monitor state to reflect empty store */
+      self.totalWrites = 0;
+      self.totalRejected = 0;
+      self.totalOwnershipConflicts = 0;
+      self.setDurationSum = 0;
+      self.setDurationCount = 0;
+      self.batchCount = 0;
+      self.ownerCounts.clear();
+      self.ownedUris.clear();
 
       self.reporter.report({
         type: 'store.clear',
@@ -453,12 +511,15 @@ export class StoreMonitor {
       } as any);
 
       self.sampleAssertions();
+      self.reentrant--;
     };
 
     /* — beginBatch() — */
     this.store.beginBatch = function (): void {
       if (self.disposed) { self.originalBeginBatch(); return; }
+      if (self.reentrant > 0) { self.originalBeginBatch(); return; }
 
+      self.reentrant++;
       const traceId = generateTraceId();
       self.batchStartTime = Date.now();
       self.batchWriteCount = 0;
@@ -473,12 +534,15 @@ export class StoreMonitor {
         traceId,
         source: 'StoreMonitor',
       } as any);
+      self.reentrant--;
     };
 
     /* — endBatch() — */
     this.store.endBatch = function (): void {
       if (self.disposed) { self.originalEndBatch(); return; }
+      if (self.reentrant > 0) { self.originalEndBatch(); return; }
 
+      self.reentrant++;
       const traceId = generateTraceId();
       const now = Date.now();
       const durationMs = self.batchStartTime > 0 ? now - self.batchStartTime : 0;
@@ -503,12 +567,15 @@ export class StoreMonitor {
       } as any);
 
       self.sampleAssertions();
+      self.reentrant--;
     };
 
     /* — configureProvider() — */
     this.store.configureProvider = function (providerName: string, priority: number): void {
       if (self.disposed) { self.originalConfigureProvider(providerName, priority); return; }
+      if (self.reentrant > 0) { self.originalConfigureProvider(providerName, priority); return; }
 
+      self.reentrant++;
       const start = Date.now();
       const traceId = generateTraceId();
 
@@ -524,12 +591,15 @@ export class StoreMonitor {
         priority,
         executionTimeMs,
       } as any);
+      self.reentrant--;
     };
 
     /* — releaseOwnership() — */
     this.store.releaseOwnership = function (providerName: string): void {
       if (self.disposed) { self.originalReleaseOwnership(providerName); return; }
+      if (self.reentrant > 0) { self.originalReleaseOwnership(providerName); return; }
 
+      self.reentrant++;
       const start = Date.now();
       const traceId = generateTraceId();
       const releasedCount = self.ownerCounts.get(providerName) ?? 0;
@@ -538,9 +608,13 @@ export class StoreMonitor {
       const executionTimeMs = Date.now() - start;
 
       /* Reset ownership tracking for this provider */
-      self.ownerCounts.set(providerName, 0);
+      self.ownerCounts.delete(providerName);
+      const staleKeys: string[] = [];
       for (const [u, p] of self.ownedUris) {
-        if (p === providerName) self.ownedUris.delete(u);
+        if (p === providerName) staleKeys.push(u);
+      }
+      for (const key of staleKeys) {
+        self.ownedUris.delete(key);
       }
 
       self.reporter.report({
@@ -552,17 +626,20 @@ export class StoreMonitor {
         releasedKeys: releasedCount,
         executionTimeMs,
       } as any);
+      self.reentrant--;
     };
 
     /* — setFolderAggregate() — */
     this.store.setFolderAggregate = function (uri: Uri, state: ProblemState): boolean {
       if (self.disposed) return self.originalSetFolderAggregate(uri, state);
+      if (self.reentrant > 0) return self.originalSetFolderAggregate(uri, state);
 
       if (!uri) {
         self.reportAssertion('nullUri', 'setFolderAggregate() called with null/undefined URI');
         return self.originalSetFolderAggregate(uri, state);
       }
 
+      self.reentrant++;
       const start = Date.now();
       const traceId = generateTraceId();
       const uriStr = uri.toString();
@@ -586,7 +663,111 @@ export class StoreMonitor {
       } as any);
 
       self.sampleAssertions();
+      self.reentrant--;
       return accepted;
+    };
+
+    /* — deleteByPrefix() — */
+    this.store.deleteByPrefix = function (prefix: string): number {
+      if (self.disposed) return self.originalDeleteByPrefix(prefix);
+      if (self.reentrant > 0) return self.originalDeleteByPrefix(prefix);
+
+      self.reentrant++;
+      const start = Date.now();
+      const traceId = generateTraceId();
+
+      const deletedCount = self.originalDeleteByPrefix(prefix);
+      const executionTimeMs = Date.now() - start;
+
+      /* Clear ownership tracking for all matching entries */
+      const prefixSlash = prefix + '/';
+      const staleKeys: string[] = [];
+      for (const [key, provider] of self.ownedUris) {
+        if (key === prefix || key.startsWith(prefixSlash)) {
+          staleKeys.push(key);
+          self.decrementOwnerCount(provider);
+        }
+      }
+      for (const key of staleKeys) {
+        self.ownedUris.delete(key);
+      }
+
+      self.reporter.report({
+        type: 'store.deleteByPrefix',
+        timestamp: start,
+        traceId,
+        source: 'StoreMonitor',
+        prefix,
+        deletedCount,
+        executionTimeMs,
+      } as any);
+      self.reentrant--;
+      return deletedCount;
+    };
+
+    /* — movePrefix() — */
+    this.store.movePrefix = function (oldPrefix: string, newPrefix: string): number {
+      if (self.disposed) return self.originalMovePrefix(oldPrefix, newPrefix);
+      if (self.reentrant > 0) return self.originalMovePrefix(oldPrefix, newPrefix);
+
+      self.reentrant++;
+      const start = Date.now();
+      const traceId = generateTraceId();
+
+      const movedCount = self.originalMovePrefix(oldPrefix, newPrefix);
+      const executionTimeMs = Date.now() - start;
+
+      /* Re-key ownership tracking for moved entries */
+      if (oldPrefix !== newPrefix) {
+        const oldPrefixSlash = oldPrefix + '/';
+        const rekey: [string, string, string][] = [];
+        for (const [key, provider] of self.ownedUris) {
+          if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
+            const newKey = newPrefix + key.slice(oldPrefix.length);
+            rekey.push([key, newKey, provider]);
+          }
+        }
+        for (const [oldKey, newKey, provider] of rekey) {
+          self.ownedUris.delete(oldKey);
+          self.ownedUris.set(newKey, provider);
+        }
+      }
+
+      self.reporter.report({
+        type: 'store.movePrefix',
+        timestamp: start,
+        traceId,
+        source: 'StoreMonitor',
+        oldPrefix,
+        newPrefix,
+        movedCount,
+        executionTimeMs,
+      } as any);
+      self.reentrant--;
+      return movedCount;
+    };
+
+    /* — unconfigureProvider() — */
+    this.store.unconfigureProvider = function (providerName: string): void {
+      if (self.disposed) { self.originalUnconfigureProvider(providerName); return; }
+      if (self.reentrant > 0) { self.originalUnconfigureProvider(providerName); return; }
+
+      self.reentrant++;
+      const start = Date.now();
+      const traceId = generateTraceId();
+
+      self.originalUnconfigureProvider(providerName);
+      const executionTimeMs = Date.now() - start;
+
+      self.reporter.report({
+        type: 'store.unconfigureProvider',
+        timestamp: start,
+        traceId,
+        source: 'StoreMonitor',
+        providerName,
+        executionTimeMs,
+      } as any);
+      self.reentrant--;
     };
   }
 
@@ -664,7 +845,9 @@ export class StoreMonitor {
   /* ------------------------------------------------------------------ */
 
   private sampleAssertions(): void {
-    if (Math.random() >= ASSERTION_SAMPLE_RATE) return;
+    const now = Date.now();
+    if (now - this.lastAssertionTime < 500) return;
+    this.lastAssertionTime = now;
     this.runAssertions();
   }
 
@@ -798,6 +981,9 @@ export class StoreMonitor {
     this.store.configureProvider = this.originalConfigureProvider;
     this.store.releaseOwnership = this.originalReleaseOwnership;
     this.store.setFolderAggregate = this.originalSetFolderAggregate;
+    this.store.deleteByPrefix = this.originalDeleteByPrefix;
+    this.store.movePrefix = this.originalMovePrefix;
+    this.store.unconfigureProvider = this.originalUnconfigureProvider;
   }
 }
 
