@@ -371,8 +371,6 @@ export class StoreMonitor {
             const hasChanged = self.hasStateChanged(stateBefore, state);
 
             self.totalWrites++;
-            self.setDurationSum += executionTimeMs;
-            self.setDurationCount++;
             if (self.batchStartTime > 0) self.batchWriteCount++;
 
             self.safeReport({
@@ -477,6 +475,10 @@ export class StoreMonitor {
         } catch (telemetryErr) {
           self.safeReportAssertion('telemetryException', `set wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
+
+        /* Track duration for all set calls (accepted + rejected) */
+        self.setDurationSum += executionTimeMs;
+        self.setDurationCount++;
 
         try {
           self.sampleAssertions();
