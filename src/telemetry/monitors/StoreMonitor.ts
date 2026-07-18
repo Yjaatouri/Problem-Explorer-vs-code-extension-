@@ -44,7 +44,7 @@ export interface StoreSetRejectedEvent {
   readonly currentOwner?: string;
   readonly currentOwnerPriority: number;
   readonly requesterPriority: number;
-  readonly reason: 'ownership' | 'unchanged' | 'invalidData' | 'unknown';
+  readonly reason: 'ownership' | 'unchanged' | 'unknown';
   readonly detail: string;
   readonly executionTimeMs: number;
 }
@@ -419,7 +419,7 @@ export class StoreMonitor {
             if (self.batchStartTime > 0) self.batchRejectedCount++;
 
             /* Determine rejection reason */
-            let reason: { reason: 'ownership' | 'unchanged' | 'invalidData' | 'unknown'; detail: string };
+            let reason: { reason: 'ownership' | 'unchanged' | 'unknown'; detail: string };
             try {
               reason = self.determineRejectReason(providerName, ownerBefore, state, stateBefore);
             } catch (reasonErr) {
@@ -1005,32 +1005,15 @@ export class StoreMonitor {
     ownerBefore: string | undefined,
     requestedState: ProblemState,
     stateBefore: ProblemState | undefined,
-  ): { reason: 'ownership' | 'unchanged' | 'invalidData' | 'unknown'; detail: string } {
-    /* Check for invalid data */
-    if (requestedState.errorCount < 0 || requestedState.warningCount < 0 || requestedState.infoCount < 0) {
-      return { reason: 'invalidData', detail: `Negative counts: ${requestedState.errorCount}e/${requestedState.warningCount}w/${requestedState.infoCount}i` };
-    }
-    if (requestedState.fileCount < 0) {
-      return { reason: 'invalidData', detail: `Negative fileCount: ${requestedState.fileCount}` };
-    }
-    if (requestedState.severity < ProblemSeverity.None || requestedState.severity > ProblemSeverity.Error) {
-      return { reason: 'invalidData', detail: `Invalid severity: ${requestedState.severity}` };
-    }
-
-    /* Check for ownership rejection */
-    if (providerName && ownerBefore && ownerBefore !== providerName) {
+  ): { reason: 'ownership' | 'unchanged' | 'unknown'; detail: string } {
+    /* Mirror ProblemStore.set() decision order: ownership first (strictly lower priority), then unchanged */
+    if (providerName !== undefined && ownerBefore !== undefined && ownerBefore !== providerName) {
       const ownerPriority = this.store.getProviderPriority(ownerBefore);
       const requesterPriority = this.store.getProviderPriority(providerName);
       if (requesterPriority < ownerPriority) {
         return {
           reason: 'ownership',
           detail: `Provider "${providerName}" (priority ${requesterPriority}) lower than current owner "${ownerBefore}" (priority ${ownerPriority})`,
-        };
-      }
-      if (requesterPriority === ownerPriority) {
-        return {
-          reason: 'ownership',
-          detail: `Provider "${providerName}" has equal priority (${requesterPriority}) to current owner "${ownerBefore}" — store uses first-writer-wins`,
         };
       }
     }
