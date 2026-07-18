@@ -184,6 +184,7 @@ export interface StorePerformanceSnapshotEvent {
   readonly averageSetDurationMs: number;
   readonly batchCount: number;
   readonly entryCount: number;
+  readonly nestedEventsSkipped: number;
 }
 
 export interface StoreDeleteByPrefixEvent {
@@ -275,6 +276,7 @@ export class StoreMonitor {
 
   /* reentrancy guard — prevents recursive telemetry if an event subscriber calls back into the store */
   private reentrant = 0;
+  private nestedEventsSkipped = 0;
 
   /* assertion throttling: sample at most once per 500ms */
   private lastAssertionTime = 0;
@@ -314,7 +316,7 @@ export class StoreMonitor {
     /* — set() — */
     this.store.set = function (uri: Uri, state: ProblemState, providerName?: string): boolean {
       if (self.disposed) return self.originalSet(uri, state, providerName);
-      if (self.reentrant > 0) return self.originalSet(uri, state, providerName);
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalSet(uri, state, providerName); }
 
       if (!uri) {
         self.safeReportAssertion('nullUri', 'set() called with null/undefined URI');
@@ -474,7 +476,7 @@ export class StoreMonitor {
     /* — delete() — */
     this.store.delete = function (uri: Uri): boolean {
       if (self.disposed) return self.originalDelete(uri);
-      if (self.reentrant > 0) return self.originalDelete(uri);
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalDelete(uri); }
 
       if (!uri) {
         self.safeReportAssertion('nullUri', 'delete() called with null/undefined URI');
@@ -536,7 +538,7 @@ export class StoreMonitor {
     /* — clear() — */
     this.store.clear = function (): void {
       if (self.disposed) { self.originalClear(); return; }
-      if (self.reentrant > 0) { self.originalClear(); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalClear(); return; }
 
       self.reentrant++;
       try {
@@ -559,6 +561,7 @@ export class StoreMonitor {
           self.batchWriteCount = 0;
           self.batchRejectedCount = 0;
           self.batchConflictCount = 0;
+          self.nestedEventsSkipped = 0;
           self.ownerCounts.clear();
           self.ownedUris.clear();
 
@@ -587,7 +590,7 @@ export class StoreMonitor {
     /* — beginBatch() — */
     this.store.beginBatch = function (): void {
       if (self.disposed) { self.originalBeginBatch(); return; }
-      if (self.reentrant > 0) { self.originalBeginBatch(); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalBeginBatch(); return; }
 
       self.reentrant++;
       try {
@@ -617,7 +620,7 @@ export class StoreMonitor {
     /* — endBatch() — */
     this.store.endBatch = function (): void {
       if (self.disposed) { self.originalEndBatch(); return; }
-      if (self.reentrant > 0) { self.originalEndBatch(); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalEndBatch(); return; }
 
       self.reentrant++;
       try {
@@ -661,7 +664,7 @@ export class StoreMonitor {
     /* — configureProvider() — */
     this.store.configureProvider = function (providerName: string, priority: number): void {
       if (self.disposed) { self.originalConfigureProvider(providerName, priority); return; }
-      if (self.reentrant > 0) { self.originalConfigureProvider(providerName, priority); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalConfigureProvider(providerName, priority); return; }
 
       self.reentrant++;
       try {
@@ -692,7 +695,7 @@ export class StoreMonitor {
     /* — releaseOwnership() — */
     this.store.releaseOwnership = function (providerName: string): void {
       if (self.disposed) { self.originalReleaseOwnership(providerName); return; }
-      if (self.reentrant > 0) { self.originalReleaseOwnership(providerName); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalReleaseOwnership(providerName); return; }
 
       self.reentrant++;
       try {
@@ -745,7 +748,7 @@ export class StoreMonitor {
     /* — setFolderAggregate() — */
     this.store.setFolderAggregate = function (uri: Uri, state: ProblemState): boolean {
       if (self.disposed) return self.originalSetFolderAggregate(uri, state);
-      if (self.reentrant > 0) return self.originalSetFolderAggregate(uri, state);
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalSetFolderAggregate(uri, state); }
 
       if (!uri) {
         self.safeReportAssertion('nullUri', 'setFolderAggregate() called with null/undefined URI');
@@ -798,7 +801,7 @@ export class StoreMonitor {
     /* — deleteByPrefix() — */
     this.store.deleteByPrefix = function (prefix: string): number {
       if (self.disposed) return self.originalDeleteByPrefix(prefix);
-      if (self.reentrant > 0) return self.originalDeleteByPrefix(prefix);
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalDeleteByPrefix(prefix); }
 
       self.reentrant++;
       try {
@@ -854,7 +857,7 @@ export class StoreMonitor {
     /* — movePrefix() — */
     this.store.movePrefix = function (oldPrefix: string, newPrefix: string): number {
       if (self.disposed) return self.originalMovePrefix(oldPrefix, newPrefix);
-      if (self.reentrant > 0) return self.originalMovePrefix(oldPrefix, newPrefix);
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalMovePrefix(oldPrefix, newPrefix); }
 
       self.reentrant++;
       try {
@@ -912,7 +915,7 @@ export class StoreMonitor {
     /* — unconfigureProvider() — */
     this.store.unconfigureProvider = function (providerName: string): void {
       if (self.disposed) { self.originalUnconfigureProvider(providerName); return; }
-      if (self.reentrant > 0) { self.originalUnconfigureProvider(providerName); return; }
+      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalUnconfigureProvider(providerName); return; }
 
       self.reentrant++;
       try {
@@ -1172,6 +1175,7 @@ export class StoreMonitor {
       averageSetDurationMs: Math.round(avg * 100) / 100,
       batchCount: this.batchCount,
       entryCount: this.store.size(),
+      nestedEventsSkipped: this.nestedEventsSkipped,
     } as any);
   }
 
