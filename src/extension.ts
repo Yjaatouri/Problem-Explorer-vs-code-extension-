@@ -20,6 +20,21 @@ import { AutoScanController } from './scanner/AutoScanner';
 import { StartupScanController } from './scanner/StartupScanController';
 import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
 import { setConfigManager } from './core/debug';
+import { TelemetryConfigManager } from './telemetry/TelemetryConfig';
+import { createTelemetryReporter } from './telemetry/TelemetryReporter';
+import { createStoreMonitor } from './telemetry/monitors/StoreMonitor';
+import { createProviderMonitor } from './telemetry/monitors/ProviderMonitor';
+import { createAutoScannerMonitor } from './telemetry/monitors/AutoScannerMonitor';
+import { createDiagnosticsMonitor } from './telemetry/monitors/DiagnosticsMonitor';
+import { createDecorationMonitor } from './telemetry/monitors/DecorationMonitor';
+import { createFolderMonitor } from './telemetry/monitors/FolderMonitor';
+import { createEventPipelineMonitor } from './telemetry/monitors/EventPipelineMonitor';
+import { createTimerMonitor } from './telemetry/monitors/TimerMonitor';
+import { createPerformanceMonitor } from './telemetry/monitors/PerformanceMonitor';
+import { createRuntimeAssertions } from './telemetry/monitors/RuntimeAssertions';
+import { createTimelineGenerator } from './telemetry/monitors/TimelineGenerator';
+import { createSnapshotSystem } from './telemetry/monitors/SnapshotSystem';
+import { DeveloperDashboard } from './telemetry/monitors/DeveloperDashboard';
 
 console.log('[LOG:DIST_LOADED]');
 
@@ -75,6 +90,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const configManager = new ConfigManager();
     setConfigManager(configManager);
     setConfigManager(configManager);
+
+    // Initialize telemetry system
+    const telemetryConfig = new TelemetryConfigManager();
+    const telemetryReporter = createTelemetryReporter(telemetryConfig);
+    const storeMonitor = createStoreMonitor(problemStore, telemetryReporter);
+    const providerMonitor = createProviderMonitor(diagProviderManager, telemetryReporter);
+    const autoScannerMonitor = createAutoScannerMonitor(diagProviderManager, telemetryReporter);
+    const diagnosticsMonitor = createDiagnosticsMonitor(diagProviderManager, telemetryReporter);
+    const decorationMonitor = createDecorationMonitor(decorationEngine, telemetryReporter);
+    const folderMonitor = createFolderMonitor(folderStatusManager, telemetryReporter);
+    const pipelineMonitor = createEventPipelineMonitor(telemetryReporter);
+    const timerMonitor = createTimerMonitor(telemetryReporter);
+    const perfMonitor = createPerformanceMonitor(telemetryReporter);
+    const runtimeAssertions = createRuntimeAssertions(telemetryReporter);
+    const timelineGenerator = createTimelineGenerator(telemetryReporter);
+    const snapshotSystem = createSnapshotSystem(telemetryReporter, problemStore, diagProviderManager, telemetryConfig);
+    const devDashboard = new DeveloperDashboard(telemetryReporter);
+
     const tscProvider = new TscDiagnosticProvider(
       problemStore,
       undefined, undefined, undefined,
@@ -271,6 +304,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       vsDiagnosticsProvider,
       decorationEngine,
       apiManager,
+      { dispose: () => { /* TelemetryConfigManager has no dispose */ } },
+      telemetryReporter,
+      storeMonitor,
+      providerMonitor,
+      autoScannerMonitor,
+      diagnosticsMonitor,
+      decorationMonitor,
+      folderMonitor,
+      pipelineMonitor,
+      timerMonitor,
+      perfMonitor,
+      timelineGenerator,
+      snapshotSystem,
+      devDashboard,
       { dispose: () => { trendTracker.stop(); } },
     );
 
@@ -303,6 +350,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       }),
     );
 
+    // DEVELOPER DASHBOARD COMMAND
+    context.subscriptions.push(
+      vscode.commands.registerCommand('problemExplorer.openDeveloperDashboard', () => {
+        devDashboard.show();
+        log('[TELEMETRY] Developer Dashboard opened');
+      }),
+    );
+
     log('===== ACTIVATE COMPLETE =====');
     vscode.window.showInformationMessage('Problem Explorer: ACTIVATED!');
 
@@ -313,6 +368,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       log(`[FORENSIC] diagEventCount=${vsDiagnosticsProvider.eventCount}`);
     }, 15000);
     context.subscriptions.push({ dispose: () => clearTimeout(forensicTimeout) });
+
+    // Periodic runtime assertions every 30s
+    const assertionInterval = setInterval(() => {
+      runtimeAssertions.runAll(problemStore, diagProviderManager, folderStatusManager);
+    }, 30000);
+    context.subscriptions.push({ dispose: () => clearInterval(assertionInterval) });
 
     return apiManager;
   } catch (err) {
