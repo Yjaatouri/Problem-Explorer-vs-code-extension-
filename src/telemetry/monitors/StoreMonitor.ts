@@ -520,13 +520,17 @@ export class StoreMonitor {
         const executionTimeMs = Date.now() - start;
 
         try {
-          /* Reset monitor state to reflect empty store */
+          /* Reset all monitor state to reflect empty store */
           self.totalWrites = 0;
           self.totalRejected = 0;
           self.totalOwnershipConflicts = 0;
           self.setDurationSum = 0;
           self.setDurationCount = 0;
           self.batchCount = 0;
+          self.batchStartTime = 0;
+          self.batchWriteCount = 0;
+          self.batchRejectedCount = 0;
+          self.batchConflictCount = 0;
           self.ownerCounts.clear();
           self.ownedUris.clear();
 
