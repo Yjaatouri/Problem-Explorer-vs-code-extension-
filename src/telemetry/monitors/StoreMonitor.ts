@@ -1002,6 +1002,8 @@ export class StoreMonitor {
     this.store.dispose = function (): void {
       if (self.disposed) { self.originalDispose(); return; }
 
+      self.disposed = true;
+
       const entryCount = self.store.size();
       const traceId = generateTraceId();
       const timestamp = Date.now();
@@ -1032,7 +1034,6 @@ export class StoreMonitor {
       self.store.unconfigureProvider = self.originalUnconfigureProvider;
       self.store.dispose = self.originalDispose;
 
-      self.disposed = true;
       self.originalDispose();
     };
   }
