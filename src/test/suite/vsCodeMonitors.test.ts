@@ -91,15 +91,14 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       assert.ok(scanEvents.length >= 2, 'Expected provider.scan events from scan progress');
     });
 
-    test('publishes autoscan events from handleFileEvent via getOwner', () => {
+    test('publishes autoscan.providerExecution on resolving and completed', () => {
       const manager = new DiagnosticProviderManager();
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
       reporter.subscribeAll((e) => collected.push(e));
       createAutoScannerMonitor(manager, reporter);
 
-      // Register provider with owned extension
       const progressEmitter = new EventEmitter<ScanProgress>();
-      const provider2: DiagnosticProvider = {
+      const provider: DiagnosticProvider = {
         name: 'tsc',
         store: new ProblemStore(),
         scanning: false,
@@ -114,17 +113,46 @@ suite('VS Code-dependent Telemetry Monitors', () => {
         refresh: () => {},
         dispose: () => {},
       };
-      manager.register('tsc', provider2, { priority: 10 });
+      manager.register('tsc', provider, { priority: 10 });
 
-      // Fire scan progress events
-      progressEmitter.fire({ providerName: 'tsc', phase: 'scanning' });
+      progressEmitter.fire({ providerName: 'tsc', phase: 'resolving' });
       progressEmitter.fire({ providerName: 'tsc', phase: 'completed' });
 
-      const beginEvents = collected.filter((e) => e.type === 'provider.scan' && (e as any).phase === 'begin');
-      const endEvents = collected.filter((e) => e.type === 'provider.scan' && (e as any).phase === 'end');
+      const execEvents = collected.filter((e) => e.type === 'autoscan.providerExecution');
+      assert.ok(execEvents.length >= 2, 'Expected autoscan.providerExecution for resolving + completed');
+      assert.strictEqual((execEvents[0] as any).provider, 'tsc');
+      assert.strictEqual((execEvents[0] as any).scanPhase, 'resolving');
+    });
 
-      assert.ok(beginEvents.length >= 1, 'Expected provider.scan begin');
-      assert.ok(endEvents.length >= 1, 'Expected provider.scan end');
+    test('publishes autoscan.cancel on cancelled scan', () => {
+      const manager = new DiagnosticProviderManager();
+      const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
+      reporter.subscribeAll((e) => collected.push(e));
+      createAutoScannerMonitor(manager, reporter);
+
+      const progressEmitter = new EventEmitter<ScanProgress>();
+      const provider: DiagnosticProvider = {
+        name: 'tsc',
+        store: new ProblemStore(),
+        scanning: false,
+        autoScan: false,
+        enabled: true,
+        capabilities: { extensions: ['.ts'] },
+        onDidUpdate: () => ({ dispose: () => {} }),
+        onDidProgressScan: progressEmitter.event,
+        initialize: () => {},
+        start: () => {},
+        stop: () => {},
+        refresh: () => {},
+        dispose: () => {},
+      };
+      manager.register('tsc', provider, { priority: 10 });
+
+      progressEmitter.fire({ providerName: 'tsc', phase: 'resolving' });
+      progressEmitter.fire({ providerName: 'tsc', phase: 'cancelled' });
+
+      const cancelEvents = collected.filter((e) => e.type === 'autoscan.cancel');
+      assert.ok(cancelEvents.length >= 1, 'Expected autoscan.cancel event');
     });
   });
 
@@ -168,21 +196,23 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       assert.ok(updateEvents.length >= 1, 'Expected diagnostics.updateUri event');
     });
 
-    test('publishes diagnostics.change from scan progress', () => {
+    test('publishes diagnostics.fullScan when provider has pending scan and many URIs', () => {
       const manager = new DiagnosticProviderManager();
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
       reporter.subscribeAll((e) => collected.push(e));
       createDiagnosticsMonitor(manager, reporter);
 
+      const updateEmitter = new EventEmitter<Uri[]>();
       const progressEmitter = new EventEmitter<ScanProgress>();
-      const provider4: DiagnosticProvider = {
+      const store = new ProblemStore();
+      const provider: DiagnosticProvider = {
         name: 'vscodeDiagnostics',
-        store: new ProblemStore(),
+        store,
         scanning: false,
         autoScan: false,
         enabled: true,
         capabilities: { extensions: [] },
-        onDidUpdate: () => ({ dispose: () => {} }),
+        onDidUpdate: updateEmitter.event,
         onDidProgressScan: progressEmitter.event,
         initialize: () => {},
         start: () => {},
@@ -190,15 +220,34 @@ suite('VS Code-dependent Telemetry Monitors', () => {
         refresh: () => {},
         dispose: () => {},
       };
-      manager.register('vscodeDiagnostics', provider4, { priority: 5 });
+      manager.register('vscodeDiagnostics', provider, { priority: 5 });
 
-      progressEmitter.fire({ providerName: 'vscodeDiagnostics', phase: 'scanning' });
-      progressEmitter.fire({ providerName: 'vscodeDiagnostics', phase: 'completed' });
+      // Trigger a pending scan, then fire onDidUpdate with many URIs
+      progressEmitter.fire({ providerName: 'vscodeDiagnostics', phase: 'resolving' });
+      const uris: Uri[] = [];
+      for (let i = 0; i < 25; i++) {
+        uris.push(Uri.parse(`file:///project/file${i}.ts`));
+      }
+      updateEmitter.fire(uris);
 
-      const changeEvents = collected.filter((e) => e.type === 'diagnostics.change');
-      // diagnostics.change is published during flushUpdates — the scan events trigger it
-      // This validates the monitor handles progress without crashing
-      assert.ok(changeEvents.length >= 0, 'DiagnosticsMonitor handles scan progress gracefully');
+      const fullScanEvents = collected.filter((e) => e.type === 'diagnostics.fullScan');
+      assert.ok(fullScanEvents.length >= 1, 'Expected diagnostics.fullScan event');
+      const payload = fullScanEvents[0] as any;
+      assert.strictEqual(payload.uriCount, 25);
+    });
+
+    test('publishes diagnostics.flushUpdates on onDidUpdateAll', () => {
+      const manager = new DiagnosticProviderManager();
+      const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
+      reporter.subscribeAll((e) => collected.push(e));
+      createDiagnosticsMonitor(manager, reporter);
+
+      // Fire the onDidUpdateAll event directly (private EventEmitter)
+      const uris = [Uri.parse('file:///project/test.ts')];
+      (manager as any)._onDidUpdateAll.fire(uris);
+
+      const flushEvents = collected.filter((e) => e.type === 'diagnostics.flushUpdates');
+      assert.ok(flushEvents.length >= 1, 'Expected diagnostics.flushUpdates event');
     });
   });
 
@@ -261,6 +310,22 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       assert.ok(typeof payload.executionTimeMs === 'number');
     });
 
+    test('provideFileDecoration with undefined result publishes decorationProvided=false', () => {
+      const store = new ProblemStore();
+      const engine = new DecorationEngine(store, { getWorkspaceFolder: () => undefined });
+      const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
+      reporter.subscribeAll((e) => collected.push(e));
+      createDecorationMonitor(engine, reporter);
+
+      // URI not in store — provideFileDecoration returns undefined
+      const uri = Uri.parse('file:///project/unknown.ts');
+      engine.provideFileDecoration(uri, new CancellationTokenSource().token);
+
+      const provideEvents = collected.filter((e) => e.type === 'decoration.provideFileDecoration');
+      assert.strictEqual(provideEvents.length, 1);
+      assert.strictEqual((provideEvents[0] as any).decorationProvided, false);
+    });
+
     test('restores original methods on dispose', () => {
       const store = new ProblemStore();
       const engine = new DecorationEngine(store, { getWorkspaceFolder: () => undefined });
@@ -276,6 +341,24 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       monitor.dispose();
       assert.strictEqual(engine.fireDidChange, originalFire, 'fireDidChange should be restored');
       assert.strictEqual(engine.provideFileDecoration, originalProvide, 'provideFileDecoration should be restored');
+    });
+
+    test('disposed monitor delegates to original without publishing events', () => {
+      const store = new ProblemStore();
+      const engine = new DecorationEngine(store, { getWorkspaceFolder: () => undefined });
+      const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
+      reporter.subscribeAll((e) => collected.push(e));
+
+      const monitor = createDecorationMonitor(engine, reporter);
+      monitor.dispose();
+
+      engine.fireDidChange(Uri.parse('file:///project/a.ts'));
+      engine.provideFileDecoration(Uri.parse('file:///project/a.ts'), new CancellationTokenSource().token);
+
+      const events = collected.filter(
+        (e) => e.type.startsWith('decoration.'),
+      );
+      assert.strictEqual(events.length, 0, 'No decoration events after dispose');
     });
   });
 
@@ -351,6 +434,27 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       monitor.dispose();
       assert.strictEqual(folderManager.updateAncestors, originalUpdate);
       assert.strictEqual(folderManager.rebuildAll, originalRebuild);
+    });
+
+    test('disposed monitor delegates to original without publishing events', () => {
+      const store = new ProblemStore();
+      const wf = {
+        getWorkspaceFolder: () => undefined,
+        workspaceFolders: [] as any[],
+      };
+      const folderManager = new FolderStatusManager(store, wf);
+      const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
+      reporter.subscribeAll((e) => collected.push(e));
+
+      const monitor = createFolderMonitor(folderManager, reporter);
+      monitor.dispose();
+
+      const uri = Uri.parse('file:///project/a.ts');
+      folderManager.updateAncestors(uri);
+      folderManager.rebuildAll();
+
+      const events = collected.filter((e) => e.type.startsWith('folder.'));
+      assert.strictEqual(events.length, 0, 'No folder events after dispose');
     });
   });
 });
