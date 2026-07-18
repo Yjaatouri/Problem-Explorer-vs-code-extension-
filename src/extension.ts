@@ -120,6 +120,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       log(`[TELEMETRY] Failed to create file logger: ${e}`);
     }
 
+    // Auto-reveal dashboard on assertion failures for live debugging
+    telemetryReporter.subscribe('assertion.failure', () => {
+      devDashboard.notifyAssertion();
+    });
+
     const tscProvider = new TscDiagnosticProvider(
       problemStore,
       undefined, undefined, undefined,

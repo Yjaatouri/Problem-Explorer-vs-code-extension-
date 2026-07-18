@@ -491,6 +491,12 @@ body {
     el.innerHTML = html;
   }
 
+  /* Focus a specific tab by name */
+  function focusTab(name) {
+    var tab = document.querySelector('.tab[data-tab="' + name + '"]');
+    if (tab) tab.click();
+  }
+
   /* Incoming messages */
   window.addEventListener('message', function (msg) {
     var m = msg.data;
@@ -509,6 +515,9 @@ body {
         break;
       case 'snapshot':
         $('snapshotContent').textContent = m.data;
+        break;
+      case 'focusTab':
+        focusTab(m.tab);
         break;
     }
   });
@@ -575,9 +584,11 @@ body {
 </html>`;
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Lifecycle                                                          */
-  /* ------------------------------------------------------------------ */
+  /** Notify the dashboard of an assertion failure — reveals panel and focuses the Errors tab */
+  notifyAssertion(): void {
+    this.show();
+    this.postMessage({ type: 'focusTab', tab: 'errors' } as any);
+  }
 
   dispose(): void {
     if (this.disposed) return;
