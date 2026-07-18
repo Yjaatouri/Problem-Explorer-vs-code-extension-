@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { workspace } from 'vscode';
+import * as fs from 'fs';
 import { normalizeUriKey } from './core/uriKey';
 import { DecorationEngine, dumpForensicReport } from './decoration/decorationEngine';
 import { FolderStatusManager } from './folder/folderStatusManager';
@@ -34,6 +35,7 @@ import { createPerformanceMonitor } from './telemetry/monitors/PerformanceMonito
 import { createRuntimeAssertions } from './telemetry/monitors/RuntimeAssertions';
 import { createTimelineGenerator } from './telemetry/monitors/TimelineGenerator';
 import { createSnapshotSystem } from './telemetry/monitors/SnapshotSystem';
+import { createTelemetryFileLogger } from './telemetry/monitors/TelemetryFileLogger';
 import { DeveloperDashboard } from './telemetry/monitors/DeveloperDashboard';
 
 console.log('[LOG:DIST_LOADED]');
@@ -107,6 +109,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const timelineGenerator = createTimelineGenerator(telemetryReporter);
     const snapshotSystem = createSnapshotSystem(telemetryReporter, problemStore, diagProviderManager, telemetryConfig);
     const devDashboard = new DeveloperDashboard(telemetryReporter);
+
+    // File logger for offline forensic analysis (rotates at 5 MB, keeps 3 files)
+    let telemetryFileLogger: import('./telemetry/monitors/TelemetryFileLogger').TelemetryFileLogger | undefined;
+    try {
+      const logDir = context.logUri.fsPath;
+      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+      telemetryFileLogger = createTelemetryFileLogger(telemetryReporter, logDir);
+    } catch (e) {
+      log(`[TELEMETRY] Failed to create file logger: ${e}`);
+    }
 
     const tscProvider = new TscDiagnosticProvider(
       problemStore,
@@ -318,6 +330,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       timelineGenerator,
       snapshotSystem,
       devDashboard,
+      ...(telemetryFileLogger ? [telemetryFileLogger] : []),
       { dispose: () => { trendTracker.stop(); } },
     );
 

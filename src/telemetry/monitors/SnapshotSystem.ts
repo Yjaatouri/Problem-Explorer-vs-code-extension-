@@ -209,7 +209,7 @@ export class SnapshotSystem {
     };
   }
 
-  /** Capture and report snapshot as a telemetry event */
+  /** Capture and report snapshot as a telemetry event with full payload */
   captureAndReport(): void {
     const snapshot = this.captureSnapshot();
     this.reporter.report({
@@ -217,6 +217,13 @@ export class SnapshotSystem {
       timestamp: snapshot.timestamp,
       traceId: generateTraceId(),
       source: 'SnapshotSystem',
+      store: snapshot.store,
+      folders: snapshot.folders,
+      providers: snapshot.providers,
+      ownership: snapshot.ownership,
+      scans: snapshot.scans,
+      timers: snapshot.timers,
+      config: snapshot.config,
     } as any);
   }
 
