@@ -207,6 +207,16 @@ export interface StoreMovePrefixEvent {
   readonly executionTimeMs: number;
 }
 
+export interface StoreOwnershipMovedEvent {
+  readonly type: 'store.ownership.moved';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'StoreMonitor';
+  readonly oldUri: string;
+  readonly newUri: string;
+  readonly provider: string;
+}
+
 export interface StoreUnconfigureProviderEvent {
   readonly type: 'store.unconfigureProvider';
   readonly timestamp: number;
@@ -701,6 +711,17 @@ export class StoreMonitor {
             if (p === providerName) staleKeys.push(u);
           }
           for (const key of staleKeys) {
+            const provider = self.ownedUris.get(key);
+            if (provider !== undefined) {
+              self.safeReport({
+                type: 'store.ownership.released',
+                timestamp: start,
+                traceId,
+                source: 'StoreMonitor',
+                uri: key,
+                provider,
+              });
+            }
             self.ownedUris.delete(key);
           }
 
@@ -791,13 +812,24 @@ export class StoreMonitor {
           /* Clear ownership tracking for all matching entries */
           const prefixSlash = prefix + '/';
           const staleKeys: string[] = [];
-          for (const [key, provider] of self.ownedUris) {
+          for (const key of self.ownedUris.keys()) {
             if (key === prefix || key.startsWith(prefixSlash)) {
               staleKeys.push(key);
-              self.decrementOwnerCount(provider);
             }
           }
           for (const key of staleKeys) {
+            const provider = self.ownedUris.get(key);
+            if (provider !== undefined) {
+              self.decrementOwnerCount(provider);
+              self.safeReport({
+                type: 'store.ownership.released',
+                timestamp: start,
+                traceId,
+                source: 'StoreMonitor',
+                uri: key,
+                provider,
+              });
+            }
             self.ownedUris.delete(key);
           }
 
@@ -837,7 +869,7 @@ export class StoreMonitor {
           if (oldPrefix !== newPrefix) {
             const oldPrefixSlash = oldPrefix + '/';
             const rekey: [string, string, string][] = [];
-            for (const [key, provider] of self.ownedUris) {
+          for (const [key, provider] of self.ownedUris) {
               if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
                 const newKey = newPrefix + key.slice(oldPrefix.length);
                 rekey.push([key, newKey, provider]);
@@ -846,6 +878,15 @@ export class StoreMonitor {
             for (const [oldKey, newKey, provider] of rekey) {
               self.ownedUris.delete(oldKey);
               self.ownedUris.set(newKey, provider);
+              self.safeReport({
+                type: 'store.ownership.moved',
+                timestamp: start,
+                traceId,
+                source: 'StoreMonitor',
+                oldUri: oldKey,
+                newUri: newKey,
+                provider,
+              });
             }
           }
 
