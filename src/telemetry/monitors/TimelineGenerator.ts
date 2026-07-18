@@ -213,6 +213,84 @@ export class TimelineGenerator {
     return lines.join('\n');
   }
 
+  /** Generate a summary report from a JSONL log file for offline forensic analysis */
+  static analyzeLogFile(filePath: string): string {
+    const fs = require('fs') as typeof import('fs');
+    let data: string;
+    try {
+      data = fs.readFileSync(filePath, 'utf8');
+    } catch (e: any) {
+      return `[TIMELINE:OFFLINE] Failed to read log file: ${e.message}`;
+    }
+
+    const lines = data.split('\n').filter(Boolean);
+    const events: TelemetryEvent[] = [];
+    let parseErrors = 0;
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed && parsed.type && typeof parsed.timestamp === 'number') {
+          events.push(parsed as TelemetryEvent);
+        }
+      } catch {
+        parseErrors++;
+      }
+    }
+
+    const traceIds = new Set(events.map((e) => e.traceId));
+    const typeCounts = new Map<string, number>();
+    const errors: string[] = [];
+    let totalDuration = 0;
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+
+    for (const e of events) {
+      typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1);
+      if (e.timestamp < minTime) minTime = e.timestamp;
+      if (e.timestamp > maxTime) maxTime = e.timestamp;
+      const data = e as any;
+      if (data.phase === 'error' || data.phase === 'cancelled' || e.type === 'assertion.failure') {
+        errors.push(`${e.type}[${e.traceId}]: ${data.error ?? data.detail ?? data.message ?? ''}`);
+      }
+    }
+
+    if (minTime < Infinity) totalDuration = maxTime - minTime;
+
+    const lines2: string[] = [];
+    lines2.push(`[TIMELINE:OFFLINE] ===== LOG FILE ANALYSIS =====`);
+    lines2.push(`[TIMELINE:OFFLINE] File: ${filePath}`);
+    lines2.push(`[TIMELINE:OFFLINE] Total lines: ${lines.length}`);
+    lines2.push(`[TIMELINE:OFFLINE] Parsed events: ${events.length}`);
+    lines2.push(`[TIMELINE:OFFLINE] Parse errors: ${parseErrors}`);
+    lines2.push(`[TIMELINE:OFFLINE] Unique TraceIds: ${traceIds.size}`);
+    lines2.push(`[TIMELINE:OFFLINE] Time span: ${new Date(minTime).toISOString()} → ${new Date(maxTime).toISOString()} (${totalDuration}ms)`);
+    lines2.push(``);
+    lines2.push(`[TIMELINE:OFFLINE] Event type breakdown:`);
+    const sorted = [...typeCounts.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [type, count] of sorted) {
+      lines2.push(`[TIMELINE:OFFLINE]   ${type}: ${count}`);
+    }
+
+    if (errors.length > 0) {
+      lines2.push(``);
+      lines2.push(`[TIMELINE:OFFLINE] Errors (${errors.length}):`);
+      for (const err of errors) {
+        lines2.push(`[TIMELINE:OFFLINE]   ${err}`);
+      }
+    }
+
+    lines2.push(``);
+    lines2.push(`[TIMELINE:OFFLINE] TraceIds:`);
+    for (const tid of traceIds) {
+      const count = events.filter((e) => e.traceId === tid).length;
+      lines2.push(`[TIMELINE:OFFLINE]   ${tid}: ${count} events`);
+    }
+
+    lines2.push(`[TIMELINE:OFFLINE] ===== END LOG FILE ANALYSIS =====`);
+    return lines2.join('\n');
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

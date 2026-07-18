@@ -33,7 +33,7 @@ import { createEventPipelineMonitor } from './telemetry/monitors/EventPipelineMo
 import { createTimerMonitor } from './telemetry/monitors/TimerMonitor';
 import { createPerformanceMonitor } from './telemetry/monitors/PerformanceMonitor';
 import { createRuntimeAssertions } from './telemetry/monitors/RuntimeAssertions';
-import { createTimelineGenerator } from './telemetry/monitors/TimelineGenerator';
+import { createTimelineGenerator, TimelineGenerator } from './telemetry/monitors/TimelineGenerator';
 import { createSnapshotSystem } from './telemetry/monitors/SnapshotSystem';
 import { createTelemetryFileLogger } from './telemetry/monitors/TelemetryFileLogger';
 import { DeveloperDashboard } from './telemetry/monitors/DeveloperDashboard';
@@ -387,6 +387,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       runtimeAssertions.runAll(problemStore, diagProviderManager, folderStatusManager);
     }, 30000);
     context.subscriptions.push({ dispose: () => clearInterval(assertionInterval) });
+
+    // OFFLINE FORENSIC ANALYSIS COMMAND — run TimelineGenerator against saved telemetry log
+    context.subscriptions.push(
+      vscode.commands.registerCommand('problemExplorer.analyzeTelemetryLog', async () => {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectFiles: true,
+          canSelectMany: false,
+          filters: { 'Telemetry Logs': ['jsonl', 'log', 'txt'] },
+          openLabel: 'Analyze',
+        });
+        if (!uris || uris.length === 0) return;
+        const filePath = uris[0].fsPath;
+        log(`[TELEMETRY] Analyzing log file: ${filePath}`);
+        const report = TimelineGenerator.analyzeLogFile(filePath);
+        log(report);
+        vscode.window.showInformationMessage('Telemetry log analysis complete — see output channel');
+      }),
+    );
 
     return apiManager;
   } catch (err) {
