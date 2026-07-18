@@ -216,6 +216,18 @@ export interface StoreUnconfigureProviderEvent {
   readonly executionTimeMs: number;
 }
 
+export interface StoreDisposeEvent {
+  readonly type: 'store.dispose';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'StoreMonitor';
+  readonly entryCount: number;
+  readonly totalWrites: number;
+  readonly totalRejected: number;
+  readonly totalOwnershipConflicts: number;
+  readonly batchCount: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  StoreMonitor                                                       */
 /* ------------------------------------------------------------------ */
@@ -233,6 +245,7 @@ export class StoreMonitor {
   private originalDeleteByPrefix!: (prefix: string) => number;
   private originalMovePrefix!: (oldPrefix: string, newPrefix: string) => number;
   private originalUnconfigureProvider!: (providerName: string) => void;
+  private originalDispose!: () => void;
 
   /* performance counters */
   private totalWrites = 0;
@@ -282,6 +295,7 @@ export class StoreMonitor {
     this.originalDeleteByPrefix = this.store.deleteByPrefix.bind(this.store);
     this.originalMovePrefix = this.store.movePrefix.bind(this.store);
     this.originalUnconfigureProvider = this.store.unconfigureProvider.bind(this.store);
+    this.originalDispose = this.store.dispose.bind(this.store);
   }
 
   private wrapMethods(): void {
@@ -882,6 +896,44 @@ export class StoreMonitor {
       } finally {
         self.reentrant--;
       }
+    };
+
+    /* — dispose() — */
+    this.store.dispose = function (): void {
+      if (self.disposed) { self.originalDispose(); return; }
+
+      const entryCount = self.store.size();
+      const traceId = generateTraceId();
+      const timestamp = Date.now();
+
+      self.safeReport({
+        type: 'store.dispose',
+        timestamp,
+        traceId,
+        source: 'StoreMonitor',
+        entryCount,
+        totalWrites: self.totalWrites,
+        totalRejected: self.totalRejected,
+        totalOwnershipConflicts: self.totalOwnershipConflicts,
+        batchCount: self.batchCount,
+      });
+
+      /* restore all original methods */
+      self.store.set = self.originalSet;
+      self.store.delete = self.originalDelete;
+      self.store.clear = self.originalClear;
+      self.store.beginBatch = self.originalBeginBatch;
+      self.store.endBatch = self.originalEndBatch;
+      self.store.configureProvider = self.originalConfigureProvider;
+      self.store.releaseOwnership = self.originalReleaseOwnership;
+      self.store.setFolderAggregate = self.originalSetFolderAggregate;
+      self.store.deleteByPrefix = self.originalDeleteByPrefix;
+      self.store.movePrefix = self.originalMovePrefix;
+      self.store.unconfigureProvider = self.originalUnconfigureProvider;
+      self.store.dispose = self.originalDispose;
+
+      self.disposed = true;
+      self.originalDispose();
     };
   }
 
