@@ -409,16 +409,24 @@ export class ProviderMonitor {
       executionTimeMs: 0,
     });
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
     try {
       const result = tracking.originalRefresh.call(provider);
 
       if (result instanceof Promise) {
+        let timeoutReject: (reason: unknown) => void;
         const timeoutPromise = new Promise<never>((_, reject) => {
-          const id = setTimeout(() => reject(new Error(`Provider "${name}" refresh timed out after ${REFRESH_TIMEOUT_MS}ms`)), REFRESH_TIMEOUT_MS);
-          if (typeof id === 'object' && typeof id.unref === 'function') id.unref();
+          timeoutReject = reject;
         });
+        timeoutId = setTimeout(() => {
+          timeoutReject!(new Error(`Provider "${name}" refresh timed out after ${REFRESH_TIMEOUT_MS}ms`));
+        }, REFRESH_TIMEOUT_MS);
+        if (typeof timeoutId === 'object' && typeof timeoutId.unref === 'function') timeoutId.unref();
         await Promise.race([result, timeoutPromise]);
       }
+
+      clearTimeout(timeoutId);
 
       const elapsed = Date.now() - start;
       tracking.totalRefreshes++;
@@ -476,7 +484,9 @@ export class ProviderMonitor {
         error: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      tracking.activeRefreshCount--;
+      if (tracking.activeRefreshCount > 0) {
+        tracking.activeRefreshCount--;
+      }
       tracking.scanning = tracking.activeRefreshCount > 0;
     }
   }
@@ -486,6 +496,7 @@ export class ProviderMonitor {
   /* ------------------------------------------------------------------ */
 
   private handleScanProgress(progress: ScanProgress): void {
+    if (this.disposed) return;
     const t = this.providers.get(progress.providerName);
     if (!t) return;
 
