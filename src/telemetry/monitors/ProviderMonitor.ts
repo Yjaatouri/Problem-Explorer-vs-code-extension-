@@ -381,8 +381,16 @@ export class ProviderMonitor {
     provider: DiagnosticProvider
   ): Promise<void> {
     if (this.disposed || tracking.disposed) {
+      if (tracking.disposed && !this.disposed) {
+        this.emitAssertion(name, 'refresh after dispose', `Provider "${name}" refresh called after dispose`);
+      }
       tracking.originalRefresh.call(provider);
       return;
+    }
+
+    if (tracking.activeRefreshCount > 0) {
+      this.emitAssertion(name, 'refresh while already refreshing',
+        `Provider "${name}" refresh called while activeRefreshCount=${tracking.activeRefreshCount}`);
     }
 
     tracking.activeRefreshCount++;
@@ -561,6 +569,18 @@ export class ProviderMonitor {
     const t = this.providers.get(name);
     if (!t) return;
 
+    /* Assertions — detect lifecycle violations */
+    if (t.disposed && newState === ProviderState.disposed) {
+      this.emitAssertion(name, 'duplicate dispose', `Provider "${name}" disposed more than once`);
+    }
+    if (t.disposed && newState !== ProviderState.disposed) {
+      this.emitAssertion(name, 'state transition after dispose',
+        `Provider "${name}" transition from ${oldState} to ${newState} after dispose`);
+    }
+    if (newState === ProviderState.idle && oldState === ProviderState.disposed) {
+      this.emitAssertion(name, 'resurrection', `Provider "${name}" transitioned from disposed to idle`);
+    }
+
     t.state = newState;
     const now = Date.now();
     const traceId = generateTraceId();
@@ -653,6 +673,18 @@ export class ProviderMonitor {
     } catch {
       /* ProviderMonitor must never crash the extension */
     }
+  }
+
+  private emitAssertion(provider: string, assertion: string, detail: string): void {
+    this.emit({
+      type: 'provider.assertion',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'ProviderMonitor',
+      provider,
+      assertion,
+      detail,
+    });
   }
 }
 
