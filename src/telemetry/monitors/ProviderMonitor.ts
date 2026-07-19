@@ -144,7 +144,7 @@ interface ProviderTrackingState {
   scanning: boolean;
   activeRefreshCount: number;
   refreshStartTime: number;
-  refreshTimestamps: number[];
+  cancelled: boolean;
   lastRefreshDurationMs: number;
   lastRefreshTimestamp: number;
   lastError: string | undefined;
@@ -322,7 +322,7 @@ export class ProviderMonitor {
       scanning: false,
       activeRefreshCount: 0,
       refreshStartTime: 0,
-      refreshTimestamps: [],
+      cancelled: false,
       lastRefreshDurationMs: 0,
       lastRefreshTimestamp: 0,
       lastError: undefined,
@@ -356,8 +356,6 @@ export class ProviderMonitor {
     provider.refresh = function (): void | Promise<void> {
       return self.wrapRefresh(name, tracking, provider);
     };
-
-    tracking.refreshTimestamps.push(Date.now());
   }
 
   private onProviderUnregistered(name: string): void {
@@ -396,6 +394,8 @@ export class ProviderMonitor {
 
     tracking.activeRefreshCount++;
     tracking.scanning = true;
+    tracking.cancelled = false;
+    tracking.refreshStartTime = Date.now();
     const start = Date.now();
     const traceId = generateTraceId();
 
@@ -429,8 +429,6 @@ export class ProviderMonitor {
       clearTimeout(timeoutId);
 
       const elapsed = Date.now() - start;
-      tracking.totalRefreshes++;
-      tracking.successfulRefreshes++;
       tracking.totalRefreshDurationMs += elapsed;
       tracking.lastRefreshDurationMs = elapsed;
       tracking.lastRefreshTimestamp = Date.now();
@@ -440,6 +438,11 @@ export class ProviderMonitor {
       }
       if (elapsed < tracking.shortestRefreshDurationMs) {
         tracking.shortestRefreshDurationMs = elapsed;
+      }
+
+      if (!tracking.cancelled) {
+        tracking.totalRefreshes++;
+        tracking.successfulRefreshes++;
       }
 
       this.emit({
@@ -454,12 +457,15 @@ export class ProviderMonitor {
       });
     } catch (err) {
       const elapsed = Date.now() - start;
-      tracking.totalRefreshes++;
-      tracking.failedRefreshes++;
       tracking.totalRefreshDurationMs += elapsed;
       tracking.lastRefreshDurationMs = elapsed;
       tracking.lastRefreshTimestamp = Date.now();
       tracking.lastError = err instanceof Error ? err.message : String(err);
+
+      if (!tracking.cancelled) {
+        tracking.totalRefreshes++;
+        tracking.failedRefreshes++;
+      }
 
       this.emit({
         type: 'provider.error',
@@ -502,7 +508,7 @@ export class ProviderMonitor {
 
     switch (progress.phase) {
       case 'cancelled':
-        t.refreshTimestamps = t.refreshTimestamps.filter(ts => ts > Date.now() - 60000);
+        t.cancelled = true;
         t.totalRefreshes++;
         t.cancelledRefreshes++;
         this.emit({
@@ -512,7 +518,7 @@ export class ProviderMonitor {
           source: 'ProviderMonitor',
           provider: progress.providerName,
           phase: 'cancelled',
-          executionTimeMs: t.refreshTimestamps.length > 0 ? Date.now() - t.refreshTimestamps[0] : 0,
+          executionTimeMs: t.refreshStartTime > 0 ? Date.now() - t.refreshStartTime : 0,
         });
         break;
       case 'error':
