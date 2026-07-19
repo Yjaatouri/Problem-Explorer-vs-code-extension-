@@ -704,8 +704,8 @@ export class ProviderMonitor {
   private emit(event: ProviderTelemetryEvent): void {
     try {
       this.reporter.report(event);
-    } catch {
-      /* ProviderMonitor must never crash the extension */
+    } catch (e) {
+      console.error('[ProviderMonitor] emit failed:', e);
     }
   }
 
