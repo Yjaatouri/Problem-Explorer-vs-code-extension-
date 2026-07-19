@@ -450,16 +450,19 @@ export class ProviderMonitor {
         tracking.successfulRefreshes++;
       }
 
-      this.emit({
-        type: 'provider.refresh',
-        timestamp: Date.now(),
-        traceId,
-        source: 'ProviderMonitor',
-        provider: name,
-        phase: 'end',
-        executionTimeMs: elapsed,
-        success: true,
-      });
+      /* Skip event emission if monitor was disposed during the async refresh */
+      if (!this.disposed) {
+        this.emit({
+          type: 'provider.refresh',
+          timestamp: Date.now(),
+          traceId,
+          source: 'ProviderMonitor',
+          provider: name,
+          phase: 'end',
+          executionTimeMs: elapsed,
+          success: true,
+        });
+      }
     } catch (err) {
       const elapsed = Date.now() - start;
       tracking.totalRefreshDurationMs += elapsed;
@@ -472,28 +475,31 @@ export class ProviderMonitor {
         tracking.failedRefreshes++;
       }
 
-      this.emit({
-        type: 'provider.error',
-        timestamp: Date.now(),
-        traceId,
-        source: 'ProviderMonitor',
-        provider: name,
-        phase: 'refresh',
-        error: err instanceof Error ? err.message : String(err),
-        executionTimeMs: elapsed,
-      });
+      /* Skip event emission if monitor was disposed during the async refresh */
+      if (!this.disposed) {
+        this.emit({
+          type: 'provider.error',
+          timestamp: Date.now(),
+          traceId,
+          source: 'ProviderMonitor',
+          provider: name,
+          phase: 'refresh',
+          error: err instanceof Error ? err.message : String(err),
+          executionTimeMs: elapsed,
+        });
 
-      this.emit({
-        type: 'provider.refresh',
-        timestamp: Date.now(),
-        traceId,
-        source: 'ProviderMonitor',
-        provider: name,
-        phase: 'end',
-        executionTimeMs: elapsed,
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+        this.emit({
+          type: 'provider.refresh',
+          timestamp: Date.now(),
+          traceId,
+          source: 'ProviderMonitor',
+          provider: name,
+          phase: 'end',
+          executionTimeMs: elapsed,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     } finally {
       if (tracking.activeRefreshCount > 0) {
         tracking.activeRefreshCount--;
