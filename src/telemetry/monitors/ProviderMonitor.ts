@@ -616,7 +616,6 @@ export class ProviderMonitor {
       this.emitAssertion(name, 'resurrection', `Provider "${name}" transitioned from disposed to idle`);
     }
 
-    t.state = newState;
     const now = Date.now();
     const traceId = generateTraceId();
 
