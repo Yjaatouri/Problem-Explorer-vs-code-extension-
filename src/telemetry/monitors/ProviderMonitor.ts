@@ -109,6 +109,8 @@ export interface ProviderStatistics {
   longestRefreshDurationMs: number;
   shortestRefreshDurationMs: number;
   totalDiagnosticsProduced: number;
+  totalUrisProcessed: number;
+  totalScans: number;
   lastRefreshTimestamp: number;
   lastRefreshDurationMs: number;
 }
@@ -152,6 +154,8 @@ interface ProviderTrackingState {
   longestRefreshDurationMs: number;
   shortestRefreshDurationMs: number;
   totalDiagnosticsProduced: number;
+  totalUrisProcessed: number;
+  totalScans: number;
 
   /* lifecycle timing */
   registrationTime: number;
@@ -324,6 +328,8 @@ export class ProviderMonitor {
       longestRefreshDurationMs: 0,
       shortestRefreshDurationMs: 0,
       totalDiagnosticsProduced: 0,
+      totalUrisProcessed: 0,
+      totalScans: 0,
       registrationTime: Date.now(),
       initializeStartTime: 0,
       startTime: 0,
@@ -518,6 +524,8 @@ export class ProviderMonitor {
     }
 
     t.totalDiagnosticsProduced += errors + warnings + infos;
+    t.totalUrisProcessed += uris.length;
+    t.totalScans++;
 
     const elapsed = t.lastRefreshDurationMs > 0 ? t.lastRefreshDurationMs : 0;
 
@@ -622,6 +630,8 @@ export class ProviderMonitor {
       longestRefreshDurationMs: t.longestRefreshDurationMs,
       shortestRefreshDurationMs: t.shortestRefreshDurationMs,
       totalDiagnosticsProduced: t.totalDiagnosticsProduced,
+      totalUrisProcessed: t.totalUrisProcessed,
+      totalScans: t.totalScans,
       lastRefreshTimestamp: t.lastRefreshTimestamp,
       lastRefreshDurationMs: t.lastRefreshDurationMs,
     };
