@@ -368,7 +368,7 @@ export class ProviderMonitor {
     tracking: ProviderTrackingState,
     provider: DiagnosticProvider
   ): Promise<void> {
-    if (this.disposed) {
+    if (this.disposed || tracking.disposed) {
       tracking.originalRefresh.call(provider);
       return;
     }
