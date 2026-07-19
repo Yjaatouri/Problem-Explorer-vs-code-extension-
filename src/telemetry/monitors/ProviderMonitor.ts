@@ -1,3 +1,4 @@
+import { Uri } from 'vscode';
 import { DiagnosticProviderManager, ProviderState } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { ScanProgress } from '../../core/types';
@@ -332,7 +333,7 @@ export class ProviderMonitor {
       cancelledRefreshes: 0,
       totalRefreshDurationMs: 0,
       longestRefreshDurationMs: 0,
-      shortestRefreshDurationMs: 0,
+      shortestRefreshDurationMs: Infinity,
       totalDiagnosticsProduced: 0,
       totalUrisProcessed: 0,
       totalScans: 0,
@@ -429,7 +430,7 @@ export class ProviderMonitor {
       if (elapsed > tracking.longestRefreshDurationMs) {
         tracking.longestRefreshDurationMs = elapsed;
       }
-      if (tracking.shortestRefreshDurationMs === 0 || elapsed < tracking.shortestRefreshDurationMs) {
+      if (elapsed < tracking.shortestRefreshDurationMs) {
         tracking.shortestRefreshDurationMs = elapsed;
       }
 
@@ -522,7 +523,7 @@ export class ProviderMonitor {
   /*  Provider update handling                                           */
   /* ------------------------------------------------------------------ */
 
-  private handleProviderUpdate(name: string, uris: readonly any[]): void {
+  private handleProviderUpdate(name: string, uris: readonly Uri[]): void {
     const t = this.providers.get(name);
     if (!t) return;
 
@@ -568,6 +569,12 @@ export class ProviderMonitor {
   private handleStateChange(name: string, oldState: ProviderState, newState: ProviderState): void {
     const t = this.providers.get(name);
     if (!t) return;
+
+    t.state = newState;
+
+    if (newState === ProviderState.disposed) {
+      t.disposed = true;
+    }
 
     /* Assertions — detect lifecycle violations */
     if (t.disposed && newState === ProviderState.disposed) {
@@ -626,10 +633,6 @@ export class ProviderMonitor {
       return;
     }
 
-    if (newState === ProviderState.disposed) {
-      t.disposed = true;
-    }
-
     this.emit({
       type: 'provider.lifecycle',
       timestamp: now,
@@ -658,7 +661,7 @@ export class ProviderMonitor {
       totalRefreshDurationMs: t.totalRefreshDurationMs,
       averageRefreshDurationMs: t.totalRefreshes > 0 ? Math.round(t.totalRefreshDurationMs / t.totalRefreshes) : 0,
       longestRefreshDurationMs: t.longestRefreshDurationMs,
-      shortestRefreshDurationMs: t.shortestRefreshDurationMs,
+      shortestRefreshDurationMs: t.shortestRefreshDurationMs === Infinity ? 0 : t.shortestRefreshDurationMs,
       totalDiagnosticsProduced: t.totalDiagnosticsProduced,
       totalUrisProcessed: t.totalUrisProcessed,
       totalScans: t.totalScans,
