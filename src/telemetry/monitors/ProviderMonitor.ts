@@ -22,7 +22,7 @@ export interface ProviderLifecycleEvent {
   readonly traceId: string;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
-  readonly phase: 'initialize' | 'start' | 'stop' | 'dispose';
+  readonly phase: 'initialize' | 'initialized' | 'start' | 'stop' | 'dispose';
   readonly oldState: ProviderState | undefined;
   readonly newState: ProviderState;
   readonly executionTimeMs: number;
@@ -619,6 +619,9 @@ export class ProviderMonitor {
       executionTimeMs = t.initializeStartTime > 0 ? now - t.initializeStartTime : 0;
       t.startTime = now;
     }
+    if (oldState === ProviderState.initializing && newState === ProviderState.idle) {
+      executionTimeMs = t.initializeStartTime > 0 ? now - t.initializeStartTime : 0;
+    }
     if (oldState === ProviderState.running && newState === ProviderState.idle) {
       executionTimeMs = t.startTime > 0 ? now - t.startTime : 0;
       t.stopTime = now;
@@ -627,10 +630,11 @@ export class ProviderMonitor {
       executionTimeMs = t.registrationTime > 0 ? now - t.registrationTime : 0;
     }
 
-    const phase: 'initialize' | 'start' | 'stop' | 'dispose' | undefined =
+    const phase: 'initialize' | 'initialized' | 'start' | 'stop' | 'dispose' | undefined =
       newState === ProviderState.initializing ? 'initialize' :
       newState === ProviderState.running ? 'start' :
       newState === ProviderState.disposed ? 'dispose' :
+      oldState === ProviderState.initializing && newState === ProviderState.idle ? 'initialized' :
       oldState === ProviderState.running && newState === ProviderState.idle ? 'stop' :
       undefined;
 
@@ -644,7 +648,7 @@ export class ProviderMonitor {
           provider: name,
           phase: 'unknown',
           error: `Provider entered error state`,
-          executionTimeMs: now - (t.initializeStartTime || now),
+          executionTimeMs: oldState === ProviderState.initializing && t.initializeStartTime > 0 ? now - t.initializeStartTime : 0,
         });
       }
       return;
