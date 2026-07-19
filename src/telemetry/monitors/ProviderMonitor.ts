@@ -411,7 +411,7 @@ export class ProviderMonitor {
       source: 'ProviderMonitor',
       provider: name,
       phase: 'begin',
-      executionTimeMs: 0,
+      executionTimeMs: -1,
     });
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
