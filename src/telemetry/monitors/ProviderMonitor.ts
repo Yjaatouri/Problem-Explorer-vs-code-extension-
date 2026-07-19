@@ -240,51 +240,50 @@ export class ProviderMonitor {
   /** Get cumulative statistics for a named provider */
   getStatistics(name: string): ProviderStatistics | undefined {
     const t = this.providers.get(name);
-    if (!t) return undefined;
-    return this.toStatistics(t);
+    return t ? Object.freeze(this.toStatistics(t)) : undefined;
   }
 
   /** Get statistics for all monitored providers */
-  getAllStatistics(): Map<string, ProviderStatistics> {
+  getAllStatistics(): ReadonlyMap<string, Readonly<ProviderStatistics>> {
     const result = new Map<string, ProviderStatistics>();
     for (const [name, t] of this.providers) {
-      result.set(name, this.toStatistics(t));
+      result.set(name, Object.freeze(this.toStatistics(t)));
     }
-    return result;
+    return Object.freeze(result);
   }
 
   /** Get a point-in-time snapshot for a named provider */
-  getSnapshot(name: string): ProviderSnapshot | undefined {
+  getSnapshot(name: string): Readonly<ProviderSnapshot> | undefined {
     const t = this.providers.get(name);
     if (!t) return undefined;
-    return {
+    return Object.freeze({
       name,
       state: t.state,
-      scanning: t.scanning,
+      scanning: t.activeRefreshCount > 0,
       activeRefreshCount: t.activeRefreshCount,
       lastRefreshTimestamp: t.lastRefreshTimestamp,
       lastRefreshDurationMs: t.lastRefreshDurationMs,
       lastError: t.lastError,
-      statistics: this.toStatistics(t),
-    };
+      statistics: Object.freeze(this.toStatistics(t)),
+    });
   }
 
   /** Get snapshots for all monitored providers */
-  getAllSnapshots(): ProviderSnapshot[] {
+  getAllSnapshots(): ReadonlyArray<Readonly<ProviderSnapshot>> {
     const result: ProviderSnapshot[] = [];
     for (const [name, t] of this.providers) {
-      result.push({
+      result.push(Object.freeze({
         name,
         state: t.state,
-        scanning: t.scanning,
+        scanning: t.activeRefreshCount > 0,
         activeRefreshCount: t.activeRefreshCount,
         lastRefreshTimestamp: t.lastRefreshTimestamp,
         lastRefreshDurationMs: t.lastRefreshDurationMs,
         lastError: t.lastError,
-        statistics: this.toStatistics(t),
-      });
+        statistics: Object.freeze(this.toStatistics(t)),
+      }));
     }
-    return result;
+    return Object.freeze(result);
   }
 
   /** Dispose the monitor, restoring all wrapped methods */
