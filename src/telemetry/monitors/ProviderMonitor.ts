@@ -180,7 +180,7 @@ export class ProviderMonitor {
   private readonly refreshTimeoutMs: number;
   private disposed = false;
 
-  constructor(
+  private constructor(
     private readonly manager: DiagnosticProviderManager,
     private readonly reporter: TelemetryReporter,
     refreshTimeoutMs: number = 30_000
@@ -716,13 +716,16 @@ export class ProviderMonitor {
       detail,
     });
   }
+
+  /** Create a ProviderMonitor attached to the given manager and reporter */
+  static create(
+    manager: DiagnosticProviderManager,
+    reporter: TelemetryReporter,
+    refreshTimeoutMs?: number
+  ): ProviderMonitor {
+    return new ProviderMonitor(manager, reporter, refreshTimeoutMs);
+  }
 }
 
 /** Create a ProviderMonitor attached to the given manager and reporter */
-export function createProviderMonitor(
-  manager: DiagnosticProviderManager,
-  reporter: TelemetryReporter,
-  refreshTimeoutMs?: number
-): ProviderMonitor {
-  return new ProviderMonitor(manager, reporter, refreshTimeoutMs);
-}
+export const createProviderMonitor: typeof ProviderMonitor.create = ProviderMonitor.create;
