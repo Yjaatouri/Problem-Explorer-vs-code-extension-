@@ -568,7 +568,7 @@ export class ProviderMonitor {
     t.totalUrisProcessed += uris.length;
     t.totalScans++;
 
-    const elapsed = t.lastRefreshDurationMs > 0 ? t.lastRefreshDurationMs : 0;
+    const elapsed = t.refreshStartTime > 0 ? Date.now() - t.refreshStartTime : 0;
 
     this.emit({
       type: 'provider.scanResult',
