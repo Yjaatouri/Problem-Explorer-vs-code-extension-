@@ -3,7 +3,7 @@ import { DiagnosticProviderManager, ProviderState } from '../../providers/Diagno
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { ScanProgress } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry';
-import { generateTraceId } from '../../telemetry';
+import { generateTraceId, TraceId } from '../../telemetry';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -19,7 +19,7 @@ const REFRESH_TIMEOUT_MS = 30_000;
 export interface ProviderLifecycleEvent {
   readonly type: 'provider.lifecycle';
   readonly timestamp: number;
-  readonly traceId: string;
+  readonly traceId: TraceId;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly phase: 'initialize' | 'initialized' | 'start' | 'stop' | 'dispose';
@@ -34,7 +34,7 @@ export interface ProviderLifecycleEvent {
 export interface ProviderRefreshEvent {
   readonly type: 'provider.refresh';
   readonly timestamp: number;
-  readonly traceId: string;
+  readonly traceId: TraceId;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly phase: 'begin' | 'end' | 'cancelled';
@@ -47,7 +47,7 @@ export interface ProviderRefreshEvent {
 export interface ProviderScanResultEvent {
   readonly type: 'provider.scanResult';
   readonly timestamp: number;
-  readonly traceId: string;
+  readonly traceId: TraceId;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly uriCount: number;
@@ -61,7 +61,7 @@ export interface ProviderScanResultEvent {
 export interface ProviderErrorEvent {
   readonly type: 'provider.error';
   readonly timestamp: number;
-  readonly traceId: string;
+  readonly traceId: TraceId;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly phase: 'refresh' | 'initialize' | 'start' | 'stop' | 'dispose' | 'unknown';
@@ -73,7 +73,7 @@ export interface ProviderErrorEvent {
 export interface ProviderRegistryEvent {
   readonly type: 'provider.registry';
   readonly timestamp: number;
-  readonly traceId: string;
+  readonly traceId: TraceId;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly action: 'registered' | 'unregistered';
@@ -85,7 +85,7 @@ export interface ProviderRegistryEvent {
 export interface ProviderAssertionEvent {
   readonly type: 'provider.assertion';
   readonly timestamp: number;
-  readonly traceId: string;
+  readonly traceId: TraceId;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly assertion: string;
@@ -698,7 +698,7 @@ export class ProviderMonitor {
 
   private emit(event: ProviderTelemetryEvent): void {
     try {
-      this.reporter.report(event as any);
+      this.reporter.report(event);
     } catch {
       /* ProviderMonitor must never crash the extension */
     }
