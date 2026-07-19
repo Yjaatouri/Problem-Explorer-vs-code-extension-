@@ -154,8 +154,10 @@ interface ProviderTrackingState {
   totalDiagnosticsProduced: number;
 
   /* lifecycle timing */
+  registrationTime: number;
   initializeStartTime: number;
   startTime: number;
+  stopTime: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -322,8 +324,10 @@ export class ProviderMonitor {
       longestRefreshDurationMs: 0,
       shortestRefreshDurationMs: 0,
       totalDiagnosticsProduced: 0,
+      registrationTime: Date.now(),
       initializeStartTime: 0,
       startTime: 0,
+      stopTime: 0,
     };
 
     this.providers.set(name, tracking);
@@ -543,11 +547,22 @@ export class ProviderMonitor {
     const now = Date.now();
     const traceId = generateTraceId();
 
+    /* Compute duration for the completed phase */
+    let executionTimeMs = 0;
+
     if (newState === ProviderState.initializing) {
       t.initializeStartTime = now;
     }
     if (newState === ProviderState.running) {
+      executionTimeMs = t.initializeStartTime > 0 ? now - t.initializeStartTime : 0;
       t.startTime = now;
+    }
+    if (oldState === ProviderState.running && newState === ProviderState.idle) {
+      executionTimeMs = t.startTime > 0 ? now - t.startTime : 0;
+      t.stopTime = now;
+    }
+    if (newState === ProviderState.disposed) {
+      executionTimeMs = t.registrationTime > 0 ? now - t.registrationTime : 0;
     }
 
     const phase: 'initialize' | 'start' | 'stop' | 'dispose' | undefined =
@@ -586,7 +601,7 @@ export class ProviderMonitor {
       phase,
       oldState,
       newState,
-      executionTimeMs: 0,
+      executionTimeMs,
       success: newState !== ProviderState.error,
       error: newState === ProviderState.error ? `Provider entered error state after ${phase}` : undefined,
     });
