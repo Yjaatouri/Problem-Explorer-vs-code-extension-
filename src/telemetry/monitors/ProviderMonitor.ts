@@ -5,6 +5,12 @@ import { TelemetryReporter } from '../../telemetry';
 import { generateTraceId } from '../../telemetry';
 
 /* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
+/** Maximum time (ms) a provider refresh is allowed to take */
+const REFRESH_TIMEOUT_MS = 30_000;
+/* ------------------------------------------------------------------ */
 /*  Event data interfaces                                              */
 /* ------------------------------------------------------------------ */
 
@@ -398,7 +404,11 @@ export class ProviderMonitor {
       const result = tracking.originalRefresh.call(provider);
 
       if (result instanceof Promise) {
-        await result;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const id = setTimeout(() => reject(new Error(`Provider "${name}" refresh timed out after ${REFRESH_TIMEOUT_MS}ms`)), REFRESH_TIMEOUT_MS);
+          if (typeof id === 'object' && typeof id.unref === 'function') id.unref();
+        });
+        await Promise.race([result, timeoutPromise]);
       }
 
       const elapsed = Date.now() - start;
