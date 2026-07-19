@@ -4,9 +4,16 @@ import { ScanProgress } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry';
 import { generateTraceId } from '../../telemetry';
 
-/** Structured event payload for provider lifecycle events: initialize, start, stop, dispose */
-export interface ProviderLifecycleEventData {
+/* ------------------------------------------------------------------ */
+/*  Event data interfaces                                              */
+/* ------------------------------------------------------------------ */
+
+/** Structured event payload for provider lifecycle events */
+export interface ProviderLifecycleEvent {
   readonly type: 'provider.lifecycle';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly phase: 'initialize' | 'start' | 'stop' | 'dispose';
   readonly oldState: ProviderState | undefined;
@@ -16,52 +23,165 @@ export interface ProviderLifecycleEventData {
   readonly error?: string;
 }
 
-/** Structured event payload for provider scan events: begin, end, cancelled, error */
-export interface ProviderScanEventData {
-  readonly type: 'provider.scan';
+/** Structured event payload for provider refresh events */
+export interface ProviderRefreshEvent {
+  readonly type: 'provider.refresh';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'ProviderMonitor';
   readonly provider: string;
-  readonly phase: 'begin' | 'end' | 'cancelled' | 'error';
-  readonly scanPhase: string;
+  readonly phase: 'begin' | 'end' | 'cancelled';
   readonly executionTimeMs: number;
-  readonly uriCount?: number;
-  readonly diagnosticSummary?: { errors: number; warnings: number; infos: number };
-  readonly message?: string;
+  readonly success?: boolean;
   readonly error?: string;
 }
 
-/** Structured event payload for provider registry events: registered, unregistered */
-export interface ProviderRegistryEventData {
+/** Structured event payload for provider scan result events */
+export interface ProviderScanResultEvent {
+  readonly type: 'provider.scanResult';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'ProviderMonitor';
+  readonly provider: string;
+  readonly uriCount: number;
+  readonly errorCount: number;
+  readonly warningCount: number;
+  readonly infoCount: number;
+  readonly executionTimeMs: number;
+}
+
+/** Structured event payload for provider error events */
+export interface ProviderErrorEvent {
+  readonly type: 'provider.error';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'ProviderMonitor';
+  readonly provider: string;
+  readonly phase: 'refresh' | 'initialize' | 'start' | 'stop' | 'dispose' | 'unknown';
+  readonly error: string;
+  readonly executionTimeMs: number;
+}
+
+/** Structured event payload for provider registry events */
+export interface ProviderRegistryEvent {
   readonly type: 'provider.registry';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'ProviderMonitor';
   readonly provider: string;
   readonly action: 'registered' | 'unregistered';
   readonly capabilities?: readonly string[];
   readonly priority?: number;
 }
 
-/** Union of all provider monitor event types */
-export type ProviderMonitorEvent =
-  | ProviderLifecycleEventData
-  | ProviderScanEventData
-  | ProviderRegistryEventData;
+/** Structured event payload for provider assertion failure events */
+export interface ProviderAssertionEvent {
+  readonly type: 'provider.assertion';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'ProviderMonitor';
+  readonly provider: string;
+  readonly assertion: string;
+  readonly detail: string;
+}
 
-/** Monitors DiagnosticProvider lifecycle and scan operations */
+/** Union of all provider monitor event types */
+export type ProviderTelemetryEvent =
+  | ProviderLifecycleEvent
+  | ProviderRefreshEvent
+  | ProviderScanResultEvent
+  | ProviderErrorEvent
+  | ProviderRegistryEvent
+  | ProviderAssertionEvent;
+
+/* ------------------------------------------------------------------ */
+/*  Statistics & snapshot interfaces                                   */
+/* ------------------------------------------------------------------ */
+
+/** Cumulative refresh statistics for a single provider */
+export interface ProviderStatistics {
+  totalRefreshes: number;
+  successfulRefreshes: number;
+  failedRefreshes: number;
+  cancelledRefreshes: number;
+  totalRefreshDurationMs: number;
+  averageRefreshDurationMs: number;
+  longestRefreshDurationMs: number;
+  shortestRefreshDurationMs: number;
+  totalDiagnosticsProduced: number;
+  lastRefreshTimestamp: number;
+  lastRefreshDurationMs: number;
+}
+
+/** Point-in-time snapshot of a single provider's monitored state */
+export interface ProviderSnapshot {
+  name: string;
+  state: ProviderState;
+  scanning: boolean;
+  activeRefreshCount: number;
+  lastRefreshTimestamp: number;
+  lastRefreshDurationMs: number;
+  lastError: string | undefined;
+  statistics: ProviderStatistics;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Internal tracking state per provider                               */
+/* ------------------------------------------------------------------ */
+
+interface ProviderTrackingState {
+  originalRefresh: DiagnosticProvider['refresh'];
+  state: ProviderState;
+  scanning: boolean;
+  activeRefreshCount: number;
+  refreshStartTime: number;
+  refreshTimestamps: number[];
+  lastRefreshDurationMs: number;
+  lastRefreshTimestamp: number;
+  lastError: string | undefined;
+
+  /* assertions */
+  disposed: boolean;
+
+  /* statistics */
+  totalRefreshes: number;
+  successfulRefreshes: number;
+  failedRefreshes: number;
+  cancelledRefreshes: number;
+  totalRefreshDurationMs: number;
+  longestRefreshDurationMs: number;
+  shortestRefreshDurationMs: number;
+  totalDiagnosticsProduced: number;
+
+  /* lifecycle timing */
+  initializeStartTime: number;
+  startTime: number;
+}
+
+/* ------------------------------------------------------------------ */
+/*  ProviderMonitor                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Monitors DiagnosticProvider lifecycle, refresh, scan results, errors, and performance */
 export class ProviderMonitor {
-  private readonly stateTimestamps = new Map<string, number>();
-  private readonly scanTimestamps = new Map<string, number>();
-  private readonly scanning = new Map<string, boolean>();
+  private readonly providers = new Map<string, ProviderTrackingState>();
+  private readonly subscriptions: Array<{ dispose(): void }> = [];
   private disposed = false;
 
   constructor(
     private readonly manager: DiagnosticProviderManager,
     private readonly reporter: TelemetryReporter
   ) {
+    /* Attach to already-registered providers */
     for (const info of this.manager.all()) {
-      this.attachToProvider(info.name, info.provider);
+      this.onProviderRegistered(info.name, info.provider);
     }
 
-    this.manager.onDidRegister((info) => {
+    /* Subscribe to future registrations and unregistrations */
+    this.subscriptions.push(this.manager.onDidRegister((info) => {
       if (this.disposed) return;
-      this.reporter.report({
+      this.onProviderRegistered(info.name, info.provider);
+      this.emit({
         type: 'provider.registry',
         timestamp: Date.now(),
         traceId: generateTraceId(),
@@ -70,79 +190,364 @@ export class ProviderMonitor {
         action: 'registered',
         capabilities: info.metadata.capabilities,
         priority: info.metadata.priority,
-      } as any);
-      this.attachToProvider(info.name, info.provider);
-    });
+      });
+    }));
 
-    this.manager.onDidUnregister(({ name }) => {
+    this.subscriptions.push(this.manager.onDidUnregister(({ name }) => {
       if (this.disposed) return;
-      this.cleanupProvider(name);
-      this.reporter.report({
+      this.emit({
         type: 'provider.registry',
         timestamp: Date.now(),
         traceId: generateTraceId(),
         source: 'ProviderMonitor',
         provider: name,
         action: 'unregistered',
-      } as any);
-    });
+      });
+      this.onProviderUnregistered(name);
+    }));
 
-    this.manager.onDidChangeProviderState(({ name, oldState, newState }) => {
+    /* Subscribe to state changes from the manager */
+    this.subscriptions.push(this.manager.onDidChangeProviderState(({ name, oldState, newState }) => {
       if (this.disposed) return;
       this.handleStateChange(name, oldState, newState);
-    });
+    }));
 
-    this.manager.onDidScanProgress((progress: ScanProgress) => {
+    /* Subscribe to scan progress events */
+    this.subscriptions.push(this.manager.onDidScanProgress((progress: ScanProgress) => {
       if (this.disposed) return;
       this.handleScanProgress(progress);
-    });
+    }));
   }
 
-  private attachToProvider(name: string, provider: DiagnosticProvider): void {
-    provider.onDidUpdate((uris) => {
-      if (this.disposed) return;
-      let errors = 0;
-      let warnings = 0;
-      let infos = 0;
-      for (const uri of uris) {
-        const state = provider.store.get(uri);
-        if (state) {
-          errors += state.errorCount;
-          warnings += state.warningCount;
-          infos += state.infoCount;
-        }
+  /* ------------------------------------------------------------------ */
+  /*  Public API                                                         */
+  /* ------------------------------------------------------------------ */
+
+  /** Get cumulative statistics for a named provider */
+  getStatistics(name: string): ProviderStatistics | undefined {
+    const t = this.providers.get(name);
+    if (!t) return undefined;
+    return this.toStatistics(t);
+  }
+
+  /** Get statistics for all monitored providers */
+  getAllStatistics(): Map<string, ProviderStatistics> {
+    const result = new Map<string, ProviderStatistics>();
+    for (const [name, t] of this.providers) {
+      result.set(name, this.toStatistics(t));
+    }
+    return result;
+  }
+
+  /** Get a point-in-time snapshot for a named provider */
+  getSnapshot(name: string): ProviderSnapshot | undefined {
+    const t = this.providers.get(name);
+    if (!t) return undefined;
+    return {
+      name,
+      state: t.state,
+      scanning: t.scanning,
+      activeRefreshCount: t.activeRefreshCount,
+      lastRefreshTimestamp: t.lastRefreshTimestamp,
+      lastRefreshDurationMs: t.lastRefreshDurationMs,
+      lastError: t.lastError,
+      statistics: this.toStatistics(t),
+    };
+  }
+
+  /** Get snapshots for all monitored providers */
+  getAllSnapshots(): ProviderSnapshot[] {
+    const result: ProviderSnapshot[] = [];
+    for (const [name, t] of this.providers) {
+      result.push({
+        name,
+        state: t.state,
+        scanning: t.scanning,
+        activeRefreshCount: t.activeRefreshCount,
+        lastRefreshTimestamp: t.lastRefreshTimestamp,
+        lastRefreshDurationMs: t.lastRefreshDurationMs,
+        lastError: t.lastError,
+        statistics: this.toStatistics(t),
+      });
+    }
+    return result;
+  }
+
+  /** Dispose the monitor, restoring all wrapped methods */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+
+    /* Restore original refresh methods on all providers */
+    for (const [name, t] of this.providers) {
+      const info = this.manager.getInfo(name);
+      if (info) {
+        info.provider.refresh = t.originalRefresh;
       }
-      const elapsed = Date.now() - (this.scanTimestamps.get(name) ?? Date.now());
-      this.reporter.report({
-        type: 'provider.scan',
+    }
+
+    this.providers.clear();
+
+    for (const sub of this.subscriptions) {
+      sub.dispose();
+    }
+    this.subscriptions.length = 0;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Provider registration/unregistration                               */
+  /* ------------------------------------------------------------------ */
+
+  private onProviderRegistered(name: string, provider: DiagnosticProvider): void {
+    if (this.providers.has(name)) return;
+
+    const originalRefresh = provider.refresh.bind(provider);
+
+    const tracking: ProviderTrackingState = {
+      originalRefresh,
+      state: ProviderState.idle,
+      scanning: false,
+      activeRefreshCount: 0,
+      refreshStartTime: 0,
+      refreshTimestamps: [],
+      lastRefreshDurationMs: 0,
+      lastRefreshTimestamp: 0,
+      lastError: undefined,
+      disposed: false,
+      totalRefreshes: 0,
+      successfulRefreshes: 0,
+      failedRefreshes: 0,
+      cancelledRefreshes: 0,
+      totalRefreshDurationMs: 0,
+      longestRefreshDurationMs: 0,
+      shortestRefreshDurationMs: 0,
+      totalDiagnosticsProduced: 0,
+      initializeStartTime: 0,
+      startTime: 0,
+    };
+
+    this.providers.set(name, tracking);
+
+    /* Subscribe to onDidUpdate for scan result tracking */
+    this.subscriptions.push(provider.onDidUpdate((uris) => {
+      if (this.disposed) return;
+      this.handleProviderUpdate(name, uris);
+    }));
+
+    /* Wrap refresh() to capture start/end/duration/success/failure */
+    const self = this;
+    provider.refresh = function (): void | Promise<void> {
+      return self.wrapRefresh(name, tracking, provider);
+    };
+
+    tracking.refreshTimestamps.push(Date.now());
+  }
+
+  private onProviderUnregistered(name: string): void {
+    const t = this.providers.get(name);
+    if (t) {
+      /* Restore original refresh */
+      const info = this.manager.getInfo(name);
+      if (info) {
+        info.provider.refresh = t.originalRefresh;
+      }
+    }
+    this.providers.delete(name);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Refresh wrapping                                                   */
+  /* ------------------------------------------------------------------ */
+
+  private async wrapRefresh(
+    name: string,
+    tracking: ProviderTrackingState,
+    provider: DiagnosticProvider
+  ): Promise<void> {
+    if (this.disposed) {
+      tracking.originalRefresh.call(provider);
+      return;
+    }
+
+    tracking.activeRefreshCount++;
+    tracking.scanning = true;
+    const start = Date.now();
+    const traceId = generateTraceId();
+
+    this.emit({
+      type: 'provider.refresh',
+      timestamp: start,
+      traceId,
+      source: 'ProviderMonitor',
+      provider: name,
+      phase: 'begin',
+      executionTimeMs: 0,
+    });
+
+    try {
+      const result = tracking.originalRefresh.call(provider);
+
+      if (result instanceof Promise) {
+        await result;
+      }
+
+      const elapsed = Date.now() - start;
+      tracking.totalRefreshes++;
+      tracking.successfulRefreshes++;
+      tracking.totalRefreshDurationMs += elapsed;
+      tracking.lastRefreshDurationMs = elapsed;
+      tracking.lastRefreshTimestamp = Date.now();
+
+      if (elapsed > tracking.longestRefreshDurationMs) {
+        tracking.longestRefreshDurationMs = elapsed;
+      }
+      if (tracking.shortestRefreshDurationMs === 0 || elapsed < tracking.shortestRefreshDurationMs) {
+        tracking.shortestRefreshDurationMs = elapsed;
+      }
+
+      this.emit({
+        type: 'provider.refresh',
         timestamp: Date.now(),
-        traceId: generateTraceId(),
+        traceId,
         source: 'ProviderMonitor',
         provider: name,
         phase: 'end',
-        scanPhase: 'completed',
         executionTimeMs: elapsed,
-        uriCount: uris.length,
-        diagnosticSummary: { errors, warnings, infos },
-      } as any);
-      this.scanTimestamps.delete(name);
-      this.scanning.delete(name);
+        success: true,
+      });
+    } catch (err) {
+      const elapsed = Date.now() - start;
+      tracking.totalRefreshes++;
+      tracking.failedRefreshes++;
+      tracking.totalRefreshDurationMs += elapsed;
+      tracking.lastRefreshDurationMs = elapsed;
+      tracking.lastRefreshTimestamp = Date.now();
+      tracking.lastError = err instanceof Error ? err.message : String(err);
+
+      this.emit({
+        type: 'provider.error',
+        timestamp: Date.now(),
+        traceId,
+        source: 'ProviderMonitor',
+        provider: name,
+        phase: 'refresh',
+        error: err instanceof Error ? err.message : String(err),
+        executionTimeMs: elapsed,
+      });
+
+      this.emit({
+        type: 'provider.refresh',
+        timestamp: Date.now(),
+        traceId,
+        source: 'ProviderMonitor',
+        provider: name,
+        phase: 'end',
+        executionTimeMs: elapsed,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      tracking.activeRefreshCount--;
+      tracking.scanning = tracking.activeRefreshCount > 0;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Scan progress handling                                             */
+  /* ------------------------------------------------------------------ */
+
+  private handleScanProgress(progress: ScanProgress): void {
+    const t = this.providers.get(progress.providerName);
+    if (!t) return;
+
+    switch (progress.phase) {
+      case 'cancelled':
+        t.refreshTimestamps = t.refreshTimestamps.filter(ts => ts > Date.now() - 60000);
+        t.totalRefreshes++;
+        t.cancelledRefreshes++;
+        this.emit({
+          type: 'provider.refresh',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'ProviderMonitor',
+          provider: progress.providerName,
+          phase: 'cancelled',
+          executionTimeMs: t.refreshTimestamps.length > 0 ? Date.now() - t.refreshTimestamps[0] : 0,
+        });
+        break;
+      case 'error':
+        this.emit({
+          type: 'provider.error',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'ProviderMonitor',
+          provider: progress.providerName,
+          phase: 'refresh',
+          error: progress.detail ?? progress.message ?? 'Unknown scan error',
+          executionTimeMs: 0,
+        });
+        break;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Provider update handling                                           */
+  /* ------------------------------------------------------------------ */
+
+  private handleProviderUpdate(name: string, uris: readonly any[]): void {
+    const t = this.providers.get(name);
+    if (!t) return;
+
+    const info = this.manager.getInfo(name);
+    if (!info) return;
+
+    let errors = 0;
+    let warnings = 0;
+    let infos = 0;
+    for (const uri of uris) {
+      const state = info.provider.store.get(uri);
+      if (state) {
+        errors += state.errorCount;
+        warnings += state.warningCount;
+        infos += state.infoCount;
+      }
+    }
+
+    t.totalDiagnosticsProduced += errors + warnings + infos;
+
+    const elapsed = t.lastRefreshDurationMs > 0 ? t.lastRefreshDurationMs : 0;
+
+    this.emit({
+      type: 'provider.scanResult',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'ProviderMonitor',
+      provider: name,
+      uriCount: uris.length,
+      errorCount: errors,
+      warningCount: warnings,
+      infoCount: infos,
+      executionTimeMs: elapsed,
     });
   }
 
-  private cleanupProvider(name: string): void {
-    this.stateTimestamps.delete(name);
-    this.scanTimestamps.delete(name);
-    this.scanning.delete(name);
-  }
+  /* ------------------------------------------------------------------ */
+  /*  State change handling                                              */
+  /* ------------------------------------------------------------------ */
 
   private handleStateChange(name: string, oldState: ProviderState, newState: ProviderState): void {
+    const t = this.providers.get(name);
+    if (!t) return;
+
+    t.state = newState;
     const now = Date.now();
     const traceId = generateTraceId();
-    const source = 'ProviderMonitor';
 
-    if (newState === ProviderState.initializing || newState === ProviderState.running) {
-      this.stateTimestamps.set(name, now);
+    if (newState === ProviderState.initializing) {
+      t.initializeStartTime = now;
+    }
+    if (newState === ProviderState.running) {
+      t.startTime = now;
     }
 
     const phase: 'initialize' | 'start' | 'stop' | 'dispose' | undefined =
@@ -154,25 +559,29 @@ export class ProviderMonitor {
 
     if (!phase) {
       if (newState === ProviderState.error) {
-        this.reporter.report({
+        this.emit({
           type: 'provider.error',
           timestamp: now,
           traceId,
-          source,
+          source: 'ProviderMonitor',
           provider: name,
-          oldState,
-          newState,
-          executionTimeMs: now - (this.stateTimestamps.get(name) ?? now),
-        } as any);
+          phase: 'unknown',
+          error: `Provider entered error state`,
+          executionTimeMs: now - (t.initializeStartTime || now),
+        });
       }
       return;
     }
 
-    this.reporter.report({
+    if (newState === ProviderState.disposed) {
+      t.disposed = true;
+    }
+
+    this.emit({
       type: 'provider.lifecycle',
       timestamp: now,
       traceId,
-      source,
+      source: 'ProviderMonitor',
       provider: name,
       phase,
       oldState,
@@ -180,86 +589,35 @@ export class ProviderMonitor {
       executionTimeMs: 0,
       success: newState !== ProviderState.error,
       error: newState === ProviderState.error ? `Provider entered error state after ${phase}` : undefined,
-    } as any);
-
-    if (newState === ProviderState.disposed) {
-      this.cleanupProvider(name);
-    }
+    });
   }
 
-  private handleScanProgress(progress: ScanProgress): void {
-    const now = Date.now();
-    const traceId = generateTraceId();
-    const name = progress.providerName;
-    const source = 'ProviderMonitor';
+  /* ------------------------------------------------------------------ */
+  /*  Helpers                                                            */
+  /* ------------------------------------------------------------------ */
 
-    switch (progress.phase) {
-      case 'resolving':
-      case 'scanning':
-      case 'parsing':
-      case 'writing': {
-        const isNewScan = !this.scanning.get(name);
-        if (isNewScan) {
-          this.scanTimestamps.set(name, now);
-          this.scanning.set(name, true);
-        }
-        this.reporter.report({
-          type: 'provider.scan',
-          timestamp: now,
-          traceId,
-          source,
-          provider: name,
-          phase: 'begin',
-          scanPhase: progress.phase,
-          executionTimeMs: isNewScan ? 0 : now - (this.scanTimestamps.get(name) ?? now),
-          message: progress.message,
-        } as any);
-        break;
-      }
-
-      case 'cancelled': {
-        this.scanning.delete(name);
-        this.reporter.report({
-          type: 'provider.scan',
-          timestamp: now,
-          traceId,
-          source,
-          provider: name,
-          phase: 'cancelled',
-          scanPhase: 'cancelled',
-          executionTimeMs: now - (this.scanTimestamps.get(name) ?? now),
-          message: progress.message,
-        } as any);
-        this.scanTimestamps.delete(name);
-        break;
-      }
-
-      case 'error': {
-        this.scanning.delete(name);
-        this.reporter.report({
-          type: 'provider.scan',
-          timestamp: now,
-          traceId,
-          source,
-          provider: name,
-          phase: 'error',
-          scanPhase: 'error',
-          executionTimeMs: now - (this.scanTimestamps.get(name) ?? now),
-          message: progress.message,
-          error: progress.detail ?? progress.message ?? 'Unknown scan error',
-        } as any);
-        this.scanTimestamps.delete(name);
-        break;
-      }
-    }
+  private toStatistics(t: ProviderTrackingState): ProviderStatistics {
+    return {
+      totalRefreshes: t.totalRefreshes,
+      successfulRefreshes: t.successfulRefreshes,
+      failedRefreshes: t.failedRefreshes,
+      cancelledRefreshes: t.cancelledRefreshes,
+      totalRefreshDurationMs: t.totalRefreshDurationMs,
+      averageRefreshDurationMs: t.totalRefreshes > 0 ? Math.round(t.totalRefreshDurationMs / t.totalRefreshes) : 0,
+      longestRefreshDurationMs: t.longestRefreshDurationMs,
+      shortestRefreshDurationMs: t.shortestRefreshDurationMs,
+      totalDiagnosticsProduced: t.totalDiagnosticsProduced,
+      lastRefreshTimestamp: t.lastRefreshTimestamp,
+      lastRefreshDurationMs: t.lastRefreshDurationMs,
+    };
   }
 
-  /** Dispose the monitor */
-  dispose(): void {
-    this.disposed = true;
-    this.stateTimestamps.clear();
-    this.scanTimestamps.clear();
-    this.scanning.clear();
+  private emit(event: ProviderTelemetryEvent): void {
+    try {
+      this.reporter.report(event as any);
+    } catch {
+      /* ProviderMonitor must never crash the extension */
+    }
   }
 }
 
