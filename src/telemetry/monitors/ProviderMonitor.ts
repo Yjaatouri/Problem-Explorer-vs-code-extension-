@@ -140,6 +140,7 @@ export interface ProviderSnapshot {
 
 interface ProviderTrackingState {
   originalRefresh: DiagnosticProvider['refresh'];
+  updateSubscription: { dispose(): void };
   state: ProviderState;
   scanning: boolean;
   activeRefreshCount: number;
@@ -291,8 +292,9 @@ export class ProviderMonitor {
     if (this.disposed) return;
     this.disposed = true;
 
-    /* Restore original refresh methods on all providers */
+    /* Restore original refresh methods and dispose per-provider subscriptions */
     for (const [name, t] of this.providers) {
+      t.updateSubscription.dispose();
       const info = this.manager.getInfo(name);
       if (info) {
         info.provider.refresh = t.originalRefresh;
@@ -318,6 +320,7 @@ export class ProviderMonitor {
 
     const tracking: ProviderTrackingState = {
       originalRefresh,
+      updateSubscription: { dispose: () => {} },
       state: ProviderState.idle,
       scanning: false,
       activeRefreshCount: 0,
@@ -345,11 +348,11 @@ export class ProviderMonitor {
 
     this.providers.set(name, tracking);
 
-    /* Subscribe to onDidUpdate for scan result tracking */
-    this.subscriptions.push(provider.onDidUpdate((uris) => {
+    /* Subscribe to onDidUpdate for scan result tracking — stored per-provider for proper cleanup */
+    tracking.updateSubscription = provider.onDidUpdate((uris) => {
       if (this.disposed) return;
       this.handleProviderUpdate(name, uris);
-    }));
+    });
 
     /* Wrap refresh() to capture start/end/duration/success/failure */
     const self = this;
@@ -361,6 +364,8 @@ export class ProviderMonitor {
   private onProviderUnregistered(name: string): void {
     const t = this.providers.get(name);
     if (t) {
+      /* Clean up per-provider subscription */
+      t.updateSubscription.dispose();
       /* Restore original refresh */
       const info = this.manager.getInfo(name);
       if (info) {
