@@ -9,8 +9,6 @@ import { generateTraceId, TraceId } from '../../telemetry';
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Maximum time (ms) a provider refresh is allowed to take */
-const REFRESH_TIMEOUT_MS = 30_000;
 /* ------------------------------------------------------------------ */
 /*  Event data interfaces                                              */
 /* ------------------------------------------------------------------ */
@@ -179,12 +177,15 @@ interface ProviderTrackingState {
 export class ProviderMonitor {
   private readonly providers = new Map<string, ProviderTrackingState>();
   private readonly subscriptions: Array<{ dispose(): void }> = [];
+  private readonly refreshTimeoutMs: number;
   private disposed = false;
 
   constructor(
     private readonly manager: DiagnosticProviderManager,
-    private readonly reporter: TelemetryReporter
+    private readonly reporter: TelemetryReporter,
+    refreshTimeoutMs: number = 30_000
   ) {
+    this.refreshTimeoutMs = refreshTimeoutMs;
     /* Attach to already-registered providers */
     for (const info of this.manager.all()) {
       this.onProviderRegistered(info.name, info.provider);
@@ -421,8 +422,8 @@ export class ProviderMonitor {
           timeoutReject = reject;
         });
         timeoutId = setTimeout(() => {
-          timeoutReject!(new Error(`Provider "${name}" refresh timed out after ${REFRESH_TIMEOUT_MS}ms`));
-        }, REFRESH_TIMEOUT_MS);
+          timeoutReject!(new Error(`Provider "${name}" refresh timed out after ${this.refreshTimeoutMs}ms`));
+        }, this.refreshTimeoutMs);
         if (typeof timeoutId === 'object' && typeof timeoutId.unref === 'function') timeoutId.unref();
         await Promise.race([result, timeoutPromise]);
       }
@@ -720,7 +721,8 @@ export class ProviderMonitor {
 /** Create a ProviderMonitor attached to the given manager and reporter */
 export function createProviderMonitor(
   manager: DiagnosticProviderManager,
-  reporter: TelemetryReporter
+  reporter: TelemetryReporter,
+  refreshTimeoutMs?: number
 ): ProviderMonitor {
-  return new ProviderMonitor(manager, reporter);
+  return new ProviderMonitor(manager, reporter, refreshTimeoutMs);
 }
