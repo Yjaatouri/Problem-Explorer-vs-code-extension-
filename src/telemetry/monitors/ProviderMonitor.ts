@@ -142,7 +142,6 @@ interface ProviderTrackingState {
   originalRefresh: DiagnosticProvider['refresh'];
   updateSubscription: { dispose(): void };
   state: ProviderState;
-  scanning: boolean;
   activeRefreshCount: number;
   refreshStartTime: number;
   cancelled: boolean;
@@ -321,7 +320,6 @@ export class ProviderMonitor {
       originalRefresh,
       updateSubscription: { dispose: () => {} },
       state: ProviderState.idle,
-      scanning: false,
       activeRefreshCount: 0,
       refreshStartTime: 0,
       cancelled: false,
@@ -397,7 +395,6 @@ export class ProviderMonitor {
     }
 
     tracking.activeRefreshCount++;
-    tracking.scanning = true;
     tracking.cancelled = false;
     tracking.refreshStartTime = Date.now();
     const start = Date.now();
@@ -503,7 +500,6 @@ export class ProviderMonitor {
       if (tracking.activeRefreshCount > 0) {
         tracking.activeRefreshCount--;
       }
-      tracking.scanning = tracking.activeRefreshCount > 0;
     }
   }
 
