@@ -171,7 +171,6 @@ export class DiagnosticsMonitor implements Disposable {
   /* Diagnostics change tracking */
   private readonly knownUris = new Set<string>();
   private vsDiagProvider: DiagnosticProvider | undefined;
-  private readonly pendingScans = new Map<string, boolean>();
 
   /* Store ownership tracking for before/after comparisons */
   private readonly knownOwners = new Map<string, string>();
@@ -230,20 +229,6 @@ export class DiagnosticsMonitor implements Disposable {
         if (this.disposed) return;
         if (info.name === 'vscodeDiagnostics' && !this.vsDiagProvider) {
           this.attachToProvider(info.provider);
-        }
-      })
-    );
-
-    /* Track full scans via scan progress */
-    this.disposables.push(
-      this.manager.onDidScanProgress((progress) => {
-        if (this.disposed) return;
-        if (progress.providerName === 'vscodeDiagnostics') {
-          if (progress.phase === 'scanning' || progress.phase === 'resolving') {
-            this.pendingScans.set(progress.providerName, true);
-          } else if (progress.phase === 'completed' || progress.phase === 'cancelled' || progress.phase === 'error') {
-            this.pendingScans.delete(progress.providerName);
-          }
         }
       })
     );
