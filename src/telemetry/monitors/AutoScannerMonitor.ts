@@ -242,6 +242,28 @@ export class AutoScannerMonitor implements Disposable {
             debounceMs: delay,
             queueSize: this.state.queuedProviders.size,
           });
+
+          /* Flush begins when debounce fires and providers are queued */
+          if (this.state.queuedProviders.size > 0) {
+            this.state.isFlushing = true;
+            this.state.flushStartTime = now;
+            this.state.totalFlushes++;
+            const providerNames = Array.from(this.state.queuedProviders);
+            this.state.flushedProviderCount = providerNames.length;
+            this.emit({
+              type: 'autoscan.flush',
+              timestamp: now,
+              traceId: generateTraceId(),
+              source: 'AutoScannerMonitor',
+              providerNames,
+              queueSize: providerNames.length,
+              debounceDelay: delay,
+              executionTimeMs: 0,
+            });
+
+            /* Move queued providers into execution tracking */
+            this.state.queuedProviders.clear();
+          }
         }
 
         const isNewProvider = !this.state.providerTimestamps.has(progress.providerName);
@@ -249,6 +271,7 @@ export class AutoScannerMonitor implements Disposable {
           this.state.providerTimestamps.set(progress.providerName, now);
           this.state.activeScans++;
           this.state.totalRefreshesStarted++;
+          this.state.totalProvidersExecuted++;
         }
 
         break;
@@ -260,6 +283,8 @@ export class AutoScannerMonitor implements Disposable {
         this.state.activeScans = Math.max(0, this.state.activeScans - 1);
         this.state.totalRefreshesCompleted++;
         this.state.totalRefreshDurationMs += execTime;
+        this.emitRefreshEnd(progress.providerName, execTime, true);
+        this.checkFlushEnd(now);
         break;
       }
 
@@ -269,6 +294,8 @@ export class AutoScannerMonitor implements Disposable {
         this.state.activeScans = Math.max(0, this.state.activeScans - 1);
         this.state.totalRefreshesCompleted++;
         this.state.totalRefreshDurationMs += execTime;
+        this.emitRefreshEnd(progress.providerName, execTime, true, 'cancelled');
+        this.checkFlushEnd(now);
         break;
       }
 
@@ -279,9 +306,54 @@ export class AutoScannerMonitor implements Disposable {
         this.state.totalRefreshesCompleted++;
         this.state.totalRefreshDurationMs += execTime;
         this.state.totalRefreshesFailed++;
+        this.emitRefreshEnd(progress.providerName, execTime, false, 'error');
+        this.checkFlushEnd(now);
         break;
       }
     }
+  }
+
+  private emitRefreshEnd(provider: string, execTime: number, success: boolean, error?: string): void {
+    this.emit({
+      type: 'autoscan.refresh',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'AutoScannerMonitor',
+      provider,
+      phase: 'end',
+      executionTimeMs: execTime,
+      success,
+      error,
+    });
+  }
+
+  private checkFlushEnd(now: number): void {
+    if (this.state.activeScans !== 0) return;
+
+    /* Flush cycle complete */
+    this.state.isFlushing = false;
+    const flushDuration = now - this.state.flushStartTime;
+    this.state.lastFlushDurationMs = flushDuration;
+    this.state.lastFlushTimestamp = now;
+    this.state.totalFlushDurationMs += flushDuration;
+    if (flushDuration > this.state.longestFlushDurationMs) {
+      this.state.longestFlushDurationMs = flushDuration;
+    }
+
+    const rescheduled = this.state.queuedProviders.size > 0;
+    if (rescheduled) {
+      this.state.totalReschedules++;
+    }
+
+    this.emit({
+      type: 'autoscan.flushComplete',
+      timestamp: now,
+      traceId: generateTraceId(),
+      source: 'AutoScannerMonitor',
+      providerCount: this.state.flushedProviderCount,
+      executionTimeMs: flushDuration,
+      rescheduled,
+    });
   }
 
   /* ------------------------------------------------------------------ */
