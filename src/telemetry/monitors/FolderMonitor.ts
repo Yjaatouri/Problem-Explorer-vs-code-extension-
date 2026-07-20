@@ -634,7 +634,7 @@ export class FolderMonitor {
     if (!this.problemStore.isFolderAggregate(folderUri)) return;
     const current = this.problemStore.get(folderUri);
     if (!current) return;
-    const recomputed = this.originalRecomputeFolderStatus.call(this.folderManager, folderUri);
+    const recomputed = this.folderManager.recomputeFolderStatus(folderUri);
     if (
       current.errorCount !== recomputed.errorCount ||
       current.warningCount !== recomputed.warningCount ||
