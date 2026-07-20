@@ -204,7 +204,6 @@ export class DiagnosticsMonitor implements Disposable {
     this.subscribeToProviderRegistration();
     this.subscribeToFlushUpdates();
     this.subscribeToAssertionFailures();
-    this.startPeriodicSnapshot();
   }
 
   private subscribeToDiagnosticsChanges(): void {
@@ -247,14 +246,6 @@ export class DiagnosticsMonitor implements Disposable {
         this.handleAssertionEvent(event as TelemetryEvent & { assertion: string; detail: string });
       })
     );
-  }
-
-  private startPeriodicSnapshot(): void {
-    const timer = setInterval(() => {
-      if (this.disposed) return;
-      this.reportSnapshot();
-    }, 60000);
-    this.disposables.push({ dispose: () => { clearInterval(timer); } });
   }
 
   /* ------------------------------------------------------------------ */
@@ -447,21 +438,6 @@ export class DiagnosticsMonitor implements Disposable {
       detail: event.detail,
     } as TelemetryEvent);
     this.stats.totalAssertions++;
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*  Performance snapshot (Task 7)                                       */
-  /* ------------------------------------------------------------------ */
-
-  private reportSnapshot(): void {
-    const snapshot = this.captureSnapshot();
-    this.reporter.report({
-      type: 'diagnostics.snapshot',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'DiagnosticsMonitor',
-      statistics: snapshot.statistics,
-    } as TelemetryEvent);
   }
 
   /* ------------------------------------------------------------------ */
