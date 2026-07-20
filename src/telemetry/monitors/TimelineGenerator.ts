@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { TelemetrySubscription } from '../../telemetry/TelemetryBus';
 import { TelemetryEvent } from '../../telemetry/TelemetryEvent';
@@ -215,7 +216,6 @@ export class TimelineGenerator {
 
   /** Generate a summary report from a JSONL log file for offline forensic analysis */
   static analyzeLogFile(filePath: string): string {
-    const fs = require('fs') as typeof import('fs');
     let data: string;
     try {
       data = fs.readFileSync(filePath, 'utf8');
