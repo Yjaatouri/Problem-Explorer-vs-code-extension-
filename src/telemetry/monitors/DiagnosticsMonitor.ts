@@ -407,15 +407,6 @@ export class DiagnosticsMonitor implements Disposable {
 
   private handleFlushUpdates(uris: Uri[]): void {
     const traceId = generateTraceId();
-    const event: DiagnosticsChangeEventData = {
-      type: 'diagnostics.change',
-      timestamp: Date.now(),
-      traceId,
-      source: 'DiagnosticsMonitor',
-      uriCount: uris.length,
-      uris: uris.map((u: Uri) => u.toString()),
-    };
-
     this.stats.totalFlushUpdates++;
     this.stats.totalFlushUris += uris.length;
     for (const uri of uris) {
@@ -423,7 +414,14 @@ export class DiagnosticsMonitor implements Disposable {
       this.knownUris.add(uriStr);
     }
 
-    this.reporter.report(event as TelemetryEvent);
+    this.reporter.report({
+      type: 'diagnostics.flush',
+      timestamp: Date.now(),
+      traceId,
+      source: 'DiagnosticsMonitor',
+      uriCount: uris.length,
+      uris: uris.map((u: Uri) => u.toString()),
+    } as TelemetryEvent);
   }
 
   /* ------------------------------------------------------------------ */
