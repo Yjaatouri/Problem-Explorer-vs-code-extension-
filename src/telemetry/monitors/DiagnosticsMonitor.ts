@@ -294,6 +294,7 @@ export class DiagnosticsMonitor implements Disposable {
     for (const uri of uris) {
       this.knownUris.add(uri);
       this.mappingStartTimes.set(uri, nowMs);
+      this.activeMappings++;
     }
 
     this.reporter.report(event as TelemetryEvent);
@@ -336,6 +337,9 @@ export class DiagnosticsMonitor implements Disposable {
       /* Compute mapping duration from change event to provider update */
       const startMs = this.mappingStartTimes.get(uriStr);
       this.mappingStartTimes.delete(uriStr);
+      if (startMs !== undefined) {
+        this.activeMappings--;
+      }
       const mappingDurationUs = startMs !== undefined
         ? Math.round((nowMs - startMs) * 1000)
         : 0;
