@@ -60,6 +60,9 @@ export class DiagnosticProviderManager {
 
   register(name: string, provider: DiagnosticProvider, metadata?: ProviderMetadata): void {
     this.ensureNotDisposed();
+    if (name !== provider.name) {
+      throw new Error(`Registration name "${name}" must match provider.name "${provider.name}"`);
+    }
     if (this.entries.has(name)) {
       throw new Error(`Provider "${name}" is already registered`);
     }
