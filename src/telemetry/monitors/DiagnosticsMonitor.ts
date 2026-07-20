@@ -1,7 +1,7 @@
 import { Disposable, languages, DiagnosticChangeEvent, Uri } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
-import { ProblemStore } from '../../store/ProblemStore';
+import type { ProblemStore } from '../../store/ProblemStore';
 import { ProblemStoreChange } from '../../models/ProblemStoreChange';
 import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
 import { TraceId, generateTraceId } from '../../telemetry';
