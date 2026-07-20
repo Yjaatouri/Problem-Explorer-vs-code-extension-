@@ -7,6 +7,7 @@ import {
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
 import { generateTraceId } from '../../telemetry';
+import { TelemetrySubscription } from '../../telemetry/TelemetryBus';
 import { ProblemStore } from '../../store/ProblemStore';
 
 /* ------------------------------------------------------------------ */
@@ -32,6 +33,7 @@ export interface DecorationFireEventData extends TelemetryEvent {
   readonly uriCount: number;
   readonly coalesced: boolean;
   readonly queueLatencyMs: number;
+  readonly correlationId?: string;
 }
 
 /** Trigger: provideFileDecoration was called */
@@ -39,6 +41,7 @@ export interface DecorationProvideStartEventData extends TelemetryEvent {
   readonly type: 'decoration.provide.start';
   readonly source: 'DecorationMonitor';
   readonly uri: string;
+  readonly correlationId?: string;
 }
 
 /** Trigger: provideFileDecoration returned a result */
@@ -59,6 +62,7 @@ export interface DecorationProvideEventData extends TelemetryEvent {
   readonly executionTimeMs: number;
   readonly cached: boolean;
   readonly reasonSkipped?: string;
+  readonly correlationId?: string;
 }
 
 /** Trigger: a decoration decision was made during pipeline */
@@ -69,6 +73,7 @@ export interface DecorationDecisionEventData extends TelemetryEvent {
   readonly step: string;
   readonly outcome: string;
   readonly detail?: string;
+  readonly correlationId?: string;
 }
 
 /** Trigger: runtime assertion */
@@ -148,6 +153,11 @@ export class DecorationMonitor {
   /* Decoration fire subscription */
   private readonly _fireSubscription: { dispose(): void };
 
+  /* Flow correlation: recent store changes mapped by URI */
+  private readonly _recentChanges = new Map<string, { correlationId: string; traceId: string; timestamp: number }>();
+  private readonly _correlationSubscription: TelemetrySubscription;
+  private _correlationCleanupTimer: ReturnType<typeof setInterval> | undefined;
+
   /* Performance counters */
   private _statsStarted = Date.now();
 
@@ -163,6 +173,16 @@ export class DecorationMonitor {
     this._fireSubscription = engine.onDidChangeFileDecorations((uris: Uri | Uri[] | undefined) => {
       this._onDecorationFire(uris);
     });
+
+    /* Subscribe to telemetry events for flow correlation */
+    this._correlationSubscription = reporter.subscribeAll((event: TelemetryEvent) => {
+      this._onTelemetryEvent(event);
+    });
+
+    /* Periodic cleanup of stale correlation entries (every 30s) */
+    this._correlationCleanupTimer = setInterval(() => {
+      this._cleanupStaleCorrelations();
+    }, 30000);
 
     this.stats = {
       totalRefreshes: 0,
@@ -279,6 +299,66 @@ export class DecorationMonitor {
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Flow correlation                                                    */
+  /* ------------------------------------------------------------------ */
+
+  /** Process telemetry events from other monitors to build correlation state */
+  private _onTelemetryEvent(event: TelemetryEvent): void {
+    if (this.disposed) return;
+    const data = event as any;
+
+    /* Track store.set events by URI */
+    if (event.type === 'store.set' && data.uri && data.correlationId) {
+      this._recentChanges.set(data.uri, {
+        correlationId: data.correlationId,
+        traceId: event.traceId,
+        timestamp: Date.now(),
+      });
+    }
+
+    /* Track store.delete events by URI */
+    if (event.type === 'store.delete' && data.uri && data.correlationId) {
+      this._recentChanges.set(data.uri, {
+        correlationId: data.correlationId,
+        traceId: event.traceId,
+        timestamp: Date.now(),
+      });
+    }
+
+    /* Track folder propagation events */
+    if (event.type === 'folder.propagation' && data.fileUri && data.correlationId) {
+      /* Propagate to all affected URIs */
+      const uris: string[] = data.foldersUpdated ?? [data.fileUri];
+      for (const u of uris) {
+        this._recentChanges.set(u, {
+          correlationId: data.correlationId,
+          traceId: event.traceId,
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
+
+  /** Look up correlation ID for a URI from recent store changes */
+  private _getCorrelationId(uriStr: string): string | undefined {
+    const entry = this._recentChanges.get(uriStr);
+    if (entry && (Date.now() - entry.timestamp) < 5000) {
+      return entry.correlationId;
+    }
+    return undefined;
+  }
+
+  /** Remove stale correlation entries older than 5 seconds */
+  private _cleanupStaleCorrelations(): void {
+    const cutoff = Date.now() - 5000;
+    for (const [uri, entry] of this._recentChanges) {
+      if (entry.timestamp < cutoff) {
+        this._recentChanges.delete(uri);
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Dispose                                                             */
   /* ------------------------------------------------------------------ */
 
@@ -288,6 +368,12 @@ export class DecorationMonitor {
     this.engine.fireDidChange = this.originalFireDidChange;
     this.engine.provideFileDecoration = this.originalProvideFileDecoration;
     this._fireSubscription.dispose();
+    this._correlationSubscription.dispose();
+    if (this._correlationCleanupTimer) {
+      clearInterval(this._correlationCleanupTimer);
+      this._correlationCleanupTimer = undefined;
+    }
+    this._recentChanges.clear();
   }
 
   /* ------------------------------------------------------------------ */
@@ -323,6 +409,15 @@ export class DecorationMonitor {
 
     const caller = this._getCaller();
 
+    /* Derive correlation ID from the first changed URI */
+    let correlationId: string | undefined;
+    if (uriStrs && uriStrs.length > 0) {
+      for (const u of uriStrs) {
+        const cid = this._getCorrelationId(u);
+        if (cid) { correlationId = cid; break; }
+      }
+    }
+
     /* Emit start event */
     this._emit({
       type: 'decoration.refresh.start',
@@ -333,6 +428,7 @@ export class DecorationMonitor {
       uriCount,
       uris: uriStrs,
       trigger: caller,
+      correlationId,
     });
 
     /* Call through to original */
@@ -370,6 +466,15 @@ export class DecorationMonitor {
 
     const queueLatencyMs = this._lastRefreshTimestamp > 0 ? Date.now() - this._lastRefreshTimestamp : 0;
 
+    /* Derive correlation ID from fired URIs */
+    let correlationId: string | undefined;
+    if (uriStrs && uriStrs.length > 0) {
+      for (const u of uriStrs) {
+        const cid = this._getCorrelationId(u);
+        if (cid) { correlationId = cid; break; }
+      }
+    }
+
     this._emit({
       type: 'decoration.fire',
       timestamp: Date.now(),
@@ -379,6 +484,7 @@ export class DecorationMonitor {
       uriCount,
       coalesced,
       queueLatencyMs,
+      correlationId,
     });
   }
 
@@ -391,6 +497,9 @@ export class DecorationMonitor {
     const uriStr = uri.toString();
     this.activeProvideCount++;
 
+    /* Derive correlation ID for this URI */
+    const provideCorrelationId = this._getCorrelationId(uriStr);
+
     /* Emit start event */
     this._emit({
       type: 'decoration.provide.start',
@@ -398,6 +507,7 @@ export class DecorationMonitor {
       traceId: generateTraceId(),
       source: 'DecorationMonitor',
       uri: uriStr,
+      correlationId: provideCorrelationId,
     });
 
     /* Decision: workspace folder check */
@@ -537,6 +647,7 @@ export class DecorationMonitor {
       executionTimeMs,
       cached,
       reasonSkipped,
+      correlationId: provideCorrelationId,
     });
 
     return result;
