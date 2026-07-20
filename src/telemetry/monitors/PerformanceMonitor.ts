@@ -4,6 +4,7 @@ import { TelemetryEvent } from '../../telemetry/TelemetryEvent';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 
 /** In-flight save-to-decoration chain */
+/** In-flight save-to-decoration chain */
 interface SaveChain {
   readonly uri: string;
   readonly startedAt: number;
@@ -39,6 +40,8 @@ const MAX_PENDING = 500;
 export class PerformanceMonitor {
   private readonly pendingSaves: SaveChain[] = [];
   private readonly pendingRefreshes: RefreshChain[] = [];
+  private evictedSaveChains = 0;
+  private evictedRefreshChains = 0;
   private disposed = false;
   private subscription: TelemetrySubscription | undefined;
 
@@ -64,7 +67,10 @@ export class PerformanceMonitor {
           flushed: false,
           decorated: false,
         });
-        if (this.pendingSaves.length > MAX_PENDING) this.pendingSaves.shift();
+        if (this.pendingSaves.length > MAX_PENDING) {
+          this.pendingSaves.shift();
+          this.evictedSaveChains++;
+        }
         break;
       }
 
@@ -76,7 +82,10 @@ export class PerformanceMonitor {
             startedAt: event.timestamp,
             decorated: false,
           });
-          if (this.pendingRefreshes.length > MAX_PENDING) this.pendingRefreshes.shift();
+          if (this.pendingRefreshes.length > MAX_PENDING) {
+            this.pendingRefreshes.shift();
+            this.evictedRefreshChains++;
+          }
         }
         break;
       }
