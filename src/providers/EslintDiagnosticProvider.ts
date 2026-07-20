@@ -53,6 +53,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   private readonly refreshDebounceMs: number;
   private abortController: AbortController | undefined;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private _refreshResolve: (() => void) | undefined;
   private _lastScanErrors: EslintScanError[] = [];
   private _lastScanDurationMs = 0;
   private _lastScanTiming: EslintScanTiming | undefined;
@@ -151,7 +152,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     debugLog(`[AUDIT:${ts}] ESLINT.refresh() debounce cleared, setting ${this.refreshDebounceMs}ms timer`);
 
     return new Promise<void>((resolve) => {
+      this._refreshResolve = resolve;
       this._debounceTimer = setTimeout(async () => {
+        this._refreshResolve = undefined;
         const fireTs = Date.now();
         debugLog(`[AUDIT:${fireTs}] ESLINT.refresh() debounce FIRED (waited ${fireTs - ts}ms)`);
         this._debounceTimer = undefined;
@@ -191,6 +194,10 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
       this._debounceTimer = undefined;
+    }
+    if (this._refreshResolve) {
+      this._refreshResolve();
+      this._refreshResolve = undefined;
     }
   }
 
@@ -365,7 +372,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     } finally {
       this._scanning = false;
       debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() finally _scanning=false _pendingRefresh=${this._pendingRefresh}`);
-      if (this._pendingRefresh) {
+      while (this._pendingRefresh) {
         this._pendingRefresh = false;
         const changed = await this.runScan();
         if (!this._disposed && changed.length > 0) {
