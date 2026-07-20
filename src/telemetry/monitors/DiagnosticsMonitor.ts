@@ -400,6 +400,17 @@ export class DiagnosticsMonitor implements Disposable {
         this.stats.totalRejectedWrites++;
 
         this.reporter.report({
+          type: 'diagnostics.ownership',
+          timestamp: nowMs,
+          traceId,
+          source: 'DiagnosticsMonitor',
+          uri: uriStr,
+          provider: currentOwner,
+          action: 'disputed',
+        } as TelemetryEvent);
+        this.stats.totalOwnershipDisputes++;
+
+        this.reporter.report({
           type: 'diagnostics.stateChange',
           timestamp: nowMs,
           traceId,
@@ -530,7 +541,19 @@ export class DiagnosticsMonitor implements Disposable {
         this.stats.totalStoreWrites++;
         this.stats.totalAcceptedWrites++;
 
-        if (ownerBefore !== undefined && ownerAfter !== undefined && ownerBefore !== ownerAfter) {
+        if (ownerBefore === undefined && ownerAfter !== undefined) {
+          /* First ownership claim */
+          this.reporter.report({
+            type: 'diagnostics.ownership',
+            timestamp: Date.now(),
+            traceId: generateTraceId(),
+            source: 'DiagnosticsMonitor',
+            uri: uriStr,
+            provider: ownerAfter,
+            action: 'acquired',
+          } as TelemetryEvent);
+        } else if (ownerBefore !== undefined && ownerAfter !== undefined && ownerBefore !== ownerAfter) {
+          /* Ownership transferred from one provider to another */
           this.reporter.report({
             type: 'diagnostics.ownership',
             timestamp: Date.now(),
@@ -606,6 +629,18 @@ export class DiagnosticsMonitor implements Disposable {
         this.stats.totalStoreWrites++;
         this.stats.totalAcceptedWrites++;
         this.stats.totalStateRemoves++;
+
+        if (ownerBefore !== undefined) {
+          this.reporter.report({
+            type: 'diagnostics.ownership',
+            timestamp: Date.now(),
+            traceId: generateTraceId(),
+            source: 'DiagnosticsMonitor',
+            uri: uriStr,
+            provider: ownerBefore,
+            action: 'released',
+          } as TelemetryEvent);
+        }
         break;
       }
 
