@@ -119,6 +119,7 @@ export interface FolderStoreWriteEventData {
   readonly aggregateBefore?: ProblemState;
   readonly aggregateAfter?: ProblemState;
   readonly isNew: boolean;
+  readonly owner?: string;
   readonly durationMs: number;
 }
 
@@ -352,6 +353,11 @@ export class FolderMonitor {
         durationMs,
       } as any);
 
+      /* Check skipped ancestors for stale aggregates (Task 5) */
+      for (const skipped of foldersSkipped) {
+        self.checkStaleAggregate(Uri.parse(skipped));
+      }
+
       self.activeUpdates--;
       return changed;
     };
@@ -470,10 +476,13 @@ export class FolderMonitor {
     const self = this;
     this.problemStore.setFolderAggregate = function (uri: Uri, state: ProblemState): boolean {
       if (self.disposed) return self.originalSetFolderAggregate(uri, state);
+      const start = Date.now();
+      const uriStr = uri.toString();
       const before = self.problemStore.get(uri);
+      const owner = self.problemStore.getOwningProvider(uri);
       const accepted = self.originalSetFolderAggregate(uri, state);
       const after = self.problemStore.get(uri);
-      const uriStr = uri.toString();
+      const durationMs = Date.now() - start;
 
       if (accepted) {
         if (!before) {
@@ -488,6 +497,23 @@ export class FolderMonitor {
         self.stats.totalStoreWrites++;
         self.stats.totalStoreWritesRejected++;
       }
+
+      /* Emit store write event */
+      self.reporter.report({
+        type: 'folder.storeWrite',
+        timestamp: Date.now(),
+        traceId: generateTraceId(),
+        source: 'FolderMonitor',
+        uri: uriStr,
+        accepted,
+        rejectReason: accepted ? undefined : 'unchanged state',
+        aggregateBefore: before,
+        aggregateAfter: after,
+        isNew: !before && accepted,
+        owner,
+        durationMs,
+      } as any);
+
       return accepted;
     };
   }
@@ -496,16 +522,60 @@ export class FolderMonitor {
     const self = this;
     this.problemStore.delete = function (uri: Uri): boolean {
       if (self.disposed) return self.originalStoreDelete(uri);
+      const start = Date.now();
       const uriStr = uri.toString();
       const isFolder = self.problemStore.isFolderAggregate(uri);
       const before = isFolder ? self.problemStore.get(uri) : undefined;
+      const owner = self.problemStore.getOwningProvider(uri);
       const result = self.originalStoreDelete(uri);
+      const durationMs = Date.now() - start;
 
       if (isFolder && result && before) {
         self.emitAggregateEvent(uriStr, 'removed', before, undefined);
+
+        self.reporter.report({
+          type: 'folder.storeWrite',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'FolderMonitor',
+          uri: uriStr,
+          accepted: true,
+          aggregateBefore: before,
+          aggregateAfter: undefined,
+          isNew: false,
+          owner,
+          durationMs,
+        } as any);
       }
       return result;
     };
+  }
+
+  /* Check if a folder aggregate is stale (doesn't match its children) */
+  private checkStaleAggregate(folderUri: Uri): void {
+    const uriStr = folderUri.toString();
+    if (!this.problemStore.isFolderAggregate(folderUri)) return;
+    const current = this.problemStore.get(folderUri);
+    if (!current) return;
+    const recomputed = this.originalRecomputeFolderStatus.call(this.folderManager, folderUri);
+    if (
+      current.errorCount !== recomputed.errorCount ||
+      current.warningCount !== recomputed.warningCount ||
+      current.infoCount !== recomputed.infoCount ||
+      current.fileCount !== recomputed.fileCount
+    ) {
+      this.reporter.report({
+        type: 'folder.assertion',
+        timestamp: Date.now(),
+        traceId: generateTraceId(),
+        source: 'FolderMonitor',
+        code: 'STALE_AGGREGATE',
+        message: `Folder aggregate for ${uriStr} does not match recomputed children`,
+        uri: uriStr,
+        detail: `current={errors:${current.errorCount},warnings:${current.warningCount},infos:${current.infoCount},files:${current.fileCount}} recomputed={errors:${recomputed.errorCount},warnings:${recomputed.warningCount},infos:${recomputed.infoCount},files:${recomputed.fileCount}}`,
+      } as any);
+      this.stats.totalAssertions++;
+    }
   }
 
   /* ------------------------------------------------------------------ */
