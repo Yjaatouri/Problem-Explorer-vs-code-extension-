@@ -272,6 +272,27 @@ export class AutoScannerMonitor implements Disposable {
           this.state.activeScans++;
           this.state.totalRefreshesStarted++;
           this.state.totalProvidersExecuted++;
+          this.emit({
+            type: 'autoscan.refresh',
+            timestamp: now,
+            traceId: generateTraceId(),
+            source: 'AutoScannerMonitor',
+            provider: progress.providerName,
+            phase: 'begin',
+            executionTimeMs: 0,
+          });
+        } else {
+          /* Provider is still scanning — emit progress update */
+          const elapsed = now - (this.state.providerTimestamps.get(progress.providerName) ?? now);
+          this.emit({
+            type: 'autoscan.refresh',
+            timestamp: now,
+            traceId: generateTraceId(),
+            source: 'AutoScannerMonitor',
+            provider: progress.providerName,
+            phase: 'begin',
+            executionTimeMs: elapsed,
+          });
         }
 
         break;
