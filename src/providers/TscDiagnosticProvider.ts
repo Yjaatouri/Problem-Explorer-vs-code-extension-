@@ -108,18 +108,20 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   constructor(
     store: ProblemStore,
-    projectResolver?: ProjectResolver,
-    tscRunner?: TscRunner,
-    outputParser?: TscOutputParser,
-    timeoutMs?: number,
-    refreshDebounceMs?: number,
+    options?: {
+      projectResolver?: ProjectResolver;
+      tscRunner?: TscRunner;
+      outputParser?: TscOutputParser;
+      timeoutMs?: number;
+      refreshDebounceMs?: number;
+    },
   ) {
     this._store = store;
-    this.projectResolver = projectResolver ?? new ProjectResolver();
-    this.tscRunner = tscRunner ?? new TscRunner();
-    this.outputParser = outputParser ?? new TscOutputParser();
-    this.timeoutMs = timeoutMs ?? DEFAULT_TSC_TIMEOUT_MS;
-    this.refreshDebounceMs = refreshDebounceMs ?? DEFAULT_DEBOUNCE_MS;
+    this.projectResolver = options?.projectResolver ?? new ProjectResolver();
+    this.tscRunner = options?.tscRunner ?? new TscRunner();
+    this.outputParser = options?.outputParser ?? new TscOutputParser();
+    this.timeoutMs = options?.timeoutMs ?? DEFAULT_TSC_TIMEOUT_MS;
+    this.refreshDebounceMs = options?.refreshDebounceMs ?? DEFAULT_DEBOUNCE_MS;
   }
 
   async initialize(): Promise<void> {

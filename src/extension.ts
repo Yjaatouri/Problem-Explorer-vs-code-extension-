@@ -125,11 +125,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       devDashboard.notifyAssertion();
     });
 
-    const tscProvider = new TscDiagnosticProvider(
-      problemStore,
-      undefined, undefined, undefined,
-      configManager.getConfig().typescript.timeout,
-    );
+    const tscProvider = new TscDiagnosticProvider(problemStore, {
+      timeoutMs: configManager.getConfig().typescript.timeout,
+    });
     const eslintProvider = new EslintDiagnosticProvider(problemStore, diagProviderManager);
     const statusBarManager = new StatusBarManager(problemStore);
 

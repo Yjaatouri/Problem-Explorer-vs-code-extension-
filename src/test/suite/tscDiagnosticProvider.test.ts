@@ -354,7 +354,7 @@ suite('TscDiagnosticProvider', () => {
 
   test('constructor accepts refreshDebounceMs', () => {
     const store = new ProblemStore();
-    const provider = new TscDiagnosticProvider(store, undefined, undefined, undefined, undefined, 500);
+    const provider = new TscDiagnosticProvider(store, { refreshDebounceMs: 500 });
     assert.ok(provider);
     provider.dispose();
   });
