@@ -531,37 +531,39 @@ export class DecorationMonitor {
     this.stats.totalUrisRefreshed += uriCount;
     this._lastRefreshTimestamp = ts;
 
-    const caller = this._getCaller();
+    try {
+      const caller = this._getCaller();
 
-    /* Derive correlation ID from the first changed URI */
-    let correlationId: string | undefined;
-    if (uriStrs && uriStrs.length > 0) {
-      for (const u of uriStrs) {
-        const cid = this._getCorrelationId(u);
-        if (cid) { correlationId = cid; break; }
+      /* Derive correlation ID from the first changed URI */
+      let correlationId: string | undefined;
+      if (uriStrs && uriStrs.length > 0) {
+        for (const u of uriStrs) {
+          const cid = this._getCorrelationId(u);
+          if (cid) { correlationId = cid; break; }
+        }
       }
+
+      /* Assert: duplicate refresh detection */
+      this._assertDuplicateRefresh(uriStrs);
+
+      /* Emit start event */
+      this._emit({
+        type: 'decoration.refresh.start',
+        timestamp: ts,
+        traceId: generateTraceId(),
+        source: 'DecorationMonitor',
+        callType,
+        uriCount,
+        uris: uriStrs,
+        trigger: caller,
+        correlationId,
+      });
+
+      /* Call through to original */
+      this.originalFireDidChange(uris);
+    } finally {
+      this.activeRefreshCount--;
     }
-
-    /* Assert: duplicate refresh detection */
-    this._assertDuplicateRefresh(uriStrs);
-
-    /* Emit start event */
-    this._emit({
-      type: 'decoration.refresh.start',
-      timestamp: ts,
-      traceId: generateTraceId(),
-      source: 'DecorationMonitor',
-      callType,
-      uriCount,
-      uris: uriStrs,
-      trigger: caller,
-      correlationId,
-    });
-
-    /* Call through to original */
-    this.originalFireDidChange(uris);
-
-    this.activeRefreshCount--;
   }
 
   /** Called when the engine actually fires decoration change to VS Code */
