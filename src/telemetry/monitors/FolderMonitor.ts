@@ -18,6 +18,7 @@ export interface FolderRebuildAllStartEventData {
   readonly traceId: string;
   readonly source: 'FolderMonitor';
   readonly indexSizeBefore: number;
+  readonly workspaceFolders: number;
 }
 
 /** Trigger: rebuildAll() was executed */
@@ -323,6 +324,7 @@ export class FolderMonitor {
       const now = Date.now();
       const durationMs = now - start;
       const changedUris = changed.map((u: Uri) => u.toString());
+      const propagationStart = Date.now();
 
       /* Determine which ancestors were updated vs skipped */
       const changedSet = new Set(changedUris);
@@ -365,6 +367,7 @@ export class FolderMonitor {
       } as any);
 
       /* Emit propagation event with full ancestor chain */
+      const propagationMs = Date.now() - propagationStart;
       self.reporter.report({
         type: 'folder.propagation',
         timestamp: now,
@@ -376,7 +379,7 @@ export class FolderMonitor {
         foldersSkipped,
         traversalDepth,
         rootUri: rootStr,
-        durationMs,
+        durationMs: propagationMs,
       } as any);
 
       /* Check skipped ancestors for stale aggregates (Task 5) */
@@ -426,6 +429,7 @@ export class FolderMonitor {
         traceId: generateTraceId(),
         source: 'FolderMonitor',
         indexSizeBefore,
+        workspaceFolders: workspace.workspaceFolders?.length ?? 0,
       } as any);
 
       const changed = self.originalRebuildAll();
@@ -524,6 +528,7 @@ export class FolderMonitor {
       severityBefore: before?.severity,
       severityAfter: after?.severity,
       childCount: after?.fileCount ?? before?.fileCount ?? 0,
+      parentUri: getParentKey(uriStr),
     } as any);
 
     if (after) {
@@ -734,12 +739,26 @@ export class FolderMonitor {
     }
   }
 
+  /** Verify tracked aggregate count matches actual store state */
+  private checkAggregateDrift(): void {
+    let actualCount = 0;
+    this.problemStore.forEachEntry((_key: string, _state: ProblemState, isFolder: boolean) => {
+      if (isFolder) actualCount++;
+    });
+    if (actualCount !== this.aggregateCount) {
+      this.emitAssertion('AGGREGATE_DRIFT',
+        `Tracked aggregate count (${this.aggregateCount}) differs from actual store count (${actualCount})`,
+        undefined, `drift=${actualCount - this.aggregateCount}`);
+    }
+  }
+
   /* ------------------------------------------------------------------ */
   /*  Snapshot                                                            */
   /* ------------------------------------------------------------------ */
 
   /** Capture a point-in-time snapshot of the monitor's state */
   captureSnapshot(): FolderSnapshot {
+    this.checkAggregateDrift();
     return {
       activeUpdates: this.activeUpdates,
       activeRebuilds: this.activeRebuilds,
@@ -769,11 +788,12 @@ export class FolderMonitor {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.folderManager.updateAncestors = this.originalUpdateAncestors;
-    this.folderManager.rebuildAll = this.originalRebuildAll;
-    this.folderManager.recomputeFolderStatus = this.originalRecomputeFolderStatus;
-    this.problemStore.setFolderAggregate = this.originalSetFolderAggregate;
+    /* Restore in reverse wrapping order (LIFO) */
     this.problemStore.delete = this.originalStoreDelete;
+    this.problemStore.setFolderAggregate = this.originalSetFolderAggregate;
+    this.folderManager.recomputeFolderStatus = this.originalRecomputeFolderStatus;
+    this.folderManager.rebuildAll = this.originalRebuildAll;
+    this.folderManager.updateAncestors = this.originalUpdateAncestors;
   }
 }
 
