@@ -124,7 +124,6 @@ export interface DiagnosticsStatistics {
   totalFlushUpdates: number;
   totalFlushUris: number;
   totalMappings: number;
-  totalMappingFailures: number;
   totalStoreWrites: number;
   totalAcceptedWrites: number;
   totalRejectedWrites: number;
@@ -133,7 +132,6 @@ export interface DiagnosticsStatistics {
   totalStateAdds: number;
   totalStateRemoves: number;
   totalStateUpdates: number;
-  totalStaleDiagnostics: number;
   totalDuplicateDiagnostics: number;
   totalAssertions: number;
   mappingDurationSumUs: number;
@@ -185,7 +183,6 @@ export class DiagnosticsMonitor implements Disposable {
     totalFlushUpdates: 0,
     totalFlushUris: 0,
     totalMappings: 0,
-    totalMappingFailures: 0,
     totalStoreWrites: 0,
     totalAcceptedWrites: 0,
     totalRejectedWrites: 0,
@@ -194,7 +191,6 @@ export class DiagnosticsMonitor implements Disposable {
     totalStateAdds: 0,
     totalStateRemoves: 0,
     totalStateUpdates: 0,
-    totalStaleDiagnostics: 0,
     totalDuplicateDiagnostics: 0,
     totalAssertions: 0,
     mappingDurationSumUs: 0,
