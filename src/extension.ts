@@ -92,7 +92,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
     setConfigManager(configManager);
-    setConfigManager(configManager);
 
     // Initialize telemetry system
     const telemetryConfig = new TelemetryConfigManager();
