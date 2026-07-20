@@ -170,7 +170,6 @@ export class DiagnosticsMonitor implements Disposable {
 
   /* Diagnostics change tracking */
   private readonly knownUris = new Set<string>();
-  private readonly uriProvider = new Map<string, string>();
   private vsDiagProvider: DiagnosticProvider | undefined;
   private readonly pendingScans = new Map<string, boolean>();
 
@@ -704,7 +703,6 @@ export class DiagnosticsMonitor implements Disposable {
     }
     this.disposables.length = 0;
     this.knownUris.clear();
-    this.uriProvider.clear();
     this.mappingStartTimes.clear();
   }
 }
