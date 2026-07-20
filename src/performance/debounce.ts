@@ -26,8 +26,8 @@ export function debounce<Args extends unknown[]>(
     if (timer !== undefined) {
       clearTimeout(timer);
       timer = undefined;
-      lastArgs = undefined;
     }
+    lastArgs = undefined;
   };
 
   debounced.flush = (): void => {
