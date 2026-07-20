@@ -295,9 +295,10 @@ export class FolderMonitor {
     this.folderManager.updateAncestors = function (fileUri: Uri): Uri[] {
       if (self.disposed) return self.originalUpdateAncestors(fileUri);
       self.activeUpdates++;
-      const start = Date.now();
-      const uriStr = fileUri.toString();
-      const indexBefore = self.folderManager.childIndexSize;
+      try {
+        const start = Date.now();
+        const uriStr = fileUri.toString();
+        const indexBefore = self.folderManager.childIndexSize;
 
       /* Emit start event */
       self.reporter.report({
@@ -394,8 +395,10 @@ export class FolderMonitor {
         }
       }
 
-      self.activeUpdates--;
       return changed;
+      } finally {
+        self.activeUpdates--;
+      }
     };
   }
 
@@ -404,8 +407,9 @@ export class FolderMonitor {
     this.folderManager.rebuildAll = function (): Uri[] {
       if (self.disposed) return self.originalRebuildAll();
       self.activeRebuilds++;
-      const start = Date.now();
-      const indexSizeBefore = self.folderManager.childIndexSize;
+      try {
+        const start = Date.now();
+        const indexSizeBefore = self.folderManager.childIndexSize;
 
       /* Emit start event */
       self.reporter.report({
@@ -442,8 +446,10 @@ export class FolderMonitor {
 
       self.lastRebuildChangedUris = changedUris;
 
-      self.activeRebuilds--;
       return changed;
+      } finally {
+        self.activeRebuilds--;
+      }
     };
   }
 
