@@ -250,6 +250,14 @@ export class DiagnosticsMonitor implements Disposable {
         this.handleFlushUpdates(uris);
       })
     );
+
+    /* Subscribe to assertion failures from the runtime assertion system */
+    this.disposables.push(
+      this.reporter.subscribe('assertion.failure', (event) => {
+        if (this.disposed) return;
+        this.handleAssertionEvent(event as TelemetryEvent & { assertion: string; detail: string });
+      })
+    );
   }
 
   /* ------------------------------------------------------------------ */
@@ -374,6 +382,22 @@ export class DiagnosticsMonitor implements Disposable {
     }
 
     this.reporter.report(event as TelemetryEvent);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Runtime assertion handlers (Task 6)                                */
+  /* ------------------------------------------------------------------ */
+
+  private handleAssertionEvent(event: TelemetryEvent & { assertion: string; detail: string }): void {
+    this.reporter.report({
+      type: 'diagnostics.assertion',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'DiagnosticsMonitor',
+      assertion: event.assertion,
+      detail: event.detail,
+    } as TelemetryEvent);
+    this.stats.totalAssertions++;
   }
 
   /* ------------------------------------------------------------------ */
