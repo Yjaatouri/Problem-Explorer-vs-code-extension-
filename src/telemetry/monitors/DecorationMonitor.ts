@@ -491,6 +491,18 @@ export class DecorationMonitor {
         this._refreshHistory.delete(uri);
       }
     }
+    /* Cap _lastDecoration to 1000 entries (oldest removed) */
+    if (this._lastDecoration.size > 1000) {
+      const entries = [...this._lastDecoration.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
+      const toDelete = entries.slice(0, entries.length - 1000);
+      for (const [uri] of toDelete) {
+        this._lastDecoration.delete(uri);
+      }
+    }
+    /* Cap _decorationLoopCount to 5000 entries */
+    if (this._decorationLoopCount.size > 5000) {
+      this._decorationLoopCount.clear();
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -510,6 +522,8 @@ export class DecorationMonitor {
     }
     this._recentChanges.clear();
     this._refreshHistory.clear();
+    this._lastDecoration.clear();
+    this._decorationLoopCount.clear();
   }
 
   /* ------------------------------------------------------------------ */
