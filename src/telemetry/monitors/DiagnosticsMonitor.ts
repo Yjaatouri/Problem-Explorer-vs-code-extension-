@@ -174,6 +174,7 @@ export class DiagnosticsMonitor implements Disposable {
 
   /* Store ownership tracking for before/after comparisons */
   private readonly knownOwners = new Map<string, string>();
+  private readonly previousStates = new Map<string, ProblemState>();
 
   /* Pipeline timing */
   private activeMappings = 0;
@@ -335,6 +336,23 @@ export class DiagnosticsMonitor implements Disposable {
       } as TelemetryEvent);
 
       this.stats.totalMappings++;
+
+      /* Detect duplicate: when a higher-priority provider already owns this URI */
+      const store = this.vsDiagProvider?.store;
+      const currentOwner = store ? store.getOwningProvider(uri) : undefined;
+      if (currentOwner && currentOwner !== 'vscodeDiagnostics') {
+        this.reporter.report({
+          type: 'diagnostics.stateChange',
+          timestamp: Date.now(),
+          traceId,
+          source: 'DiagnosticsMonitor',
+          uri: uriStr,
+          change: 'duplicate',
+          currentState: store?.get(uri),
+          provider: currentOwner,
+        } as TelemetryEvent);
+        this.stats.totalDuplicateDiagnostics++;
+      }
     }
   }
 
@@ -370,7 +388,11 @@ export class DiagnosticsMonitor implements Disposable {
         const state = store.get(change.uri);
         const ownerAfter = store.getOwningProvider(change.uri);
         const ownerBefore = this.knownOwners.get(uriStr);
+        const prevState = this.previousStates.get(uriStr);
         this.knownOwners.set(uriStr, ownerAfter ?? providerName);
+        if (state) {
+          this.previousStates.set(uriStr, state);
+        }
 
         this.reporter.report({
           type: 'diagnostics.storeWrite',
@@ -387,6 +409,18 @@ export class DiagnosticsMonitor implements Disposable {
           ownerBefore,
           ownerAfter,
           writeDurationUs: 0,
+        } as TelemetryEvent);
+
+        this.reporter.report({
+          type: 'diagnostics.stateChange',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'DiagnosticsMonitor',
+          uri: uriStr,
+          change: change.kind,
+          previousState: prevState,
+          currentState: state,
+          provider: ownerAfter ?? providerName,
         } as TelemetryEvent);
 
         this.stats.totalStoreWrites++;
@@ -417,7 +451,9 @@ export class DiagnosticsMonitor implements Disposable {
       case 'removed': {
         const uriStr = change.uri.toString();
         const ownerBefore = this.knownOwners.get(uriStr);
+        const prevState = this.previousStates.get(uriStr);
         this.knownOwners.delete(uriStr);
+        this.previousStates.delete(uriStr);
 
         this.reporter.report({
           type: 'diagnostics.storeWrite',
@@ -434,6 +470,18 @@ export class DiagnosticsMonitor implements Disposable {
           ownerBefore,
           ownerAfter: undefined,
           writeDurationUs: 0,
+        } as TelemetryEvent);
+
+        this.reporter.report({
+          type: 'diagnostics.stateChange',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'DiagnosticsMonitor',
+          uri: uriStr,
+          change: 'removed',
+          previousState: prevState,
+          currentState: undefined,
+          provider: ownerBefore,
         } as TelemetryEvent);
 
         this.stats.totalStoreWrites++;
