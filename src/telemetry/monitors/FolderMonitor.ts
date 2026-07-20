@@ -1,9 +1,10 @@
-import { Uri, Disposable } from 'vscode';
+import { Uri, Disposable, workspace } from 'vscode';
 import { FolderStatusManager } from '../../folder/folderStatusManager';
 import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemState, ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
+import { normalizeUriKey, getParentKey } from '../../core/uriKey';
 
 /* ------------------------------------------------------------------ */
 /*  Event data interfaces                                              */
@@ -253,6 +254,25 @@ export class FolderMonitor {
   /*  Method wrapping                                                     */
   /* ------------------------------------------------------------------ */
 
+  private computeAncestorChain(fileUriStr: string): { ancestors: string[]; rootStr: string } {
+    const ancestors: string[] = [];
+    const rootStr = normalizeUriKey(workspace.workspaceFolders?.[0]?.uri ?? Uri.parse('/'));
+    let parentKey = getParentKey(fileUriStr);
+    let childKey = fileUriStr;
+
+    /* Walk from the file's parent up to the workspace root */
+    while (parentKey !== childKey && parentKey !== rootStr) {
+      ancestors.push(parentKey);
+      childKey = parentKey;
+      parentKey = getParentKey(childKey);
+    }
+
+    /* Add root */
+    ancestors.push(rootStr);
+
+    return { ancestors, rootStr };
+  }
+
   private wrapUpdateAncestors(): void {
     const self = this;
     this.folderManager.updateAncestors = function (fileUri: Uri): Uri[] {
@@ -272,9 +292,20 @@ export class FolderMonitor {
         indexSizeBefore: indexBefore,
       } as any);
 
+      /* Compute ancestor chain before the call */
+      const { ancestors, rootStr } = self.computeAncestorChain(uriStr);
+
       const changed = self.originalUpdateAncestors(fileUri);
       const durationMs = Date.now() - start;
       const changedUris = changed.map((u: Uri) => u.toString());
+
+      /* Determine which ancestors were updated vs skipped */
+      const changedSet = new Set(changedUris);
+      const foldersSkipped = ancestors.filter((a) => !changedSet.has(a));
+      const foldersUpdated = ancestors.filter((a) => changedSet.has(a));
+      const traversalDepth = ancestors.length;
+      self.stats.totalFoldersSkipped += foldersSkipped.length;
+      self.stats.totalAncestorsTraversed += traversalDepth;
 
       /* Estimate depth from URI path segments */
       const segments = uriStr.split('/').filter(Boolean);
@@ -285,6 +316,10 @@ export class FolderMonitor {
       self.stats.updateAncestorsDurationSumMs += durationMs;
       if (durationMs > self.stats.peakUpdateAncestorsDurationMs) {
         self.stats.peakUpdateAncestorsDurationMs = durationMs;
+      }
+
+      if (traversalDepth > self.stats.peakPropagationDepth) {
+        self.stats.peakPropagationDepth = traversalDepth;
       }
 
       self.reporter.report({
@@ -300,6 +335,21 @@ export class FolderMonitor {
         depth,
         indexSizeBefore: indexBefore,
         indexSizeAfter: self.folderManager.childIndexSize,
+      } as any);
+
+      /* Emit propagation event with full ancestor chain */
+      self.reporter.report({
+        type: 'folder.propagation',
+        timestamp: Date.now(),
+        traceId: generateTraceId(),
+        source: 'FolderMonitor',
+        fileUri: uriStr,
+        ancestorChain: ancestors,
+        foldersUpdated,
+        foldersSkipped,
+        traversalDepth,
+        rootUri: rootStr,
+        durationMs,
       } as any);
 
       self.activeUpdates--;
