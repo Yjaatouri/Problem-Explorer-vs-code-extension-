@@ -1,5 +1,6 @@
 import { Uri, Disposable } from 'vscode';
 import { FolderStatusManager } from '../../folder/folderStatusManager';
+import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemState, ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
@@ -7,6 +8,15 @@ import { generateTraceId } from '../../telemetry/TelemetryConfig';
 /* ------------------------------------------------------------------ */
 /*  Event data interfaces                                              */
 /* ------------------------------------------------------------------ */
+
+/** Trigger: rebuildAll() was started */
+export interface FolderRebuildAllStartEventData {
+  readonly type: 'folder.rebuildAll.start';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'FolderMonitor';
+  readonly indexSizeBefore: number;
+}
 
 /** Trigger: rebuildAll() was executed */
 export interface FolderRebuildAllEventData {
@@ -17,9 +27,20 @@ export interface FolderRebuildAllEventData {
   readonly durationMs: number;
   readonly executionTimeMs: number;
   readonly affectedCount: number;
+  readonly affectedUris: string[];
   readonly workspaceFolders: number;
   readonly indexSizeBefore: number;
   readonly indexSizeAfter: number;
+}
+
+/** Trigger: updateAncestors() was started */
+export interface FolderUpdateAncestorsStartEventData {
+  readonly type: 'folder.updateAncestors.start';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'FolderMonitor';
+  readonly uri: string;
+  readonly indexSizeBefore: number;
 }
 
 /** Trigger: updateAncestors() was executed */
@@ -30,6 +51,7 @@ export interface FolderUpdateAncestorsEventData {
   readonly source: 'FolderMonitor';
   readonly uri: string;
   readonly changedCount: number;
+  readonly changedUris: string[];
   readonly executionTimeMs: number;
   readonly durationMs: number;
   readonly depth: number;
@@ -37,7 +59,7 @@ export interface FolderUpdateAncestorsEventData {
   readonly indexSizeAfter: number;
 }
 
-/** Trigger: recomputeFolderStatus() was called internally */
+/** Trigger: recomputeFolderStatus() was executed */
 export interface FolderRecomputeEventData {
   readonly type: 'folder.recompute';
   readonly timestamp: number;
@@ -47,7 +69,7 @@ export interface FolderRecomputeEventData {
   readonly children: number;
   readonly aggregateBefore?: ProblemState;
   readonly aggregateAfter: ProblemState;
-  readonly durationMs: number;
+  readonly executionTimeMs: number;
 }
 
 /** Trigger: a folder aggregate was created, updated, removed, or unchanged */
@@ -116,7 +138,9 @@ export interface FolderAssertionEventData {
 /* ------------------------------------------------------------------ */
 
 export type FolderTelemetryEvent =
+  | FolderRebuildAllStartEventData
   | FolderRebuildAllEventData
+  | FolderUpdateAncestorsStartEventData
   | FolderUpdateAncestorsEventData
   | FolderRecomputeEventData
   | FolderAggregateEventData
@@ -207,6 +231,7 @@ export class FolderMonitor {
 
   constructor(
     private readonly folderManager: FolderStatusManager,
+    private readonly problemStore: ProblemStore,
     private readonly reporter: TelemetryReporter
   ) {
     this.originalUpdateAncestors = folderManager.updateAncestors.bind(folderManager);
@@ -228,8 +253,26 @@ export class FolderMonitor {
       if (self.disposed) return self.originalUpdateAncestors(fileUri);
       self.activeUpdates++;
       const start = Date.now();
+      const uriStr = fileUri.toString();
+      const indexBefore = self.folderManager.childIndexSize;
+
+      /* Emit start event */
+      self.reporter.report({
+        type: 'folder.updateAncestors.start',
+        timestamp: start,
+        traceId: generateTraceId(),
+        source: 'FolderMonitor',
+        uri: uriStr,
+        indexSizeBefore: indexBefore,
+      } as any);
+
       const changed = self.originalUpdateAncestors(fileUri);
       const durationMs = Date.now() - start;
+      const changedUris = changed.map((u: Uri) => u.toString());
+
+      /* Estimate depth from URI path segments */
+      const segments = uriStr.split('/').filter(Boolean);
+      const depth = segments.length;
 
       self.stats.totalUpdateAncestors++;
       self.stats.totalFoldersChanged += changed.length;
@@ -243,12 +286,13 @@ export class FolderMonitor {
         timestamp: Date.now(),
         traceId: generateTraceId(),
         source: 'FolderMonitor',
-        uri: fileUri.toString(),
+        uri: uriStr,
         changedCount: changed.length,
+        changedUris,
         executionTimeMs: durationMs,
         durationMs,
-        depth: 0,
-        indexSizeBefore: self.folderManager.childIndexSize,
+        depth,
+        indexSizeBefore: indexBefore,
         indexSizeAfter: self.folderManager.childIndexSize,
       } as any);
 
@@ -264,8 +308,19 @@ export class FolderMonitor {
       self.activeRebuilds++;
       const start = Date.now();
       const indexSizeBefore = self.folderManager.childIndexSize;
+
+      /* Emit start event */
+      self.reporter.report({
+        type: 'folder.rebuildAll.start',
+        timestamp: start,
+        traceId: generateTraceId(),
+        source: 'FolderMonitor',
+        indexSizeBefore,
+      } as any);
+
       const changed = self.originalRebuildAll();
       const durationMs = Date.now() - start;
+      const changedUris = changed.map((u: Uri) => u.toString());
 
       self.stats.totalRebuilds++;
       self.stats.rebuildDurationSumMs += durationMs;
@@ -281,6 +336,7 @@ export class FolderMonitor {
         durationMs,
         executionTimeMs: durationMs,
         affectedCount: changed.length,
+        affectedUris: changedUris,
         workspaceFolders: 0,
         indexSizeBefore,
         indexSizeAfter: self.folderManager.childIndexSize,
@@ -296,6 +352,8 @@ export class FolderMonitor {
     this.folderManager.recomputeFolderStatus = function (folderUri: Uri): ProblemState {
       if (self.disposed) return self.originalRecomputeFolderStatus(folderUri);
       const start = Date.now();
+      const uriStr = folderUri.toString();
+      const aggregateBefore = self.problemStore.get(folderUri);
       const result = self.originalRecomputeFolderStatus(folderUri);
       const durationMs = Date.now() - start;
 
@@ -307,10 +365,11 @@ export class FolderMonitor {
         timestamp: Date.now(),
         traceId: generateTraceId(),
         source: 'FolderMonitor',
-        uri: folderUri.toString(),
+        uri: uriStr,
         children: result.fileCount,
+        aggregateBefore,
         aggregateAfter: result,
-        durationMs,
+        executionTimeMs: durationMs,
       } as any);
 
       return result;
@@ -361,7 +420,8 @@ export class FolderMonitor {
 /** Create a FolderMonitor attached to the given FolderStatusManager and reporter */
 export function createFolderMonitor(
   folderManager: FolderStatusManager,
+  problemStore: ProblemStore,
   reporter: TelemetryReporter
 ): FolderMonitor {
-  return new FolderMonitor(folderManager, reporter);
+  return new FolderMonitor(folderManager, problemStore, reporter);
 }

@@ -101,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const autoScannerMonitor = createAutoScannerMonitor(diagProviderManager, telemetryReporter);
     const diagnosticsMonitor = createDiagnosticsMonitor(diagProviderManager, telemetryReporter);
     const decorationMonitor = createDecorationMonitor(decorationEngine, telemetryReporter);
-    const folderMonitor = createFolderMonitor(folderStatusManager, telemetryReporter);
+    const folderMonitor = createFolderMonitor(folderStatusManager, problemStore, telemetryReporter);
     const pipelineMonitor = createEventPipelineMonitor(telemetryReporter);
     const timerMonitor = createTimerMonitor(telemetryReporter);
     const perfMonitor = createPerformanceMonitor(telemetryReporter);

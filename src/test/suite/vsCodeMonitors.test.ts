@@ -376,7 +376,7 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       const folderManager = new FolderStatusManager(store, wf);
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
       reporter.subscribeAll((e) => collected.push(e));
-      createFolderMonitor(folderManager, reporter);
+      createFolderMonitor(folderManager, store, reporter);
 
       // Set up store entry so updateAncestors has something to process
       const uri = Uri.parse('file:///project/a.ts');
@@ -403,7 +403,7 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       const folderManager = new FolderStatusManager(store, wf);
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
       reporter.subscribeAll((e) => collected.push(e));
-      createFolderMonitor(folderManager, reporter);
+      createFolderMonitor(folderManager, store, reporter);
 
       folderManager.rebuildAll();
 
@@ -427,7 +427,7 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       const originalUpdate = folderManager.updateAncestors;
       const originalRebuild = folderManager.rebuildAll;
 
-      const monitor = createFolderMonitor(folderManager, reporter);
+      const monitor = createFolderMonitor(folderManager, store, reporter);
       assert.notStrictEqual(folderManager.updateAncestors, originalUpdate);
       assert.notStrictEqual(folderManager.rebuildAll, originalRebuild);
 
@@ -446,7 +446,7 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
       reporter.subscribeAll((e) => collected.push(e));
 
-      const monitor = createFolderMonitor(folderManager, reporter);
+      const monitor = createFolderMonitor(folderManager, store, reporter);
       monitor.dispose();
 
       const uri = Uri.parse('file:///project/a.ts');
