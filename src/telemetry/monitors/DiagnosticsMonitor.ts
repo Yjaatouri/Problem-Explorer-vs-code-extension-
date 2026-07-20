@@ -121,6 +121,8 @@ export type DiagnosticsTelemetryEvent =
 export interface DiagnosticsStatistics {
   totalChanges: number;
   totalUris: number;
+  totalFlushUpdates: number;
+  totalFlushUris: number;
   totalMappings: number;
   totalMappingFailures: number;
   totalStoreWrites: number;
@@ -186,6 +188,8 @@ export class DiagnosticsMonitor implements Disposable {
   private readonly stats: DiagnosticsStatistics = {
     totalChanges: 0,
     totalUris: 0,
+    totalFlushUpdates: 0,
+    totalFlushUris: 0,
     totalMappings: 0,
     totalMappingFailures: 0,
     totalStoreWrites: 0,
@@ -412,8 +416,8 @@ export class DiagnosticsMonitor implements Disposable {
       uris: uris.map((u: Uri) => u.toString()),
     };
 
-    this.stats.totalChanges++;
-    this.stats.totalUris += uris.length;
+    this.stats.totalFlushUpdates++;
+    this.stats.totalFlushUris += uris.length;
     for (const uri of uris) {
       const uriStr = uri.toString();
       this.knownUris.add(uriStr);
