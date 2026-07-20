@@ -200,10 +200,12 @@ export class AutoScannerMonitor implements Disposable {
   ) {
     this.state = this.createInitialState();
     this.subscribeToFileEvents();
-    this.manager.onDidScanProgress((progress: ScanProgress) => {
-      if (this.disposed) return;
-      this.handleScanProgress(progress);
-    });
+    this.disposables.push(
+      this.manager.onDidScanProgress((progress: ScanProgress) => {
+        if (this.disposed) return;
+        this.handleScanProgress(progress);
+      }),
+    );
     /* Periodic assertion check — verify queue is eventually flushed */
     const intervalId = setInterval(() => this.checkStuckQueue(), 30000);
     this.disposables.push({ dispose: () => clearInterval(intervalId) });
@@ -510,6 +512,7 @@ export class AutoScannerMonitor implements Disposable {
       /* Timer was reset (cancelled + re-scheduled) */
       this.state.totalDebounceCancelled++;
       this.state.totalDebounceScheduled++;
+      const elapsedSinceLastSchedule = now - this.state.debounceStartTime;
       this.state.debounceStartTime = now;
       this.emit({
         type: 'autoscan.debounce',
@@ -517,7 +520,7 @@ export class AutoScannerMonitor implements Disposable {
         traceId: generateTraceId(),
         source: 'AutoScannerMonitor',
         action: 'cancelled',
-        debounceMs: now - this.state.debounceStartTime,
+        debounceMs: elapsedSinceLastSchedule,
         queueSize: this.state.queuedProviders.size,
       });
       this.emit({
