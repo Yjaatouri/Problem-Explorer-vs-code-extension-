@@ -1,5 +1,6 @@
 import { Disposable, Uri, workspace, TextDocument } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
+import { ScanProgress } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry';
 import { TraceId, generateTraceId } from '../../telemetry';
 
@@ -153,6 +154,7 @@ interface AutoScannerInternalState {
   lastFileEventTime: number;
   isFlushing: boolean;
   lastDebounceMs: number;
+  debounceStartTime: number;
 
   /* counters */
   totalFileEvents: number;
@@ -198,6 +200,10 @@ export class AutoScannerMonitor implements Disposable {
   ) {
     this.state = this.createInitialState();
     this.subscribeToFileEvents();
+    this.manager.onDidScanProgress((progress: ScanProgress) => {
+      if (this.disposed) return;
+      this.handleScanProgress(progress);
+    });
   }
 
   static create(
@@ -205,6 +211,77 @@ export class AutoScannerMonitor implements Disposable {
     reporter: TelemetryReporter
   ): AutoScannerMonitor {
     return new AutoScannerMonitor(manager, reporter);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Scan progress handling                                             */
+  /* ------------------------------------------------------------------ */
+
+  private handleScanProgress(progress: ScanProgress): void {
+    const now = Date.now();
+
+    switch (progress.phase) {
+      case 'resolving':
+      case 'scanning':
+      case 'parsing':
+      case 'writing': {
+        const isFirstScan = this.state.activeScans === 0;
+
+        /* Emit debounce 'fired' on first scan progress after a quiet period */
+        if (isFirstScan) {
+          const delay = this.state.lastFileEventTime > 0 ? now - this.state.lastFileEventTime : 0;
+          this.state.totalDebounceFired++;
+          this.state.lastDebounceMs = delay;
+          this.state.totalDebounceDelayMs += delay;
+          this.emit({
+            type: 'autoscan.debounce',
+            timestamp: now,
+            traceId: generateTraceId(),
+            source: 'AutoScannerMonitor',
+            action: 'fired',
+            debounceMs: delay,
+            queueSize: this.state.queuedProviders.size,
+          });
+        }
+
+        const isNewProvider = !this.state.providerTimestamps.has(progress.providerName);
+        if (isNewProvider) {
+          this.state.providerTimestamps.set(progress.providerName, now);
+          this.state.activeScans++;
+          this.state.totalRefreshesStarted++;
+        }
+
+        break;
+      }
+
+      case 'completed': {
+        const execTime = now - (this.state.providerTimestamps.get(progress.providerName) ?? now);
+        this.state.providerTimestamps.delete(progress.providerName);
+        this.state.activeScans = Math.max(0, this.state.activeScans - 1);
+        this.state.totalRefreshesCompleted++;
+        this.state.totalRefreshDurationMs += execTime;
+        break;
+      }
+
+      case 'cancelled': {
+        const execTime = now - (this.state.providerTimestamps.get(progress.providerName) ?? now);
+        this.state.providerTimestamps.delete(progress.providerName);
+        this.state.activeScans = Math.max(0, this.state.activeScans - 1);
+        this.state.totalRefreshesCompleted++;
+        this.state.totalRefreshDurationMs += execTime;
+        break;
+      }
+
+      case 'error': {
+        const execTime = now - (this.state.providerTimestamps.get(progress.providerName) ?? now);
+        this.state.providerTimestamps.delete(progress.providerName);
+        this.state.activeScans = Math.max(0, this.state.activeScans - 1);
+        this.state.totalRefreshesCompleted++;
+        this.state.totalRefreshDurationMs += execTime;
+        this.state.totalRefreshesFailed++;
+        break;
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -295,6 +372,8 @@ export class AutoScannerMonitor implements Disposable {
     if (!ownerName) return;
 
     /* Queue management — mirror the AutoScanController's queuedProviders set */
+    const wasEmpty = this.state.queuedProviders.size === 0 && !this.state.isFlushing;
+
     if (this.state.queuedProviders.has(ownerName)) {
       this.state.totalDuplicateQueueAttempts++;
       this.emit({
@@ -319,6 +398,45 @@ export class AutoScannerMonitor implements Disposable {
         action: 'added',
       });
     }
+
+    /* Debounce tracking — each file event triggers _schedule() in the controller */
+    if (!wasEmpty && !this.state.isFlushing) {
+      /* Timer was reset (cancelled + re-scheduled) */
+      this.state.totalDebounceCancelled++;
+      this.state.totalDebounceScheduled++;
+      this.state.debounceStartTime = now;
+      this.emit({
+        type: 'autoscan.debounce',
+        timestamp: now,
+        traceId: generateTraceId(),
+        source: 'AutoScannerMonitor',
+        action: 'cancelled',
+        debounceMs: now - this.state.debounceStartTime,
+        queueSize: this.state.queuedProviders.size,
+      });
+      this.emit({
+        type: 'autoscan.debounce',
+        timestamp: now,
+        traceId: generateTraceId(),
+        source: 'AutoScannerMonitor',
+        action: 'scheduled',
+        debounceMs: 0,
+        queueSize: this.state.queuedProviders.size,
+      });
+    } else if (wasEmpty) {
+      /* First event in cycle — new debounce scheduled */
+      this.state.totalDebounceScheduled++;
+      this.state.debounceStartTime = now;
+      this.emit({
+        type: 'autoscan.debounce',
+        timestamp: now,
+        traceId: generateTraceId(),
+        source: 'AutoScannerMonitor',
+        action: 'scheduled',
+        debounceMs: 0,
+        queueSize: this.state.queuedProviders.size,
+      });
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -335,6 +453,7 @@ export class AutoScannerMonitor implements Disposable {
       lastFileEventTime: 0,
       isFlushing: false,
       lastDebounceMs: 0,
+      debounceStartTime: 0,
       totalFileEvents: 0,
       totalSaves: 0,
       totalCreates: 0,
