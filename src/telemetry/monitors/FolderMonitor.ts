@@ -52,7 +52,7 @@ export class FolderMonitor {
         source: 'FolderMonitor',
         uri: fileUri.toString(),
         changedCount: changed.length,
-        indexSize: (self.folderManager as any).childIndex?.size ?? 0,
+        indexSize: self.folderManager.childIndexSize,
         executionTimeMs: Date.now() - start,
       } as any);
 
@@ -70,7 +70,7 @@ export class FolderMonitor {
         traceId: generateTraceId(),
         source: 'FolderMonitor',
         changedCount: changed.length,
-        indexSize: (self.folderManager as any).childIndex?.size ?? 0,
+        indexSize: self.folderManager.childIndexSize,
         executionTimeMs: Date.now() - start,
       } as any);
 

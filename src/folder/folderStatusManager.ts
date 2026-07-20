@@ -24,6 +24,9 @@ export class FolderStatusManager {
   // parentKey → (childKey → childStatus)
   private readonly childIndex = new Map<string, Map<string, ProblemState>>();
 
+  /** Number of parent entries in the child index (exposed for monitoring) */
+  get childIndexSize(): number { return this.childIndex.size; }
+
   constructor(
     private readonly problemStore: ProblemStore,
     wf?: FolderWorkspace,
