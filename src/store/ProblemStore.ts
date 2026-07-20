@@ -2,7 +2,8 @@ import { Event, EventEmitter, Uri } from 'vscode';
 import { ProblemStoreChange } from '../models/ProblemStoreChange';
 import { ProblemState, ProblemSeverity } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
-import { debugLog } from '../core/debug';
+import { debugLog } from '../core/debug';/** Remove readonly modifiers from all properties */
+type Mutable<T> = { -readonly [P in keyof T]: T[P] };
 
 export class ProblemStore {
   private readonly storage = new Map<string, ProblemState>();
@@ -302,7 +303,7 @@ export class ProblemStore {
   }
 
   private _addToTotals(state: ProblemState): void {
-    const t = this._runningTotals as { -readonly [K in keyof ProblemState]: ProblemState[K] };
+    const t = this._runningTotals as unknown as Mutable<ProblemState>;
     t.errorCount += state.errorCount;
     t.warningCount += state.warningCount;
     t.infoCount += state.infoCount;
@@ -313,7 +314,7 @@ export class ProblemStore {
   }
 
   private _subtractFromTotals(state: ProblemState): void {
-    const t = this._runningTotals as { -readonly [K in keyof ProblemState]: ProblemState[K] };
+    const t = this._runningTotals as unknown as Mutable<ProblemState>;
     t.errorCount -= state.errorCount;
     t.warningCount -= state.warningCount;
     t.infoCount -= state.infoCount;
