@@ -215,6 +215,9 @@ export class FolderMonitor {
   /* Rebuild consistency tracking */
   private lastRebuildChangedUris: string[] | undefined;
 
+  /* Reentrancy guard for store wrappers */
+  private reentrant = 0;
+
   /* Cumulative statistics */
   private readonly stats: FolderStatistics = {
     totalRebuilds: 0,
@@ -528,62 +531,30 @@ export class FolderMonitor {
     const self = this;
     this.problemStore.setFolderAggregate = function (uri: Uri, state: ProblemState): boolean {
       if (self.disposed) return self.originalSetFolderAggregate(uri, state);
-      const start = Date.now();
-      const uriStr = uri.toString();
-      const before = self.problemStore.get(uri);
-      const owner = self.problemStore.getOwningProvider(uri);
-      const accepted = self.originalSetFolderAggregate(uri, state);
-      const after = self.problemStore.get(uri);
-      const durationMs = Date.now() - start;
+      if (self.reentrant > 0) return self.originalSetFolderAggregate(uri, state);
+      self.reentrant++;
+      try {
+        const start = Date.now();
+        const uriStr = uri.toString();
+        const before = self.problemStore.get(uri);
+        const owner = self.problemStore.getOwningProvider(uri);
+        const accepted = self.originalSetFolderAggregate(uri, state);
+        const after = self.problemStore.get(uri);
+        const durationMs = Date.now() - start;
 
-      if (accepted) {
-        if (!before) {
-          self.emitAggregateEvent(uriStr, 'created', before, after);
+        if (accepted) {
+          if (!before) {
+            self.emitAggregateEvent(uriStr, 'created', before, after);
+          } else {
+            self.emitAggregateEvent(uriStr, 'updated', before, after);
+          }
+          self.stats.totalStoreWrites++;
+          self.stats.totalStoreWritesAccepted++;
         } else {
-          self.emitAggregateEvent(uriStr, 'updated', before, after);
+          self.emitAggregateEvent(uriStr, 'unchanged', before, after);
+          self.stats.totalStoreWrites++;
+          self.stats.totalStoreWritesRejected++;
         }
-        self.stats.totalStoreWrites++;
-        self.stats.totalStoreWritesAccepted++;
-      } else {
-        self.emitAggregateEvent(uriStr, 'unchanged', before, after);
-        self.stats.totalStoreWrites++;
-        self.stats.totalStoreWritesRejected++;
-      }
-
-      /* Emit store write event */
-      self.reporter.report({
-        type: 'folder.storeWrite',
-        timestamp: Date.now(),
-        traceId: generateTraceId(),
-        source: 'FolderMonitor',
-        uri: uriStr,
-        accepted,
-        rejectReason: accepted ? undefined : 'unchanged state',
-        aggregateBefore: before,
-        aggregateAfter: after,
-        isNew: !before && accepted,
-        owner,
-        durationMs,
-      } as any);
-
-      return accepted;
-    };
-  }
-
-  private wrapStoreDelete(): void {
-    const self = this;
-    this.problemStore.delete = function (uri: Uri): boolean {
-      if (self.disposed) return self.originalStoreDelete(uri);
-      const start = Date.now();
-      const uriStr = uri.toString();
-      const isFolder = self.problemStore.isFolderAggregate(uri);
-      const before = isFolder ? self.problemStore.get(uri) : undefined;
-      const owner = self.problemStore.getOwningProvider(uri);
-      const result = self.originalStoreDelete(uri);
-      const durationMs = Date.now() - start;
-
-      if (isFolder && result && before) {
-        self.emitAggregateEvent(uriStr, 'removed', before, undefined);
 
         self.reporter.report({
           type: 'folder.storeWrite',
@@ -591,15 +562,58 @@ export class FolderMonitor {
           traceId: generateTraceId(),
           source: 'FolderMonitor',
           uri: uriStr,
-          accepted: true,
+          accepted,
+          rejectReason: accepted ? undefined : 'unchanged state',
           aggregateBefore: before,
-          aggregateAfter: undefined,
-          isNew: false,
+          aggregateAfter: after,
+          isNew: !before && accepted,
           owner,
           durationMs,
         } as any);
+
+        return accepted;
+      } finally {
+        self.reentrant--;
       }
-      return result;
+    };
+  }
+
+  private wrapStoreDelete(): void {
+    const self = this;
+    this.problemStore.delete = function (uri: Uri): boolean {
+      if (self.disposed) return self.originalStoreDelete(uri);
+      if (self.reentrant > 0) return self.originalStoreDelete(uri);
+      self.reentrant++;
+      try {
+        const start = Date.now();
+        const uriStr = uri.toString();
+        const isFolder = self.problemStore.isFolderAggregate(uri);
+        const before = isFolder ? self.problemStore.get(uri) : undefined;
+        const owner = self.problemStore.getOwningProvider(uri);
+        const result = self.originalStoreDelete(uri);
+        const durationMs = Date.now() - start;
+
+        if (isFolder && result && before) {
+          self.emitAggregateEvent(uriStr, 'removed', before, undefined);
+
+          self.reporter.report({
+            type: 'folder.storeWrite',
+            timestamp: Date.now(),
+            traceId: generateTraceId(),
+            source: 'FolderMonitor',
+            uri: uriStr,
+            accepted: true,
+            aggregateBefore: before,
+            aggregateAfter: undefined,
+            isNew: false,
+            owner,
+            durationMs,
+          } as any);
+        }
+        return result;
+      } finally {
+        self.reentrant--;
+      }
     };
   }
 
