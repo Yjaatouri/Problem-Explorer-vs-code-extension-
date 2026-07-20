@@ -400,6 +400,7 @@ export class FolderMonitor {
               changedUri, `rebuildAffected=[${self.lastRebuildChangedUris.join(',')}]`);
           }
         }
+        self.lastRebuildChangedUris = undefined;
       }
 
       return changed;
