@@ -200,15 +200,23 @@ export class DiagnosticsMonitor implements Disposable {
     private readonly manager: DiagnosticProviderManager,
     private readonly reporter: TelemetryReporter
   ) {
-    /* Subscribe to raw VS Code diagnostics changes */
+    this.subscribeToDiagnosticsChanges();
+    this.subscribeToProviderRegistration();
+    this.subscribeToFlushUpdates();
+    this.subscribeToAssertionFailures();
+    this.startPeriodicSnapshot();
+  }
+
+  private subscribeToDiagnosticsChanges(): void {
     this.disposables.push(
       languages.onDidChangeDiagnostics((e: DiagnosticChangeEvent) => {
         if (this.disposed) return;
         this.handleChangeEvent(e);
       })
     );
+  }
 
-    /* Latch onto the vscodeDiagnostics provider when registered */
+  private subscribeToProviderRegistration(): void {
     const existing = this.manager.get('vscodeDiagnostics');
     if (existing) {
       this.attachToProvider(existing);
@@ -221,24 +229,27 @@ export class DiagnosticsMonitor implements Disposable {
         }
       })
     );
+  }
 
-    /* Subscribe to flush updates */
+  private subscribeToFlushUpdates(): void {
     this.disposables.push(
       this.manager.onDidUpdateAll((uris) => {
         if (this.disposed) return;
         this.handleFlushUpdates(uris);
       })
     );
+  }
 
-    /* Subscribe to assertion failures from the runtime assertion system */
+  private subscribeToAssertionFailures(): void {
     this.disposables.push(
       this.reporter.subscribe('assertion.failure', (event) => {
         if (this.disposed) return;
         this.handleAssertionEvent(event as TelemetryEvent & { assertion: string; detail: string });
       })
     );
+  }
 
-    /* Periodic performance snapshot */
+  private startPeriodicSnapshot(): void {
     const timer = setInterval(() => {
       if (this.disposed) return;
       this.reportSnapshot();
