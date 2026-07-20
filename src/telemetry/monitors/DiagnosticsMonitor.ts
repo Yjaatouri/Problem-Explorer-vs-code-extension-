@@ -2,16 +2,16 @@ import { Disposable, languages, DiagnosticChangeEvent, Uri } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { TelemetryReporter } from '../../telemetry';
-import { generateTraceId } from '../../telemetry';
+import { TelemetryEvent, generateTraceId } from '../../telemetry';
 
 /** Structured event payload for a raw VS Code diagnostics change */
-export interface DiagnosticsChangeEventData {
+export interface DiagnosticsChangeEventData extends TelemetryEvent {
   readonly type: 'diagnostics.change';
   readonly uriCount: number;
 }
 
 /** Structured event payload for per-URI diagnostic processing (updateUri) */
-export interface DiagnosticsUpdateUriEventData {
+export interface DiagnosticsUpdateUriEventData extends TelemetryEvent {
   readonly type: 'diagnostics.updateUri';
   readonly uri: string;
   readonly errorCount: number;
@@ -21,7 +21,7 @@ export interface DiagnosticsUpdateUriEventData {
 }
 
 /** Structured event payload for a full scan batch */
-export interface DiagnosticsFullScanEventData {
+export interface DiagnosticsFullScanEventData extends TelemetryEvent {
   readonly type: 'diagnostics.fullScan';
   readonly uriCount: number;
   readonly totalErrors: number;
@@ -31,7 +31,7 @@ export interface DiagnosticsFullScanEventData {
 }
 
 /** Structured event payload for a flushUpdates trigger */
-export interface DiagnosticsFlushUpdatesEventData {
+export interface DiagnosticsFlushUpdatesEventData extends TelemetryEvent {
   readonly type: 'diagnostics.flushUpdates';
   readonly uriCount: number;
   readonly executionTimeMs: number;
@@ -94,20 +94,23 @@ export class DiagnosticsMonitor implements Disposable {
 
   private attachToProvider(provider: DiagnosticProvider): void {
     this.vsDiagProvider = provider;
-    provider.onDidUpdate((uris) => {
-      if (this.disposed) return;
-      this.handleProviderUpdate(provider, uris);
-    });
+    this.disposables.push(
+      provider.onDidUpdate((uris) => {
+        if (this.disposed) return;
+        this.handleProviderUpdate(provider, uris);
+      }),
+    );
   }
 
   private handleChangeEvent(e: DiagnosticChangeEvent): void {
-    this.reporter.report({
+    const event: DiagnosticsChangeEventData = {
       type: 'diagnostics.change',
       timestamp: Date.now(),
       traceId: generateTraceId(),
       source: 'DiagnosticsMonitor',
       uriCount: e.uris.length,
-    } as any);
+    };
+    this.reporter.report(event);
   }
 
   private handleProviderUpdate(provider: DiagnosticProvider, uris: Uri[]): void {
@@ -129,7 +132,7 @@ export class DiagnosticsMonitor implements Disposable {
       totalWarnings += warnings;
       totalInfos += infos;
 
-      this.reporter.report({
+      const event: DiagnosticsUpdateUriEventData = {
         type: 'diagnostics.updateUri',
         timestamp: now,
         traceId,
@@ -139,12 +142,13 @@ export class DiagnosticsMonitor implements Disposable {
         warningCount: warnings,
         infoCount: infos,
         totalCount: errors + warnings + infos,
-      } as any);
+      };
+      this.reporter.report(event);
     }
 
     if (isFullScan) {
       const elapsed = now - (this.providerTimestamps.get(provider.name) ?? now);
-      this.reporter.report({
+      const event: DiagnosticsFullScanEventData = {
         type: 'diagnostics.fullScan',
         timestamp: now,
         traceId,
@@ -154,7 +158,8 @@ export class DiagnosticsMonitor implements Disposable {
         totalWarnings,
         totalInfos,
         executionTimeMs: elapsed,
-      } as any);
+      };
+      this.reporter.report(event);
       this.providerTimestamps.delete(provider.name);
     }
 
@@ -166,14 +171,15 @@ export class DiagnosticsMonitor implements Disposable {
     const elapsed = now - (this.providerTimestamps.get('flushUpdates') ?? now);
     this.providerTimestamps.set('flushUpdates', now);
 
-    this.reporter.report({
+    const event: DiagnosticsFlushUpdatesEventData = {
       type: 'diagnostics.flushUpdates',
       timestamp: now,
       traceId: generateTraceId(),
       source: 'DiagnosticsMonitor',
       uriCount: uris.length,
       executionTimeMs: elapsed,
-    } as any);
+    };
+    this.reporter.report(event);
   }
 
   dispose(): void {
