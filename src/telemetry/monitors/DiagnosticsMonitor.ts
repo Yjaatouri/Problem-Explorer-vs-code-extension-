@@ -4,7 +4,8 @@ import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import type { ProblemStore } from '../../store/ProblemStore';
 import { ProblemStoreChange } from '../../models/ProblemStoreChange';
 import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
-import { TraceId, generateTraceId } from '../../telemetry';
+import type { TraceId } from '../../telemetry';
+import { generateTraceId } from '../../telemetry';
 import { ProblemState, ProblemSeverity } from '../../core/types';
 
 /* ------------------------------------------------------------------ */
