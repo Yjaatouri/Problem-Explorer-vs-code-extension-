@@ -455,7 +455,8 @@ export class AutoScannerMonitor implements Disposable {
     else if (eventType === 'delete') this.state.totalDeletes++;
     else if (eventType === 'rename') this.state.totalRenames++;
 
-    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
+    const dot = uri.fsPath.lastIndexOf('.');
+    const ext = dot < 0 ? '' : uri.fsPath.slice(dot).toLowerCase();
     const ownerName = this.manager.getOwner(ext);
 
     const now = Date.now();
