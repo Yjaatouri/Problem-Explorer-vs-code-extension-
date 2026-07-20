@@ -303,7 +303,9 @@ export class DiagnosticProviderManager {
       const providerName = entry.provider.name;
       const caps = entry.provider.capabilities;
       if (caps.realtime) continue;
-      for (const ext of caps.extensions) {
+      const extensions = caps.extensions;
+      if (!extensions) continue;
+      for (const ext of extensions) {
         if (!newMap.has(ext)) {
           newMap.set(ext, providerName);
         }
