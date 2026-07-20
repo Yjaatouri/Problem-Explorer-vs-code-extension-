@@ -109,7 +109,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const runtimeAssertions = createRuntimeAssertions(telemetryReporter);
     const timelineGenerator = createTimelineGenerator(telemetryReporter);
     const snapshotSystem = createSnapshotSystem(telemetryReporter, problemStore, diagProviderManager, telemetryConfig);
-    const devDashboard = new DeveloperDashboard(telemetryReporter);
+    const devDashboard = new DeveloperDashboard();
 
     // File logger for offline forensic analysis (rotates at 5 MB, keeps 3 files)
     let telemetryFileLogger: import('./telemetry/monitors/TelemetryFileLogger').TelemetryFileLogger | undefined;

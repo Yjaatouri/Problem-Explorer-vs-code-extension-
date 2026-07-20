@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { TelemetryBus, getTelemetryBus } from '../../telemetry/TelemetryBus';
 import { TelemetryEvent } from '../../telemetry/TelemetryEvent';
-import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 
 const MAX_HISTORY = 10000;
 const MAX_DISPLAY_EVENTS = 500;
@@ -42,7 +41,7 @@ export class DeveloperDashboard {
   private readonly busSub: import('../../telemetry/TelemetryBus').TelemetrySubscription;
   private disposed = false;
 
-  constructor(_reporter?: TelemetryReporter) {
+  constructor() {
     this.bus = getTelemetryBus();
 
     /* Subscribe to all events via the bus (read from TelemetryBus, no logic duplication) */
