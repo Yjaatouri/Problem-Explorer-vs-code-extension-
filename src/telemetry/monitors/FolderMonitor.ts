@@ -165,6 +165,7 @@ export interface FolderStatistics {
   totalAggregatesUnchanged: number;
   totalFoldersChanged: number;
   totalFoldersSkipped: number;
+  totalFoldersProcessed: number;
   totalAncestorsTraversed: number;
   totalStoreWrites: number;
   totalStoreWritesAccepted: number;
@@ -173,9 +174,12 @@ export interface FolderStatistics {
   rebuildDurationSumMs: number;
   updateAncestorsDurationSumMs: number;
   recomputeDurationSumMs: number;
+  propagationDepthSum: number;
   peakRebuildDurationMs: number;
   peakUpdateAncestorsDurationMs: number;
   peakPropagationDepth: number;
+  averageRebuildDurationMs: number;
+  averageUpdateAncestorsDurationMs: number;
   averagePropagationDepth: number;
 }
 
@@ -222,6 +226,7 @@ export class FolderMonitor {
     totalAggregatesUnchanged: 0,
     totalFoldersChanged: 0,
     totalFoldersSkipped: 0,
+    totalFoldersProcessed: 0,
     totalAncestorsTraversed: 0,
     totalStoreWrites: 0,
     totalStoreWritesAccepted: 0,
@@ -230,9 +235,12 @@ export class FolderMonitor {
     rebuildDurationSumMs: 0,
     updateAncestorsDurationSumMs: 0,
     recomputeDurationSumMs: 0,
+    propagationDepthSum: 0,
     peakRebuildDurationMs: 0,
     peakUpdateAncestorsDurationMs: 0,
     peakPropagationDepth: 0,
+    averageRebuildDurationMs: 0,
+    averageUpdateAncestorsDurationMs: 0,
     averagePropagationDepth: 0,
   };
 
@@ -310,6 +318,8 @@ export class FolderMonitor {
       const traversalDepth = ancestors.length;
       self.stats.totalFoldersSkipped += foldersSkipped.length;
       self.stats.totalAncestorsTraversed += traversalDepth;
+      self.stats.propagationDepthSum += traversalDepth;
+      self.stats.totalFoldersProcessed += changed.length;
 
       /* Estimate depth from URI path segments */
       const segments = uriStr.split('/').filter(Boolean);
@@ -471,7 +481,7 @@ export class FolderMonitor {
     const infoDelta = (after?.infoCount ?? 0) - (before?.infoCount ?? 0);
 
     switch (action) {
-      case 'created': this.stats.totalAggregatesCreated++; break;
+      case 'created': this.stats.totalAggregatesCreated++; this.stats.totalFoldersProcessed++; break;
       case 'updated': this.stats.totalAggregatesUpdated++; break;
       case 'removed': this.stats.totalAggregatesRemoved++; break;
       case 'unchanged': this.stats.totalAggregatesUnchanged++; break;
@@ -706,9 +716,13 @@ export class FolderMonitor {
   /*  Statistics                                                          */
   /* ------------------------------------------------------------------ */
 
-  /** Get cumulative statistics */
+  /** Get cumulative statistics with derived averages computed */
   getStatistics(): FolderStatistics {
-    return { ...this.stats };
+    const s = { ...this.stats };
+    s.averageRebuildDurationMs = s.totalRebuilds > 0 ? Math.round(s.rebuildDurationSumMs / s.totalRebuilds) : 0;
+    s.averageUpdateAncestorsDurationMs = s.totalUpdateAncestors > 0 ? Math.round(s.updateAncestorsDurationSumMs / s.totalUpdateAncestors) : 0;
+    s.averagePropagationDepth = s.totalUpdateAncestors > 0 ? Math.round(s.propagationDepthSum / s.totalUpdateAncestors) : 0;
+    return s;
   }
 
   /* ------------------------------------------------------------------ */
