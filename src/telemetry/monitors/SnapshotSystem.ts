@@ -102,9 +102,10 @@ export class SnapshotSystem {
         else if (data.phase === 'end' || data.phase === 'error' || data.phase === 'cancelled') this.activeScans = Math.max(0, this.activeScans - 1);
       }
 
-      /* Track queued scans */
+      /* Track queued scans — autoscan.flush reports queueSize to correctly decrement */
       if (event.type === 'autoscan.queue') this.queuedScans++;
-      else if (event.type === 'autoscan.flush' || event.type === 'autoscan.cancel') this.queuedScans = Math.max(0, this.queuedScans - 1);
+      else if (event.type === 'autoscan.flush') this.queuedScans = Math.max(0, this.queuedScans - (data.queueSize ?? 1));
+      else if (event.type === 'autoscan.cancel') this.queuedScans = Math.max(0, this.queuedScans - 1);
 
       /* Track active timers */
       if (event.type === 'timer.setTimeout') this.activeTimers++;
