@@ -453,6 +453,7 @@ export class DiagnosticsMonitor implements Disposable {
       type: 'diagnostics.assertion',
       timestamp: Date.now(),
       traceId: generateTraceId(),
+      parentTraceId: event.traceId,
       source: 'DiagnosticsMonitor',
       assertion: event.assertion,
       detail: event.detail,
