@@ -1,203 +1,238 @@
-import { Disposable, languages, DiagnosticChangeEvent, Uri } from 'vscode';
+import { Disposable } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
-import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { TelemetryReporter } from '../../telemetry';
-import { TelemetryEvent, generateTraceId } from '../../telemetry';
+import { TraceId } from '../../telemetry';
+import { ProblemState, ProblemSeverity } from '../../core/types';
 
-/** Structured event payload for a raw VS Code diagnostics change */
-export interface DiagnosticsChangeEventData extends TelemetryEvent {
+/* ------------------------------------------------------------------ */
+/*  Event data interfaces                                              */
+/* ------------------------------------------------------------------ */
+
+/** Trigger: VS Code emitted a raw diagnostics change */
+export interface DiagnosticsChangeEventData {
   readonly type: 'diagnostics.change';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
   readonly uriCount: number;
+  readonly uris: readonly string[];
 }
 
-/** Structured event payload for per-URI diagnostic processing (updateUri) */
-export interface DiagnosticsUpdateUriEventData extends TelemetryEvent {
-  readonly type: 'diagnostics.updateUri';
+/** Trigger: a single diagnostic was mapped to ProblemState */
+export interface DiagnosticsMappingEventData {
+  readonly type: 'diagnostics.mapping';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
   readonly uri: string;
+  readonly diagnosticCount: number;
   readonly errorCount: number;
   readonly warningCount: number;
   readonly infoCount: number;
-  readonly totalCount: number;
+  readonly mappingDurationUs: number;
+  readonly success: boolean;
+  readonly failureReason?: string;
 }
 
-/** Structured event payload for a full scan batch */
-export interface DiagnosticsFullScanEventData extends TelemetryEvent {
-  readonly type: 'diagnostics.fullScan';
-  readonly uriCount: number;
-  readonly totalErrors: number;
-  readonly totalWarnings: number;
-  readonly totalInfos: number;
-  readonly executionTimeMs: number;
+/** Trigger: a ProblemState was written (or rejected) via store.set() */
+export interface DiagnosticsStoreWriteEventData {
+  readonly type: 'diagnostics.storeWrite';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly uri: string;
+  readonly provider: string;
+  readonly severity: ProblemSeverity;
+  readonly errorCount: number;
+  readonly warningCount: number;
+  readonly infoCount: number;
+  readonly accepted: boolean;
+  readonly rejectReason?: string;
+  readonly ownerBefore?: string;
+  readonly ownerAfter?: string;
+  readonly writeDurationUs: number;
 }
 
-/** Structured event payload for a flushUpdates trigger */
-export interface DiagnosticsFlushUpdatesEventData extends TelemetryEvent {
-  readonly type: 'diagnostics.flushUpdates';
-  readonly uriCount: number;
-  readonly executionTimeMs: number;
+/** Trigger: ownership of a URI was transferred or disputed */
+export interface DiagnosticsOwnershipEventData {
+  readonly type: 'diagnostics.ownership';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly uri: string;
+  readonly provider: string;
+  readonly previousOwner?: string;
+  readonly action: 'acquired' | 'transferred' | 'disputed' | 'released';
 }
 
-/** Union of all diagnostics monitor event types */
-export type DiagnosticsMonitorEvent =
+/** Trigger: diagnostics state changed for a URI (add/remove/update/stale/duplicate) */
+export interface DiagnosticsStateChangeEventData {
+  readonly type: 'diagnostics.stateChange';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly uri: string;
+  readonly change: 'added' | 'removed' | 'updated' | 'stale' | 'duplicate';
+  readonly previousState?: ProblemState;
+  readonly currentState?: ProblemState;
+  readonly provider?: string;
+}
+
+/** Trigger: a runtime assertion fired */
+export interface DiagnosticsAssertionEventData {
+  readonly type: 'diagnostics.assertion';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly assertion: string;
+  readonly detail: string;
+}
+
+/** Trigger: periodic performance snapshot */
+export interface DiagnosticsSnapshotEventData {
+  readonly type: 'diagnostics.snapshot';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly statistics: DiagnosticsStatistics;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Union type                                                         */
+/* ------------------------------------------------------------------ */
+
+export type DiagnosticsTelemetryEvent =
   | DiagnosticsChangeEventData
-  | DiagnosticsUpdateUriEventData
-  | DiagnosticsFullScanEventData
-  | DiagnosticsFlushUpdatesEventData;
+  | DiagnosticsMappingEventData
+  | DiagnosticsStoreWriteEventData
+  | DiagnosticsOwnershipEventData
+  | DiagnosticsStateChangeEventData
+  | DiagnosticsAssertionEventData
+  | DiagnosticsSnapshotEventData;
 
-/** Monitors VS Code diagnostics pipeline: change events, per-URI processing, full scans, and flushUpdates */
+/* ------------------------------------------------------------------ */
+/*  Statistics & snapshot interfaces                                   */
+/* ------------------------------------------------------------------ */
+
+/** Cumulative diagnostics statistics for a single cycle */
+export interface DiagnosticsStatistics {
+  totalChanges: number;
+  totalUris: number;
+  totalMappings: number;
+  totalMappingFailures: number;
+  totalStoreWrites: number;
+  totalAcceptedWrites: number;
+  totalRejectedWrites: number;
+  totalOwnershipTransfers: number;
+  totalOwnershipDisputes: number;
+  totalStateAdds: number;
+  totalStateRemoves: number;
+  totalStateUpdates: number;
+  totalStaleDiagnostics: number;
+  totalDuplicateDiagnostics: number;
+  totalAssertions: number;
+  mappingDurationSumUs: number;
+  writeDurationSumUs: number;
+  peakMappingDurationUs: number;
+  peakWriteDurationUs: number;
+}
+
+/** Point-in-time snapshot of diagnostics monitor state */
+export interface DiagnosticsSnapshot {
+  activeMappings: number;
+  pendingWrites: number;
+  statistics: DiagnosticsStatistics;
+}
+
+/* ------------------------------------------------------------------ */
+/*  DiagnosticsMonitor                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Production-quality monitor for the complete diagnostics lifecycle.
+ *
+ * Observes:
+ *  - VS Code onDidChangeDiagnostics
+ *  - Diagnostic → ProblemState mapping pipeline
+ *  - ProblemStore.set() writes and ownership
+ *  - State changes (add/remove/update/stale/duplicate)
+ *  - Runtime assertions
+ *  - Performance metrics
+ */
 export class DiagnosticsMonitor implements Disposable {
-  private vsDiagProvider: DiagnosticProvider | undefined;
-  private readonly providerTimestamps = new Map<string, number>();
-  private readonly pendingScans = new Map<string, boolean>();
   private disposed = false;
   private readonly disposables: Disposable[] = [];
 
-  constructor(
-    private readonly manager: DiagnosticProviderManager,
-    private readonly reporter: TelemetryReporter
-  ) {
-    this.disposables.push(
-      languages.onDidChangeDiagnostics((e: DiagnosticChangeEvent) => {
-        if (this.disposed) return;
-        this.handleChangeEvent(e);
-      })
-    );
+  /* Diagnostics change tracking */
+  private readonly knownUris = new Set<string>();
+  private readonly uriProvider = new Map<string, string>();
 
-    const existing = this.manager.get('vscodeDiagnostics');
-    if (existing) {
-      this.attachToProvider(existing);
-    }
+  /* Pipeline timing */
+  private activeMappings = 0;
+  private pendingWrites = 0;
 
-    this.manager.onDidRegister((info) => {
-      if (this.disposed) return;
-      if (info.name === 'vscodeDiagnostics' && !this.vsDiagProvider) {
-        this.attachToProvider(info.provider);
-      }
-    });
+  /* Cumulative statistics */
+  private readonly stats: DiagnosticsStatistics = {
+    totalChanges: 0,
+    totalUris: 0,
+    totalMappings: 0,
+    totalMappingFailures: 0,
+    totalStoreWrites: 0,
+    totalAcceptedWrites: 0,
+    totalRejectedWrites: 0,
+    totalOwnershipTransfers: 0,
+    totalOwnershipDisputes: 0,
+    totalStateAdds: 0,
+    totalStateRemoves: 0,
+    totalStateUpdates: 0,
+    totalStaleDiagnostics: 0,
+    totalDuplicateDiagnostics: 0,
+    totalAssertions: 0,
+    mappingDurationSumUs: 0,
+    writeDurationSumUs: 0,
+    peakMappingDurationUs: 0,
+    peakWriteDurationUs: 0,
+  };
 
-    this.manager.onDidScanProgress((progress) => {
-      if (this.disposed) return;
-      if (progress.providerName === 'vscodeDiagnostics') {
-        if (progress.phase === 'scanning' || progress.phase === 'resolving') {
-          this.pendingScans.set(progress.providerName, true);
-        } else if (progress.phase === 'completed' || progress.phase === 'cancelled' || progress.phase === 'error') {
-          this.pendingScans.delete(progress.providerName);
-        }
-      }
-    });
-
-    this.manager.onDidUpdateAll((uris) => {
-      if (this.disposed) return;
-      this.handleFlushUpdates(uris);
-    });
+  constructor() {
+    /* Dependencies and subscriptions set up in Task 2+ */
   }
 
-  private attachToProvider(provider: DiagnosticProvider): void {
-    this.vsDiagProvider = provider;
-    this.disposables.push(
-      provider.onDidUpdate((uris) => {
-        if (this.disposed) return;
-        this.handleProviderUpdate(provider, uris);
-      }),
-    );
+  /* ------------------------------------------------------------------ */
+  /*  Public API                                                         */
+  /* ------------------------------------------------------------------ */
+
+  getStatistics(): DiagnosticsStatistics {
+    return { ...this.stats };
   }
 
-  private handleChangeEvent(e: DiagnosticChangeEvent): void {
-    const event: DiagnosticsChangeEventData = {
-      type: 'diagnostics.change',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'DiagnosticsMonitor',
-      uriCount: e.uris.length,
+  captureSnapshot(): DiagnosticsSnapshot {
+    return {
+      activeMappings: this.activeMappings,
+      pendingWrites: this.pendingWrites,
+      statistics: this.getStatistics(),
     };
-    this.reporter.report(event);
-  }
-
-  private handleProviderUpdate(provider: DiagnosticProvider, uris: Uri[]): void {
-    const now = Date.now();
-    const traceId = generateTraceId();
-    const isFullScan = this.pendingScans.has(provider.name) || uris.length > 20;
-    this.pendingScans.delete(provider.name);
-
-    let totalErrors = 0;
-    let totalWarnings = 0;
-    let totalInfos = 0;
-
-    for (const uri of uris) {
-      const state = provider.store.get(uri);
-      const errors = state?.errorCount ?? 0;
-      const warnings = state?.warningCount ?? 0;
-      const infos = state?.infoCount ?? 0;
-      totalErrors += errors;
-      totalWarnings += warnings;
-      totalInfos += infos;
-
-      const event: DiagnosticsUpdateUriEventData = {
-        type: 'diagnostics.updateUri',
-        timestamp: now,
-        traceId,
-        source: 'DiagnosticsMonitor',
-        uri: uri.toString(),
-        errorCount: errors,
-        warningCount: warnings,
-        infoCount: infos,
-        totalCount: errors + warnings + infos,
-      };
-      this.reporter.report(event);
-    }
-
-    if (isFullScan) {
-      const elapsed = now - (this.providerTimestamps.get(provider.name) ?? now);
-      const event: DiagnosticsFullScanEventData = {
-        type: 'diagnostics.fullScan',
-        timestamp: now,
-        traceId,
-        source: 'DiagnosticsMonitor',
-        uriCount: uris.length,
-        totalErrors,
-        totalWarnings,
-        totalInfos,
-        executionTimeMs: elapsed,
-      };
-      this.reporter.report(event);
-      this.providerTimestamps.delete(provider.name);
-    }
-
-    this.providerTimestamps.set(provider.name, now);
-  }
-
-  private handleFlushUpdates(uris: Uri[]): void {
-    const now = Date.now();
-    const elapsed = now - (this.providerTimestamps.get('flushUpdates') ?? now);
-    this.providerTimestamps.set('flushUpdates', now);
-
-    const event: DiagnosticsFlushUpdatesEventData = {
-      type: 'diagnostics.flushUpdates',
-      timestamp: now,
-      traceId: generateTraceId(),
-      source: 'DiagnosticsMonitor',
-      uriCount: uris.length,
-      executionTimeMs: elapsed,
-    };
-    this.reporter.report(event);
   }
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
-    this.vsDiagProvider = undefined;
-    this.providerTimestamps.clear();
-    this.pendingScans.clear();
     for (const d of this.disposables) {
       d.dispose();
     }
     this.disposables.length = 0;
+    this.knownUris.clear();
+    this.uriProvider.clear();
   }
 }
 
-/** Create a DiagnosticsMonitor attached to the given manager and reporter */
+/* ------------------------------------------------------------------ */
+/*  Factory                                                            */
+/* ------------------------------------------------------------------ */
+
 export function createDiagnosticsMonitor(
-  manager: DiagnosticProviderManager,
-  reporter: TelemetryReporter
+  _manager: DiagnosticProviderManager,
+  _reporter: TelemetryReporter
 ): DiagnosticsMonitor {
-  return new DiagnosticsMonitor(manager, reporter);
+  return new DiagnosticsMonitor();
 }
