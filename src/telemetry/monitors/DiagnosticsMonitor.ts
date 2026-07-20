@@ -1,4 +1,4 @@
-import { Disposable, languages, DiagnosticChangeEvent, Uri, DiagnosticSeverity } from 'vscode';
+import { Disposable, languages, DiagnosticChangeEvent, Uri } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { ProblemStore } from '../../store/ProblemStore';
@@ -323,24 +323,18 @@ export class DiagnosticsMonitor implements Disposable {
         ? Math.round((nowMs - startMs) * 1000)
         : 0;
 
-      /* Count raw VS Code diagnostics before aggregation */
+      /* Count raw VS Code diagnostics from the store's ProblemState */
       let diagnosticCount = 0;
       let errorCount = 0;
       let warningCount = 0;
       let infoCount = 0;
 
-      try {
-        const raw = languages.getDiagnostics(uri);
-        diagnosticCount = raw.length;
-        for (const d of raw) {
-          switch (d.severity) {
-            case DiagnosticSeverity.Error: errorCount++; break;
-            case DiagnosticSeverity.Warning: warningCount++; break;
-            case DiagnosticSeverity.Information: infoCount++; break;
-          }
-        }
-      } catch {
-        /* getDiagnostics may throw for URIs not yet in the workspace */
+      const storeState = this.vsDiagProvider?.store?.get(uri);
+      if (storeState) {
+        errorCount = storeState.errorCount;
+        warningCount = storeState.warningCount;
+        infoCount = storeState.infoCount;
+        diagnosticCount = errorCount + warningCount + infoCount;
       }
 
       const success = true;
