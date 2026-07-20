@@ -381,6 +381,25 @@ export class DiagnosticsMonitor implements Disposable {
       const currentOwner = store ? store.getOwningProvider(uri) : undefined;
       if (currentOwner && currentOwner !== 'vscodeDiagnostics') {
         this.reporter.report({
+          type: 'diagnostics.storeWrite',
+          timestamp: nowMs,
+          traceId: generateTraceId(),
+          source: 'DiagnosticsMonitor',
+          uri: uriStr,
+          provider: currentOwner,
+          severity: ProblemSeverity.None,
+          errorCount: 0,
+          warningCount: 0,
+          infoCount: 0,
+          accepted: false,
+          rejectReason: `owned by higher-priority provider '${currentOwner}'`,
+          ownerAfter: currentOwner,
+          writeDurationUs: 0,
+        } as TelemetryEvent);
+        this.stats.totalStoreWrites++;
+        this.stats.totalRejectedWrites++;
+
+        this.reporter.report({
           type: 'diagnostics.stateChange',
           timestamp: nowMs,
           traceId,
