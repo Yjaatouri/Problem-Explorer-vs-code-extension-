@@ -299,6 +299,16 @@ export class DiagnosticsMonitor implements Disposable {
   private attachToProvider(provider: DiagnosticProvider): void {
     this.vsDiagProvider = provider;
 
+    /* Seed knownOwners and previousStates from existing store data */
+    const store = provider.store;
+    store.forEachEntry((key, state) => {
+      const owner = store.getOwnerForKey(key);
+      if (owner) {
+        this.knownOwners.set(key, owner);
+      }
+      this.previousStates.set(key, state);
+    });
+
     this.disposables.push(
       provider.onDidUpdate((uris: Uri[]) => {
         if (this.disposed) return;
@@ -307,9 +317,9 @@ export class DiagnosticsMonitor implements Disposable {
     );
 
     this.disposables.push(
-      provider.store.onDidChange((change: ProblemStoreChange) => {
+      store.onDidChange((change: ProblemStoreChange) => {
         if (this.disposed) return;
-        this.handleStoreChange(change, provider.store, provider.name);
+        this.handleStoreChange(change, store, provider.name);
       })
     );
   }
@@ -373,6 +383,9 @@ export class DiagnosticsMonitor implements Disposable {
 
       this.stats.totalMappings++;
 
+      /* Record write start time for duration tracking */
+      this.writeStartTimes.set(uriStr, nowMs);
+
       /* Detect duplicate: when a higher-priority provider already owns this URI */
       const store = this.vsDiagProvider?.store;
       const currentOwner = store ? store.getOwningProvider(uri) : undefined;
@@ -394,9 +407,10 @@ export class DiagnosticsMonitor implements Disposable {
 
   private handleFlushUpdates(uris: Uri[]): void {
     const traceId = generateTraceId();
+    const nowMs = Date.now();
     const event: DiagnosticsChangeEventData = {
       type: 'diagnostics.change',
-      timestamp: Date.now(),
+      timestamp: nowMs,
       traceId,
       source: 'DiagnosticsMonitor',
       uriCount: uris.length,
@@ -406,7 +420,9 @@ export class DiagnosticsMonitor implements Disposable {
     this.stats.totalChanges++;
     this.stats.totalUris += uris.length;
     for (const uri of uris) {
-      this.knownUris.add(uri.toString());
+      const uriStr = uri.toString();
+      this.knownUris.add(uriStr);
+      this.writeStartTimes.set(uriStr, nowMs);
     }
 
     this.reporter.report(event as TelemetryEvent);
