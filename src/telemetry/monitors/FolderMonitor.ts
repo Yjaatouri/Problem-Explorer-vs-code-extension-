@@ -218,6 +218,9 @@ export class FolderMonitor {
   /* Reentrancy guard for store wrappers */
   private reentrant = 0;
 
+  /* Live aggregate count */
+  private aggregateCount = 0;
+
   /* Cumulative statistics */
   private readonly stats: FolderStatistics = {
     totalRebuilds: 0,
@@ -495,9 +498,9 @@ export class FolderMonitor {
     const infoDelta = (after?.infoCount ?? 0) - (before?.infoCount ?? 0);
 
     switch (action) {
-      case 'created': this.stats.totalAggregatesCreated++; this.stats.totalFoldersProcessed++; break;
+      case 'created': this.stats.totalAggregatesCreated++; this.stats.totalFoldersProcessed++; this.aggregateCount++; break;
       case 'updated': this.stats.totalAggregatesUpdated++; break;
-      case 'removed': this.stats.totalAggregatesRemoved++; break;
+      case 'removed': this.stats.totalAggregatesRemoved++; this.aggregateCount = Math.max(0, this.aggregateCount - 1); break;
       case 'unchanged': this.stats.totalAggregatesUnchanged++; break;
     }
 
@@ -734,8 +737,8 @@ export class FolderMonitor {
       activeUpdates: this.activeUpdates,
       activeRebuilds: this.activeRebuilds,
       indexSize: this.folderManager.childIndexSize,
-      aggregateCount: 0,
-      statistics: { ...this.stats },
+      aggregateCount: this.aggregateCount,
+      statistics: this.getStatistics(),
     };
   }
 
