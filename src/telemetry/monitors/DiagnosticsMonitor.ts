@@ -180,7 +180,6 @@ export class DiagnosticsMonitor implements Disposable {
   private activeMappings = 0;
   private pendingWrites = 0;
   private readonly mappingStartTimes = new Map<string, number>();
-  private readonly writeStartTimes = new Map<string, number>();
   private snapshotTimer: ReturnType<typeof setInterval> | undefined;
 
   /* Cumulative statistics */
@@ -383,9 +382,6 @@ export class DiagnosticsMonitor implements Disposable {
 
       this.stats.totalMappings++;
 
-      /* Record write start time for duration tracking */
-      this.writeStartTimes.set(uriStr, nowMs);
-
       /* Detect duplicate: when a higher-priority provider already owns this URI */
       const store = this.vsDiagProvider?.store;
       const currentOwner = store ? store.getOwningProvider(uri) : undefined;
@@ -407,10 +403,9 @@ export class DiagnosticsMonitor implements Disposable {
 
   private handleFlushUpdates(uris: Uri[]): void {
     const traceId = generateTraceId();
-    const nowMs = Date.now();
     const event: DiagnosticsChangeEventData = {
       type: 'diagnostics.change',
-      timestamp: nowMs,
+      timestamp: Date.now(),
       traceId,
       source: 'DiagnosticsMonitor',
       uriCount: uris.length,
@@ -422,7 +417,6 @@ export class DiagnosticsMonitor implements Disposable {
     for (const uri of uris) {
       const uriStr = uri.toString();
       this.knownUris.add(uriStr);
-      this.writeStartTimes.set(uriStr, nowMs);
     }
 
     this.reporter.report(event as TelemetryEvent);
@@ -470,11 +464,11 @@ export class DiagnosticsMonitor implements Disposable {
         const uriStr = change.uri.toString();
         const nowMs = Date.now();
 
-        /* Compute write duration from previous recorded start time */
-        const writeStartMs = this.writeStartTimes.get(uriStr);
-        this.writeStartTimes.delete(uriStr);
-        const writeDurationUs = writeStartMs !== undefined
-          ? Math.round((nowMs - writeStartMs) * 1000)
+        /* Write duration = from raw change event to store write */
+        const changeStartMs = this.mappingStartTimes.get(uriStr);
+        this.mappingStartTimes.delete(uriStr);
+        const writeDurationUs = changeStartMs !== undefined
+          ? Math.round((nowMs - changeStartMs) * 1000)
           : 0;
 
         if (writeDurationUs > 0) {
@@ -551,10 +545,10 @@ export class DiagnosticsMonitor implements Disposable {
         const uriStr = change.uri.toString();
         const nowMs = Date.now();
 
-        const writeStartMs = this.writeStartTimes.get(uriStr);
-        this.writeStartTimes.delete(uriStr);
-        const writeDurationUs = writeStartMs !== undefined
-          ? Math.round((nowMs - writeStartMs) * 1000)
+        const changeStartMs = this.mappingStartTimes.get(uriStr);
+        this.mappingStartTimes.delete(uriStr);
+        const writeDurationUs = changeStartMs !== undefined
+          ? Math.round((nowMs - changeStartMs) * 1000)
           : 0;
 
         if (writeDurationUs > 0) {
@@ -652,7 +646,6 @@ export class DiagnosticsMonitor implements Disposable {
     this.knownUris.clear();
     this.uriProvider.clear();
     this.mappingStartTimes.clear();
-    this.writeStartTimes.clear();
   }
 }
 
