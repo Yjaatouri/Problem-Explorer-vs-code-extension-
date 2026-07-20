@@ -34,7 +34,6 @@ export interface DiagnosticsMappingEventData {
   readonly infoCount: number;
   readonly mappingDurationUs: number;
   readonly success: boolean;
-  readonly failureReason?: string;
 }
 
 /** Trigger: a ProblemState was written (or rejected) via store.set() */
