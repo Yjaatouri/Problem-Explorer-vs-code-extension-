@@ -126,7 +126,11 @@ export class AutoScanController implements Disposable {
       debugLog(`[AUDIT:${ts}] Step3a: provider="${providerName}" exists=${provider !== undefined} scanning=${isScanning}`);
       if (provider?.scanning) {
         this.log(`[AUTO-SCAN] Cancelling in-progress ${providerName} scan`);
-        provider.stop();
+        try {
+          provider.stop();
+        } catch (err) {
+          this.log(`[AUTO-SCAN] Error stopping ${providerName}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     }
   }
