@@ -673,8 +673,32 @@ export class DiagnosticsMonitor implements Disposable {
       d.dispose();
     }
     this.disposables.length = 0;
+    this.vsDiagProvider = undefined;
     this.knownUris.clear();
     this.mappingStartTimes.clear();
+    this.activeMappings = 0;
+    this.pendingWrites = 0;
+    Object.assign(this.stats, {
+      totalChanges: 0,
+      totalUris: 0,
+      totalFlushUpdates: 0,
+      totalFlushUris: 0,
+      totalMappings: 0,
+      totalStoreWrites: 0,
+      totalAcceptedWrites: 0,
+      totalRejectedWrites: 0,
+      totalOwnershipTransfers: 0,
+      totalOwnershipDisputes: 0,
+      totalStateAdds: 0,
+      totalStateRemoves: 0,
+      totalStateUpdates: 0,
+      totalDuplicateDiagnostics: 0,
+      totalAssertions: 0,
+      mappingDurationSumUs: 0,
+      writeDurationSumUs: 0,
+      peakMappingDurationUs: 0,
+      peakWriteDurationUs: 0,
+    });
   }
 }
 
