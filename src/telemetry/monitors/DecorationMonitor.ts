@@ -626,169 +626,173 @@ export class DecorationMonitor {
     const uriStr = uri.toString();
     this.activeProvideCount++;
 
-    /* Derive correlation ID for this URI */
-    const provideCorrelationId = this._getCorrelationId(uriStr);
-
-    /* Emit start event */
-    this._emit({
-      type: 'decoration.provide.start',
-      timestamp: ts,
-      traceId: generateTraceId(),
-      source: 'DecorationMonitor',
-      uri: uriStr,
-      correlationId: provideCorrelationId,
-    });
-
-    /* Decision: workspace folder check */
-    const wf = workspace.getWorkspaceFolder(uri);
-    this._emitDecision(uriStr, 'wsFolderCheck', wf ? 'found' : 'missing', wf ? wf.name : undefined);
-
-    /* Decision: store lookup */
-    const storeState = this.problemStore?.get(uri);
-    this._emitDecision(uriStr, 'storeLookup', storeState ? 'found' : 'missing',
-      storeState ? `severity=${storeState.severity} errors=${storeState.errorCount} warnings=${storeState.warningCount}` : undefined);
-
-    let result: FileDecoration | undefined;
-    let executionTimeMs: number;
-    let error: string | undefined;
-
     try {
-      result = this.originalProvideFileDecoration(uri, token);
-      executionTimeMs = Date.now() - ts;
-    } catch (e: unknown) {
-      executionTimeMs = Date.now() - ts;
-      error = e instanceof Error ? e.message : String(e);
-      result = undefined;
-    }
+      /* Derive correlation ID for this URI */
+      const provideCorrelationId = this._getCorrelationId(uriStr);
 
-    this.activeProvideCount--;
-    this.stats.totalProvideCalls++;
+      /* Emit start event */
+      this._emit({
+        type: 'decoration.provide.start',
+        timestamp: ts,
+        traceId: generateTraceId(),
+        source: 'DecorationMonitor',
+        uri: uriStr,
+        correlationId: provideCorrelationId,
+      });
 
-    /* Determine skip reason when no decoration returned */
-    let reasonSkipped: string | undefined;
-    let severity: number | undefined;
-    let errorCount = 0;
-    let warningCount = 0;
-    let infoCount = 0;
-    let fileCount = 0;
+      /* Decision: workspace folder check */
+      const wf = workspace.getWorkspaceFolder(uri);
+      this._emitDecision(uriStr, 'wsFolderCheck', wf ? 'found' : 'missing', wf ? wf.name : undefined);
 
-    if (!result || error) {
-      this.stats.totalSkipped++;
-      if (error) {
-        reasonSkipped = `exception: ${error}`;
-      } else {
-        /* Infer reason from store state and workspace */
-        const wf = workspace.getWorkspaceFolder(uri);
-        if (!wf) {
-          reasonSkipped = 'no workspace folder';
-        } else if (this.problemStore) {
-          const state = this.problemStore.get(uri);
-          if (!state) {
-            reasonSkipped = 'no state in store';
+      /* Decision: store lookup */
+      const storeState = this.problemStore?.get(uri);
+      this._emitDecision(uriStr, 'storeLookup', storeState ? 'found' : 'missing',
+        storeState ? `severity=${storeState.severity} errors=${storeState.errorCount} warnings=${storeState.warningCount}` : undefined);
+
+      let result: FileDecoration | undefined;
+      let executionTimeMs: number;
+      let error: string | undefined;
+
+      try {
+        result = this.originalProvideFileDecoration(uri, token);
+        /* Guard against async return values */
+        if (result instanceof Promise) {
+          return result as unknown as FileDecoration | undefined;
+        }
+        executionTimeMs = Date.now() - ts;
+      } catch (e: unknown) {
+        executionTimeMs = Date.now() - ts;
+        error = e instanceof Error ? e.message : String(e);
+        result = undefined;
+      }
+
+      this.stats.totalProvideCalls++;
+
+      /* Determine skip reason when no decoration returned */
+      let reasonSkipped: string | undefined;
+      let severity: number | undefined;
+      let errorCount = 0;
+      let warningCount = 0;
+      let infoCount = 0;
+      let fileCount = 0;
+
+      if (!result || error) {
+        this.stats.totalSkipped++;
+        if (error) {
+          reasonSkipped = `exception: ${error}`;
+        } else {
+          const wf2 = workspace.getWorkspaceFolder(uri);
+          if (!wf2) {
+            reasonSkipped = 'no workspace folder';
+          } else if (this.problemStore) {
+            const state = this.problemStore.get(uri);
+            if (!state) {
+              reasonSkipped = 'no state in store';
+            } else {
+              severity = state.severity;
+              errorCount = state.errorCount;
+              warningCount = state.warningCount;
+              infoCount = state.infoCount;
+              fileCount = state.fileCount;
+              if (state.severity === 0) {
+                reasonSkipped = 'severity None';
+              } else {
+                reasonSkipped = 'unknown (config: disabled/showWarnings/ignored)';
+              }
+            }
           } else {
+            reasonSkipped = 'unknown';
+          }
+        }
+      } else {
+        this.stats.totalDecorationsReturned++;
+        if (this.problemStore) {
+          const state = this.problemStore.get(uri);
+          if (state) {
             severity = state.severity;
             errorCount = state.errorCount;
             warningCount = state.warningCount;
             infoCount = state.infoCount;
             fileCount = state.fileCount;
-            if (state.severity === 0) {
-              reasonSkipped = 'severity None';
-            } else {
-              reasonSkipped = 'unknown (config: disabled/showWarnings/ignored)';
-            }
           }
-        } else {
-          reasonSkipped = 'unknown';
         }
       }
-    } else {
-      this.stats.totalDecorationsReturned++;
-      /* Read state from store for the event payload */
-      if (this.problemStore) {
-        const state = this.problemStore.get(uri);
-        if (state) {
-          severity = state.severity;
-          errorCount = state.errorCount;
-          warningCount = state.warningCount;
-          infoCount = state.infoCount;
-          fileCount = state.fileCount;
-        }
+
+      /* Decision: severity evaluation */
+      this._emitDecision(uriStr, 'severityEvaluation',
+        severity !== undefined ? `severity=${severity}` : 'no state',
+        `errors=${errorCount} warnings=${warningCount} infos=${infoCount}`);
+
+      /* Decision: decoration result */
+      if (result) {
+        this._emitDecision(uriStr, 'badgeSelection', `badge=${result.badge ?? 'none'}`, `length=${result.badge?.length ?? 0}`);
+        this._emitDecision(uriStr, 'colorSelection', `colorId=${(result.color as any)?.id ?? 'none'}`);
+        this._emitDecision(uriStr, 'tooltipFormat', `tooltip=${result.tooltip ?? 'none'}`);
+      } else {
+        this._emitDecision(uriStr, 'decorationResult', 'noDecoration', reasonSkipped);
       }
-    }
 
-    /* Decision: severity evaluation */
-    this._emitDecision(uriStr, 'severityEvaluation',
-      severity !== undefined ? `severity=${severity}` : 'no state',
-      `errors=${errorCount} warnings=${warningCount} infos=${infoCount}`);
+      /* Run runtime assertions */
+      this._assertInvalidSeverity(uriStr, severity);
+      this._assertDecorationWithoutState(uriStr, result);
+      this._assertStateWithoutDecoration(uriStr, result, reasonSkipped);
+      this._assertInvalidBadge(uriStr, result?.badge);
+      this._assertInvalidColor(uriStr, result);
+      this._assertRepeatedDecoration(uriStr, result);
+      this._assertImpossibleTransition(uriStr, result?.badge);
 
-    /* Decision: decoration result */
-    if (result) {
-      this._emitDecision(uriStr, 'badgeSelection', `badge=${result.badge ?? 'none'}`, `length=${result.badge?.length ?? 0}`);
-      this._emitDecision(uriStr, 'colorSelection', `colorId=${(result.color as any)?.id ?? 'none'}`);
-      this._emitDecision(uriStr, 'tooltipFormat', `tooltip=${result.tooltip ?? 'none'}`);
-    } else {
-      this._emitDecision(uriStr, 'decorationResult', 'noDecoration', reasonSkipped);
-    }
+      /* Cache hit/miss detection */
+      const prev = this._lastDecoration.get(uriStr);
+      const cached = !!prev && (
+        prev.badge === result?.badge &&
+        prev.colorId === (result?.color as any)?.id &&
+        prev.tooltip === result?.tooltip
+      );
+      if (cached) {
+        this.stats.totalCacheHits++;
+      } else {
+        this.stats.totalCacheMisses++;
+        this._lastDecoration.set(uriStr, {
+          badge: result?.badge,
+          colorId: (result?.color as any)?.id,
+          tooltip: result?.tooltip,
+          timestamp: Date.now(),
+        });
+      }
 
-    /* Run runtime assertions */
-    this._assertInvalidSeverity(uriStr, severity);
-    this._assertDecorationWithoutState(uriStr, result);
-    this._assertStateWithoutDecoration(uriStr, result, reasonSkipped);
-    this._assertInvalidBadge(uriStr, result?.badge);
-    this._assertInvalidColor(uriStr, result);
-    this._assertRepeatedDecoration(uriStr, result);
-    this._assertImpossibleTransition(uriStr, result?.badge);
+      /* Track peak duration */
+      if (executionTimeMs > this.stats.peakProvideDurationMs) {
+        this.stats.peakProvideDurationMs = executionTimeMs;
+      }
+      this.stats.provideDurationSumMs += executionTimeMs;
 
-    /* Cache hit/miss detection */
-    const prev = this._lastDecoration.get(uriStr);
-    const cached = !!prev && (
-      prev.badge === result?.badge &&
-      prev.colorId === (result?.color as any)?.id &&
-      prev.tooltip === result?.tooltip
-    );
-    if (cached) {
-      this.stats.totalCacheHits++;
-    } else {
-      this.stats.totalCacheMisses++;
-      /* Update cache */
-      this._lastDecoration.set(uriStr, {
+      /* Emit completion event */
+      this._emit({
+        type: 'decoration.provide',
+        timestamp: Date.now(),
+        traceId: generateTraceId(),
+        source: 'DecorationMonitor',
+        uri: uriStr,
+        hit: !!result,
         badge: result?.badge,
+        badgeLength: result?.badge?.length ?? 0,
         colorId: (result?.color as any)?.id,
         tooltip: result?.tooltip,
-        timestamp: Date.now(),
+        severity,
+        errorCount,
+        warningCount,
+        infoCount,
+        fileCount,
+        executionTimeMs,
+        cached,
+        reasonSkipped,
+        correlationId: provideCorrelationId,
       });
+
+      return result;
+    } finally {
+      this.activeProvideCount--;
     }
-
-    /* Track peak duration */
-    if (executionTimeMs > this.stats.peakProvideDurationMs) {
-      this.stats.peakProvideDurationMs = executionTimeMs;
-    }
-    this.stats.provideDurationSumMs += executionTimeMs;
-
-    /* Emit completion event */
-    this._emit({
-      type: 'decoration.provide',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'DecorationMonitor',
-      uri: uriStr,
-      hit: !!result,
-      badge: result?.badge,
-      badgeLength: result?.badge?.length ?? 0,
-      colorId: (result?.color as any)?.id,
-      tooltip: result?.tooltip,
-      severity,
-      errorCount,
-      warningCount,
-      infoCount,
-      fileCount,
-      executionTimeMs,
-      cached,
-      reasonSkipped,
-      correlationId: provideCorrelationId,
-    });
-
-    return result;
   }
 }
 
