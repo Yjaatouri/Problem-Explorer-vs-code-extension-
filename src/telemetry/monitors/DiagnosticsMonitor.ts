@@ -1,7 +1,7 @@
-import { Disposable, languages, DiagnosticChangeEvent, Uri } from 'vscode';
+import { Disposable, languages, DiagnosticChangeEvent, Uri, DiagnosticSeverity } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
-import { TelemetryReporter } from '../../telemetry';
+import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
 import { TraceId, generateTraceId } from '../../telemetry';
 import { ProblemState, ProblemSeverity } from '../../core/types';
 
@@ -268,22 +268,61 @@ export class DiagnosticsMonitor implements Disposable {
       this.knownUris.add(uri);
     }
 
-    this.reporter.report(event);
+    this.reporter.report(event as TelemetryEvent);
   }
 
   private attachToProvider(provider: DiagnosticProvider): void {
     this.vsDiagProvider = provider;
     this.disposables.push(
-      provider.onDidUpdate(async () => {
+      provider.onDidUpdate((uris: Uri[]) => {
         if (this.disposed) return;
-        this.handleProviderUpdate();
+        this.handleProviderUpdate(uris);
       })
     );
   }
 
-  private handleProviderUpdate(): void {
-    /* The provider will trigger its own mapping pipeline;
-       we capture results via our store-write handlers (Task 4) */
+  private handleProviderUpdate(uris: Uri[]): void {
+    for (const uri of uris) {
+      const traceId = generateTraceId();
+      const uriStr = uri.toString();
+
+      /* Count raw VS Code diagnostics before aggregation */
+      let diagnosticCount = 0;
+      let errorCount = 0;
+      let warningCount = 0;
+      let infoCount = 0;
+
+      try {
+        const raw = languages.getDiagnostics(uri);
+        diagnosticCount = raw.length;
+        for (const d of raw) {
+          switch (d.severity) {
+            case DiagnosticSeverity.Error: errorCount++; break;
+            case DiagnosticSeverity.Warning: warningCount++; break;
+            case DiagnosticSeverity.Information: infoCount++; break;
+          }
+        }
+      } catch {
+        /* getDiagnostics may throw for URIs not yet in the workspace */
+      }
+
+      const success = true;
+      this.reporter.report({
+        type: 'diagnostics.mapping',
+        timestamp: Date.now(),
+        traceId,
+        source: 'DiagnosticsMonitor',
+        uri: uriStr,
+        diagnosticCount,
+        errorCount,
+        warningCount,
+        infoCount,
+        mappingDurationUs: 0,
+        success,
+      } as TelemetryEvent);
+
+      this.stats.totalMappings++;
+    }
   }
 
   private handleFlushUpdates(uris: Uri[]): void {
@@ -303,7 +342,7 @@ export class DiagnosticsMonitor implements Disposable {
       this.knownUris.add(uri.toString());
     }
 
-    this.reporter.report(event);
+    this.reporter.report(event as TelemetryEvent);
   }
 
   /* ------------------------------------------------------------------ */
