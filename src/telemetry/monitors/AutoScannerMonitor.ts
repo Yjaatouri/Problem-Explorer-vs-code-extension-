@@ -1,7 +1,7 @@
-import { Disposable } from 'vscode';
+import { Disposable, Uri, workspace, TextDocument } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { TelemetryReporter } from '../../telemetry';
-import { TraceId } from '../../telemetry';
+import { TraceId, generateTraceId } from '../../telemetry';
 
 /* ------------------------------------------------------------------ */
 /*  Event data interfaces                                              */
@@ -193,12 +193,11 @@ export class AutoScannerMonitor implements Disposable {
   private disposed = false;
 
   private constructor(
-    manager: DiagnosticProviderManager,
-    reporter: TelemetryReporter
+    private readonly manager: DiagnosticProviderManager,
+    private readonly reporter: TelemetryReporter
   ) {
-    void manager;
-    void reporter;
     this.state = this.createInitialState();
+    this.subscribeToFileEvents();
   }
 
   static create(
@@ -234,6 +233,64 @@ export class AutoScannerMonitor implements Disposable {
       d.dispose();
     }
     this.disposables.length = 0;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  File event monitoring                                              */
+  /* ------------------------------------------------------------------ */
+
+  private subscribeToFileEvents(): void {
+    this.disposables.push(
+      workspace.onDidSaveTextDocument((doc: TextDocument) => {
+        if (this.disposed) return;
+        this.handleFileEvent(doc.uri, 'save');
+      }),
+      workspace.onDidCreateFiles((e) => {
+        if (this.disposed) return;
+        for (const uri of e.files) {
+          this.handleFileEvent(uri, 'create');
+        }
+      }),
+      workspace.onDidDeleteFiles((e) => {
+        if (this.disposed) return;
+        for (const uri of e.files) {
+          this.handleFileEvent(uri, 'delete');
+        }
+      }),
+      workspace.onDidRenameFiles((e) => {
+        if (this.disposed) return;
+        for (const { newUri } of e.files) {
+          this.handleFileEvent(newUri, 'rename');
+        }
+      }),
+    );
+  }
+
+  private handleFileEvent(uri: Uri, eventType: 'save' | 'create' | 'delete' | 'rename'): void {
+    this.state.totalFileEvents++;
+    if (eventType === 'save') this.state.totalSaves++;
+    else if (eventType === 'create') this.state.totalCreates++;
+    else if (eventType === 'delete') this.state.totalDeletes++;
+    else if (eventType === 'rename') this.state.totalRenames++;
+
+    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
+    const ownerName = this.manager.getOwner(ext);
+
+    const now = Date.now();
+    this.state.lastFileEventTime = now;
+
+    this.emit({
+      type: 'autoscan.fileSaved',
+      timestamp: now,
+      traceId: generateTraceId(),
+      source: 'AutoScannerMonitor',
+      uri: uri.toString(),
+      provider: ownerName ?? 'none',
+      extension: ext,
+      fileEvent: eventType,
+      selected: ownerName !== undefined,
+      skipReason: ownerName ? undefined : 'no provider owns this extension',
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -303,6 +360,14 @@ export class AutoScannerMonitor implements Disposable {
       lastFlushDurationMs: s.lastFlushDurationMs,
       lastFlushTimestamp: s.lastFlushTimestamp,
     };
+  }
+
+  private emit(event: AutoScannerTelemetryEvent): void {
+    try {
+      this.reporter.report(event);
+    } catch (e) {
+      console.error('[AutoScannerMonitor] emit failed:', e);
+    }
   }
 }
 
