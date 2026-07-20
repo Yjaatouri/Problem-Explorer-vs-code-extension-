@@ -199,6 +199,8 @@ export class FolderMonitor {
   private readonly originalUpdateAncestors: (fileUri: Uri) => Uri[];
   private readonly originalRebuildAll: () => Uri[];
   private readonly originalRecomputeFolderStatus: (folderUri: Uri) => ProblemState;
+  private readonly originalSetFolderAggregate: (uri: Uri, state: ProblemState) => boolean;
+  private readonly originalStoreDelete: (uri: Uri) => boolean;
 
   /* Concurrency tracking */
   private activeUpdates = 0;
@@ -237,10 +239,14 @@ export class FolderMonitor {
     this.originalUpdateAncestors = folderManager.updateAncestors.bind(folderManager);
     this.originalRebuildAll = folderManager.rebuildAll.bind(folderManager);
     this.originalRecomputeFolderStatus = folderManager.recomputeFolderStatus.bind(folderManager);
+    this.originalSetFolderAggregate = problemStore.setFolderAggregate.bind(problemStore);
+    this.originalStoreDelete = problemStore.delete.bind(problemStore);
 
     this.wrapUpdateAncestors();
     this.wrapRebuildAll();
     this.wrapRecomputeFolderStatus();
+    this.wrapSetFolderAggregate();
+    this.wrapStoreDelete();
   }
 
   /* ------------------------------------------------------------------ */
@@ -377,6 +383,82 @@ export class FolderMonitor {
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Store wrapping for aggregate tracking (Task 3)                      */
+  /* ------------------------------------------------------------------ */
+
+  private emitAggregateEvent(uriStr: string, action: 'created' | 'updated' | 'removed' | 'unchanged', before?: ProblemState, after?: ProblemState): void {
+    const errorDelta = (after?.errorCount ?? 0) - (before?.errorCount ?? 0);
+    const warningDelta = (after?.warningCount ?? 0) - (before?.warningCount ?? 0);
+    const infoDelta = (after?.infoCount ?? 0) - (before?.infoCount ?? 0);
+
+    switch (action) {
+      case 'created': this.stats.totalAggregatesCreated++; break;
+      case 'updated': this.stats.totalAggregatesUpdated++; break;
+      case 'removed': this.stats.totalAggregatesRemoved++; break;
+      case 'unchanged': this.stats.totalAggregatesUnchanged++; break;
+    }
+
+    this.reporter.report({
+      type: 'folder.aggregate',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'FolderMonitor',
+      uri: uriStr,
+      action,
+      aggregateBefore: before,
+      aggregateAfter: after,
+      errorDelta,
+      warningDelta,
+      infoDelta,
+      severityBefore: before?.severity,
+      severityAfter: after?.severity,
+      childCount: after?.fileCount ?? before?.fileCount ?? 0,
+    } as any);
+  }
+
+  private wrapSetFolderAggregate(): void {
+    const self = this;
+    this.problemStore.setFolderAggregate = function (uri: Uri, state: ProblemState): boolean {
+      if (self.disposed) return self.originalSetFolderAggregate(uri, state);
+      const before = self.problemStore.get(uri);
+      const accepted = self.originalSetFolderAggregate(uri, state);
+      const after = self.problemStore.get(uri);
+      const uriStr = uri.toString();
+
+      if (accepted) {
+        if (!before) {
+          self.emitAggregateEvent(uriStr, 'created', before, after);
+        } else {
+          self.emitAggregateEvent(uriStr, 'updated', before, after);
+        }
+        self.stats.totalStoreWrites++;
+        self.stats.totalStoreWritesAccepted++;
+      } else {
+        self.emitAggregateEvent(uriStr, 'unchanged', before, after);
+        self.stats.totalStoreWrites++;
+        self.stats.totalStoreWritesRejected++;
+      }
+      return accepted;
+    };
+  }
+
+  private wrapStoreDelete(): void {
+    const self = this;
+    this.problemStore.delete = function (uri: Uri): boolean {
+      if (self.disposed) return self.originalStoreDelete(uri);
+      const uriStr = uri.toString();
+      const isFolder = self.problemStore.isFolderAggregate(uri);
+      const before = isFolder ? self.problemStore.get(uri) : undefined;
+      const result = self.originalStoreDelete(uri);
+
+      if (isFolder && result && before) {
+        self.emitAggregateEvent(uriStr, 'removed', before, undefined);
+      }
+      return result;
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Snapshot                                                            */
   /* ------------------------------------------------------------------ */
 
@@ -410,6 +492,8 @@ export class FolderMonitor {
     this.folderManager.updateAncestors = this.originalUpdateAncestors;
     this.folderManager.rebuildAll = this.originalRebuildAll;
     this.folderManager.recomputeFolderStatus = this.originalRecomputeFolderStatus;
+    this.problemStore.setFolderAggregate = this.originalSetFolderAggregate;
+    this.problemStore.delete = this.originalStoreDelete;
     for (const d of this.disposables) {
       d.dispose();
     }
