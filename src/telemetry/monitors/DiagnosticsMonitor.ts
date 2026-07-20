@@ -1,7 +1,8 @@
-import { Disposable } from 'vscode';
+import { Disposable, languages, DiagnosticChangeEvent, Uri } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
+import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
 import { TelemetryReporter } from '../../telemetry';
-import { TraceId } from '../../telemetry';
+import { TraceId, generateTraceId } from '../../telemetry';
 import { ProblemState, ProblemSeverity } from '../../core/types';
 
 /* ------------------------------------------------------------------ */
@@ -166,6 +167,8 @@ export class DiagnosticsMonitor implements Disposable {
   /* Diagnostics change tracking */
   private readonly knownUris = new Set<string>();
   private readonly uriProvider = new Map<string, string>();
+  private vsDiagProvider: DiagnosticProvider | undefined;
+  private readonly pendingScans = new Map<string, boolean>();
 
   /* Pipeline timing */
   private activeMappings = 0;
@@ -194,8 +197,113 @@ export class DiagnosticsMonitor implements Disposable {
     peakWriteDurationUs: 0,
   };
 
-  constructor() {
-    /* Dependencies and subscriptions set up in Task 2+ */
+  constructor(
+    private readonly manager: DiagnosticProviderManager,
+    private readonly reporter: TelemetryReporter
+  ) {
+    /* Subscribe to raw VS Code diagnostics changes */
+    this.disposables.push(
+      languages.onDidChangeDiagnostics((e: DiagnosticChangeEvent) => {
+        if (this.disposed) return;
+        this.handleChangeEvent(e);
+      })
+    );
+
+    /* Latch onto the vscodeDiagnostics provider when registered */
+    const existing = this.manager.get('vscodeDiagnostics');
+    if (existing) {
+      this.attachToProvider(existing);
+    }
+    this.disposables.push(
+      this.manager.onDidRegister((info) => {
+        if (this.disposed) return;
+        if (info.name === 'vscodeDiagnostics' && !this.vsDiagProvider) {
+          this.attachToProvider(info.provider);
+        }
+      })
+    );
+
+    /* Track full scans via scan progress */
+    this.disposables.push(
+      this.manager.onDidScanProgress((progress) => {
+        if (this.disposed) return;
+        if (progress.providerName === 'vscodeDiagnostics') {
+          if (progress.phase === 'scanning' || progress.phase === 'resolving') {
+            this.pendingScans.set(progress.providerName, true);
+          } else if (progress.phase === 'completed' || progress.phase === 'cancelled' || progress.phase === 'error') {
+            this.pendingScans.delete(progress.providerName);
+          }
+        }
+      })
+    );
+
+    /* Subscribe to flush updates */
+    this.disposables.push(
+      this.manager.onDidUpdateAll((uris) => {
+        if (this.disposed) return;
+        this.handleFlushUpdates(uris);
+      })
+    );
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Diagnostics event handlers (Task 2)                                */
+  /* ------------------------------------------------------------------ */
+
+  private handleChangeEvent(e: DiagnosticChangeEvent): void {
+    const traceId = generateTraceId();
+    const uris = e.uris.map((u: Uri) => u.toString());
+    const event: DiagnosticsChangeEventData = {
+      type: 'diagnostics.change',
+      timestamp: Date.now(),
+      traceId,
+      source: 'DiagnosticsMonitor',
+      uriCount: uris.length,
+      uris,
+    };
+
+    this.stats.totalChanges++;
+    this.stats.totalUris += uris.length;
+    for (const uri of uris) {
+      this.knownUris.add(uri);
+    }
+
+    this.reporter.report(event);
+  }
+
+  private attachToProvider(provider: DiagnosticProvider): void {
+    this.vsDiagProvider = provider;
+    this.disposables.push(
+      provider.onDidUpdate(async () => {
+        if (this.disposed) return;
+        this.handleProviderUpdate();
+      })
+    );
+  }
+
+  private handleProviderUpdate(): void {
+    /* The provider will trigger its own mapping pipeline;
+       we capture results via our store-write handlers (Task 4) */
+  }
+
+  private handleFlushUpdates(uris: Uri[]): void {
+    const traceId = generateTraceId();
+    const event: DiagnosticsChangeEventData = {
+      type: 'diagnostics.change',
+      timestamp: Date.now(),
+      traceId,
+      source: 'DiagnosticsMonitor',
+      uriCount: uris.length,
+      uris: uris.map((u: Uri) => u.toString()),
+    };
+
+    this.stats.totalChanges++;
+    this.stats.totalUris += uris.length;
+    for (const uri of uris) {
+      this.knownUris.add(uri.toString());
+    }
+
+    this.reporter.report(event);
   }
 
   /* ------------------------------------------------------------------ */
@@ -231,8 +339,8 @@ export class DiagnosticsMonitor implements Disposable {
 /* ------------------------------------------------------------------ */
 
 export function createDiagnosticsMonitor(
-  _manager: DiagnosticProviderManager,
-  _reporter: TelemetryReporter
+  manager: DiagnosticProviderManager,
+  reporter: TelemetryReporter
 ): DiagnosticsMonitor {
-  return new DiagnosticsMonitor();
+  return new DiagnosticsMonitor(manager, reporter);
 }
