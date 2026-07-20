@@ -1,3 +1,4 @@
+import { Disposable } from 'vscode';
 import { TelemetryBus, getTelemetryBus, TelemetrySubscription } from './TelemetryBus';
 import { TelemetryEvent, TraceId, TelemetryConfigManager, now, generateCorrelationId, generateTraceId } from './TelemetryConfig';
 import { getCurrentParentTraceId } from './TraceContext';
@@ -37,11 +38,12 @@ export function createEvent(
 export class BusTelemetryReporter implements TelemetryReporter {
   private enabled: boolean;
   private readonly bus: TelemetryBus;
+  private readonly configSub: Disposable;
 
   constructor(configManager: TelemetryConfigManager, bus?: TelemetryBus) {
     this.enabled = configManager.isEnabled();
     this.bus = bus ?? getTelemetryBus();
-    configManager.onDidChangeConfig((config) => {
+    this.configSub = configManager.onDidChangeConfig((config) => {
       this.enabled = config.enabled;
       this.bus.setEnabled(config.enabled);
     });
@@ -78,7 +80,7 @@ export class BusTelemetryReporter implements TelemetryReporter {
   }
 
   dispose(): void {
-    // Bus is managed separately
+    this.configSub.dispose();
   }
 }
 
