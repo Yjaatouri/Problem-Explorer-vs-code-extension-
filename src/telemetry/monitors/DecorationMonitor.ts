@@ -117,6 +117,7 @@ export interface DecorationStatistics {
   cacheHitRatio: number;
   averageRefreshSize: number;
   decorationsPerSecond: number;
+  totalFirstTimeRequests: number;
 }
 
 export interface DecorationSnapshot {
@@ -211,6 +212,7 @@ export class DecorationMonitor {
       cacheHitRatio: 0,
       averageRefreshSize: 0,
       decorationsPerSecond: 0,
+      totalFirstTimeRequests: 0,
     };
 
     /* problemStore available for sub-tasks */
@@ -769,12 +771,21 @@ export class DecorationMonitor {
 
       /* Cache hit/miss detection */
       const prev = this._lastDecoration.get(uriStr);
-      const cached = !!prev && (
+      const isFirstTime = prev === undefined;
+      const cached = !isFirstTime && (
         prev.badge === result?.badge &&
         prev.colorId === (result?.color as any)?.id &&
         prev.tooltip === result?.tooltip
       );
-      if (cached) {
+      if (isFirstTime) {
+        this.stats.totalFirstTimeRequests++;
+        this._lastDecoration.set(uriStr, {
+          badge: result?.badge,
+          colorId: (result?.color as any)?.id,
+          tooltip: result?.tooltip,
+          timestamp: Date.now(),
+        });
+      } else if (cached) {
         this.stats.totalCacheHits++;
       } else {
         this.stats.totalCacheMisses++;
