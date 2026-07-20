@@ -1,6 +1,8 @@
 import { Disposable, languages, DiagnosticChangeEvent, Uri, DiagnosticSeverity } from 'vscode';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { DiagnosticProvider } from '../../providers/DiagnosticProvider';
+import { ProblemStore } from '../../store/ProblemStore';
+import { ProblemStoreChange } from '../../models/ProblemStoreChange';
 import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
 import { TraceId, generateTraceId } from '../../telemetry';
 import { ProblemState, ProblemSeverity } from '../../core/types';
@@ -170,6 +172,9 @@ export class DiagnosticsMonitor implements Disposable {
   private vsDiagProvider: DiagnosticProvider | undefined;
   private readonly pendingScans = new Map<string, boolean>();
 
+  /* Store ownership tracking for before/after comparisons */
+  private readonly knownOwners = new Map<string, string>();
+
   /* Pipeline timing */
   private activeMappings = 0;
   private pendingWrites = 0;
@@ -273,10 +278,18 @@ export class DiagnosticsMonitor implements Disposable {
 
   private attachToProvider(provider: DiagnosticProvider): void {
     this.vsDiagProvider = provider;
+
     this.disposables.push(
       provider.onDidUpdate((uris: Uri[]) => {
         if (this.disposed) return;
         this.handleProviderUpdate(uris);
+      })
+    );
+
+    this.disposables.push(
+      provider.store.onDidChange((change: ProblemStoreChange) => {
+        if (this.disposed) return;
+        this.handleStoreChange(change, provider.store, provider.name);
       })
     );
   }
@@ -343,6 +356,108 @@ export class DiagnosticsMonitor implements Disposable {
     }
 
     this.reporter.report(event as TelemetryEvent);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Store event handlers (Task 4)                                      */
+  /* ------------------------------------------------------------------ */
+
+  private handleStoreChange(change: ProblemStoreChange, store: ProblemStore, providerName: string): void {
+    switch (change.kind) {
+      case 'added':
+      case 'updated': {
+        const uriStr = change.uri.toString();
+        const state = store.get(change.uri);
+        const ownerAfter = store.getOwningProvider(change.uri);
+        const ownerBefore = this.knownOwners.get(uriStr);
+        this.knownOwners.set(uriStr, ownerAfter ?? providerName);
+
+        this.reporter.report({
+          type: 'diagnostics.storeWrite',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'DiagnosticsMonitor',
+          uri: uriStr,
+          provider: ownerAfter ?? providerName,
+          severity: state?.severity ?? ProblemSeverity.None,
+          errorCount: state?.errorCount ?? 0,
+          warningCount: state?.warningCount ?? 0,
+          infoCount: state?.infoCount ?? 0,
+          accepted: true,
+          ownerBefore,
+          ownerAfter,
+          writeDurationUs: 0,
+        } as TelemetryEvent);
+
+        this.stats.totalStoreWrites++;
+        this.stats.totalAcceptedWrites++;
+
+        if (ownerBefore !== undefined && ownerAfter !== undefined && ownerBefore !== ownerAfter) {
+          this.reporter.report({
+            type: 'diagnostics.ownership',
+            timestamp: Date.now(),
+            traceId: generateTraceId(),
+            source: 'DiagnosticsMonitor',
+            uri: uriStr,
+            provider: ownerAfter,
+            previousOwner: ownerBefore,
+            action: 'transferred',
+          } as TelemetryEvent);
+          this.stats.totalOwnershipTransfers++;
+        }
+
+        if (change.kind === 'added') {
+          this.stats.totalStateAdds++;
+        } else {
+          this.stats.totalStateUpdates++;
+        }
+        break;
+      }
+
+      case 'removed': {
+        const uriStr = change.uri.toString();
+        const ownerBefore = this.knownOwners.get(uriStr);
+        this.knownOwners.delete(uriStr);
+
+        this.reporter.report({
+          type: 'diagnostics.storeWrite',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'DiagnosticsMonitor',
+          uri: uriStr,
+          provider: ownerBefore ?? providerName,
+          severity: ProblemSeverity.None,
+          errorCount: 0,
+          warningCount: 0,
+          infoCount: 0,
+          accepted: true,
+          ownerBefore,
+          ownerAfter: undefined,
+          writeDurationUs: 0,
+        } as TelemetryEvent);
+
+        this.stats.totalStoreWrites++;
+        this.stats.totalAcceptedWrites++;
+        this.stats.totalStateRemoves++;
+        break;
+      }
+
+      case 'cleared': {
+        break;
+      }
+
+      case 'batch': {
+        break;
+      }
+
+      case 'prefixDeleted': {
+        break;
+      }
+
+      case 'prefixMoved': {
+        break;
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ */
