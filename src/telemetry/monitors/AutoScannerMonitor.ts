@@ -204,6 +204,9 @@ export class AutoScannerMonitor implements Disposable {
       if (this.disposed) return;
       this.handleScanProgress(progress);
     });
+    /* Periodic assertion check — verify queue is eventually flushed */
+    const intervalId = setInterval(() => this.checkStuckQueue(), 30000);
+    this.disposables.push({ dispose: () => clearInterval(intervalId) });
   }
 
   static create(
@@ -243,9 +246,13 @@ export class AutoScannerMonitor implements Disposable {
             queueSize: this.state.queuedProviders.size,
           });
 
-          /* Flush begins when debounce fires and providers are queued */
-          if (this.state.queuedProviders.size > 0) {
-            this.state.isFlushing = true;
+        /* Flush begins when debounce fires and providers are queued */
+        if (this.state.queuedProviders.size > 0) {
+          if (this.state.isFlushing) {
+            this.emitAssertion('flush while already flushing',
+              'Debounce fired but a flush is already in progress');
+          }
+          this.state.isFlushing = true;
             this.state.flushStartTime = now;
             this.state.totalFlushes++;
             const providerNames = Array.from(this.state.queuedProviders);
@@ -268,6 +275,11 @@ export class AutoScannerMonitor implements Disposable {
 
         const isNewProvider = !this.state.providerTimestamps.has(progress.providerName);
         if (isNewProvider) {
+          /* Assertion: provider should not start scanning without being in flush cycle */
+          if (!this.state.isFlushing && this.state.totalFlushes === 0) {
+            this.emitAssertion('provider executed without queue',
+              `Provider "${progress.providerName}" started scanning without being queued`);
+          }
           this.state.providerTimestamps.set(progress.providerName, now);
           this.state.activeScans++;
           this.state.totalRefreshesStarted++;
@@ -607,6 +619,25 @@ export class AutoScannerMonitor implements Disposable {
       this.reporter.report(event);
     } catch (e) {
       console.error('[AutoScannerMonitor] emit failed:', e);
+    }
+  }
+
+  private emitAssertion(assertion: string, detail: string): void {
+    this.emit({
+      type: 'autoscan.assertion',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'AutoScannerMonitor',
+      assertion,
+      detail,
+    });
+  }
+
+  private checkStuckQueue(): void {
+    if (this.state.queuedProviders.size > 0 && !this.state.isFlushing) {
+      const stuck = Array.from(this.state.queuedProviders).join(', ');
+      this.emitAssertion('queue never flushed',
+        `Providers [${stuck}] have been queued for over 30s without being flushed`);
     }
   }
 }
