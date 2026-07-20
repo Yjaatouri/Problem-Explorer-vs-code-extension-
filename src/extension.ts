@@ -190,6 +190,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       log,
     );
 
+    // Apply user config before initializing providers so the initial
+    // scan respects enabled/disabled state, timeout, etc.
+    const applyConfig = (): void => {
+      const config = configManager.getConfig();
+      diagProvider.setSeverityOverrides(config.severityOverrides);
+      diagProvider.setIgnorePatterns(config.ignorePatterns);
+      tscProvider.updateConfig(config.typescript);
+      eslintProvider.updateConfig(config.eslint);
+    };
+    applyConfig();
+
     console.log('[LOG:PRE_INIT] about to call initializeAll()');
     await diagProviderManager.initializeAll();
     console.log('[LOG:POST_INIT] initializeAll() completed');
@@ -205,14 +216,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     log('[VERIFY] VSDiagnosticsProvider started');
     log(`[VERIFY] Store entries after init: ${problemStore.size()}`);
 
-    const applyConfig = (): void => {
-      const config = configManager.getConfig();
-      diagProvider.setSeverityOverrides(config.severityOverrides);
-      diagProvider.setIgnorePatterns(config.ignorePatterns);
-      tscProvider.updateConfig(config.typescript);
-      eslintProvider.updateConfig(config.eslint);
-    };
-    applyConfig();
     const tscCfg = configManager.getConfig().typescript;
     const eslintCfg = configManager.getConfig().eslint;
     log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled + ', eslint.enabled=' + eslintCfg.enabled);
