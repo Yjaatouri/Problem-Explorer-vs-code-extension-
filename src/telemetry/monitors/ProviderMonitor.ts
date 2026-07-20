@@ -417,12 +417,12 @@ export class ProviderMonitor {
       const result = tracking.originalRefresh.call(provider);
 
       if (result instanceof Promise) {
-        let timeoutReject: (reason: unknown) => void;
+        let timeoutReject: (reason: unknown) => void = () => { /* noop */ };
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutReject = reject;
         });
         timeoutId = setTimeout(() => {
-          timeoutReject!(new Error(`Provider "${name}" refresh timed out after ${this.refreshTimeoutMs}ms`));
+          timeoutReject(new Error(`Provider "${name}" refresh timed out after ${this.refreshTimeoutMs}ms`));
         }, this.refreshTimeoutMs);
         if (typeof timeoutId === 'object' && typeof timeoutId.unref === 'function') timeoutId.unref();
         await Promise.race([result, timeoutPromise]);
