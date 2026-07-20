@@ -1,5 +1,6 @@
 /** Unique identifier for a single execution trace */
-export type TraceId = string & { readonly __brand: unique symbol };
+export type TraceId = string & { readonly __brand: typeof TraceIdBrand };
+declare const TraceIdBrand: unique symbol;
 
 /** Generate a new trace ID */
 export function generateTraceId(): TraceId {
