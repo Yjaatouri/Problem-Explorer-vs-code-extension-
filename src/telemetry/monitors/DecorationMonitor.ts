@@ -156,6 +156,9 @@ export class DecorationMonitor {
   /* Decoration fire subscription */
   private readonly _fireSubscription: { dispose(): void };
 
+  /* Refresh history for duplicate detection */
+  private readonly _refreshHistory = new Map<string, number>();
+
   /* Flow correlation: recent store changes mapped by URI */
   private readonly _recentChanges = new Map<string, { correlationId: string; traceId: string; timestamp: number }>();
   private readonly _correlationSubscription: TelemetrySubscription;
@@ -298,14 +301,13 @@ export class DecorationMonitor {
     if (!uriStrs) return;
     const now = Date.now();
     for (const u of uriStrs) {
-      if (this._recentChanges.has(u)) {
-        const entry = this._recentChanges.get(u)!;
-        if ((now - entry.timestamp) < 100) {
-          this.stats.duplicateRefreshesDetected++;
-          this._emitAssertion('DUPLICATE_REFRESH', `Duplicate refresh for ${u}`, u,
-            `lastChange=${now - entry.timestamp}ms ago`);
-        }
+      const lastRefresh = this._refreshHistory.get(u);
+      if (lastRefresh !== undefined && (now - lastRefresh) < 100) {
+        this.stats.duplicateRefreshesDetected++;
+        this._emitAssertion('DUPLICATE_REFRESH', `Duplicate refresh for ${u}`, u,
+          `lastRefresh=${now - lastRefresh}ms ago`);
       }
+      this._refreshHistory.set(u, now);
     }
   }
 
@@ -480,6 +482,12 @@ export class DecorationMonitor {
         this._recentChanges.delete(uri);
       }
     }
+    /* Also clean stale refresh history (older than 5 seconds) */
+    for (const [uri, ts] of this._refreshHistory) {
+      if (ts < cutoff) {
+        this._refreshHistory.delete(uri);
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -498,6 +506,7 @@ export class DecorationMonitor {
       this._correlationCleanupTimer = undefined;
     }
     this._recentChanges.clear();
+    this._refreshHistory.clear();
   }
 
   /* ------------------------------------------------------------------ */
