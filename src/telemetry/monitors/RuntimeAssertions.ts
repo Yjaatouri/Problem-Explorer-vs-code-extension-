@@ -109,7 +109,7 @@ export class RuntimeAssertions {
       let orphanCount = 0;
       store.forEachEntry((_key, _state, isFolder) => {
         if (isFolder) return;
-        const owner = (store as any).ownerByKey.get(_key) as string | undefined;
+        const owner = store.getOwnerForKey(_key);
         if (owner) {
           if (seen.has(_key) && seen.get(_key) !== owner) {
             orphanCount++;

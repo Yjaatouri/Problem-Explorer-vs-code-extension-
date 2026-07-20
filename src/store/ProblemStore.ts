@@ -261,6 +261,11 @@ export class ProblemStore {
     return this.ownerByKey.get(normalizeUriKey(uri));
   }
 
+  /** Get the owning provider for a pre-normalized key (used by assertion monitors) */
+  getOwnerForKey(normalizedKey: string): string | undefined {
+    return this.ownerByKey.get(normalizedKey);
+  }
+
   getProviderPriority(providerName: string): number {
     return this.providerPriorities.get(providerName) ?? -1;
   }
