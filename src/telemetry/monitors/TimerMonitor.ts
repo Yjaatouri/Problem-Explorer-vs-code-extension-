@@ -57,18 +57,20 @@ export class TimerMonitor {
       const delay = ms ?? 0;
       const start = Date.now();
 
-      const timerId = self.originalSetTimeout(
-        function (this: unknown) {
-          const actualDelay = Date.now() - start;
-          const cbStart = Date.now();
-          try {
-            callback.apply(this, args);
-          } finally {
-            const cbDuration = Date.now() - cbStart;
-            self.reportExecution(actualDelay, cbDuration);
-            self.timers.delete(timerId);
-          }
-        },
+      let timerId: NodeJS.Timeout | undefined;
+      const wrappedCallback = function (this: unknown) {
+        const actualDelay = Date.now() - start;
+        const cbStart = Date.now();
+        try {
+          callback.apply(this, args);
+        } finally {
+          const cbDuration = Date.now() - cbStart;
+          self.reportExecution(actualDelay, cbDuration);
+          if (timerId) self.timers.delete(timerId);
+        }
+      };
+      timerId = self.originalSetTimeout(
+        wrappedCallback,
         delay,
       ) as NodeJS.Timeout;
 
