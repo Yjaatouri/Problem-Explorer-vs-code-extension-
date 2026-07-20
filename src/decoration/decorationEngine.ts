@@ -77,9 +77,7 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   constructor(
     private readonly problemStore: ProblemStore,
     private readonly delegate: DecorationEngineDelegate = defaultDecorationDelegate,
-    log?: (msg: string) => void,
   ) {
-    void log;
   }
 
   setConfig(config: Config | undefined): void {
