@@ -275,6 +275,11 @@ export class DiagnosticsMonitor implements Disposable {
 
     this.stats.totalChanges++;
     this.stats.totalUris += uris.length;
+
+    /* Discard stale entries from provider-skipped URIs in prior cycles */
+    this.mappingStartTimes.clear();
+    this.activeMappings = 0;
+
     for (const uri of uris) {
       this.knownUris.add(uri);
       this.mappingStartTimes.set(uri, nowMs);
