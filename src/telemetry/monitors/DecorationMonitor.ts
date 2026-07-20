@@ -167,6 +167,9 @@ export class DecorationMonitor {
   /* Performance counters */
   private _statsStarted = Date.now();
 
+  /** If true, capture stack traces on fireDidChange to identify callers (expensive) */
+  private _captureCaller = false;
+
   constructor(
     private readonly engine: DecorationEngine,
     private readonly reporter: TelemetryReporter,
@@ -245,14 +248,14 @@ export class DecorationMonitor {
     this.reporter.report(event as TelemetryEvent);
   }
 
-  /** Extract caller info from stack trace */
+  /** Extract caller info from stack trace (expensive — disabled by default) */
   private _getCaller(): string {
+    if (!this._captureCaller) return 'unknown';
     try {
       throw new Error();
     } catch (e: unknown) {
       const stack = (e as Error).stack ?? '';
       const lines = stack.split('\n');
-      /* Skip our own frames (index 0-3) to find the actual caller */
       for (let i = 3; i < lines.length; i++) {
         const line = lines[i].trim();
         if (line && !line.includes('DecorationMonitor') && !line.includes('Error')) {
