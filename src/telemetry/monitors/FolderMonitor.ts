@@ -208,6 +208,9 @@ export class FolderMonitor {
   private activeUpdates = 0;
   private activeRebuilds = 0;
 
+  /* Rebuild consistency tracking */
+  private lastRebuildChangedUris: string[] | undefined;
+
   /* Cumulative statistics */
   private readonly stats: FolderStatistics = {
     totalRebuilds: 0,
@@ -358,6 +361,24 @@ export class FolderMonitor {
         self.checkStaleAggregate(Uri.parse(skipped));
       }
 
+      /* Runtime assertions (Task 6) */
+      self.checkMissingAncestorUpdate(changedUris, ancestors, uriStr);
+      self.checkDuplicateFolderUpdate(changedUris, uriStr);
+      for (const updated of changedUris) {
+        self.checkOrphanFolder(Uri.parse(updated));
+      }
+
+      /* Check rebuild consistency: an aggregate updated here should match the last rebuild */
+      if (self.lastRebuildChangedUris) {
+        for (const changedUri of changedUris) {
+          if (!self.lastRebuildChangedUris.includes(changedUri)) {
+            self.emitAssertion('REBUILD_INCONSISTENCY',
+              `Folder ${changedUri} was updated by updateAncestors but not by last rebuildAll`,
+              changedUri, `rebuildAffected=[${self.lastRebuildChangedUris.join(',')}]`);
+          }
+        }
+      }
+
       self.activeUpdates--;
       return changed;
     };
@@ -403,6 +424,8 @@ export class FolderMonitor {
         indexSizeBefore,
         indexSizeAfter: self.folderManager.childIndexSize,
       } as any);
+
+      self.lastRebuildChangedUris = changedUris;
 
       self.activeRebuilds--;
       return changed;
@@ -470,6 +493,14 @@ export class FolderMonitor {
       severityAfter: after?.severity,
       childCount: after?.fileCount ?? before?.fileCount ?? 0,
     } as any);
+
+    if (after) {
+      this.checkNegativeCounts(after, uriStr);
+      this.checkInvalidSeverity(after, uriStr);
+    }
+    if (before && after && action === 'updated') {
+      this.checkImpossibleTransition(before, after, uriStr);
+    }
   }
 
   private wrapSetFolderAggregate(): void {
@@ -564,17 +595,95 @@ export class FolderMonitor {
       current.infoCount !== recomputed.infoCount ||
       current.fileCount !== recomputed.fileCount
     ) {
-      this.reporter.report({
-        type: 'folder.assertion',
-        timestamp: Date.now(),
-        traceId: generateTraceId(),
-        source: 'FolderMonitor',
-        code: 'STALE_AGGREGATE',
-        message: `Folder aggregate for ${uriStr} does not match recomputed children`,
-        uri: uriStr,
-        detail: `current={errors:${current.errorCount},warnings:${current.warningCount},infos:${current.infoCount},files:${current.fileCount}} recomputed={errors:${recomputed.errorCount},warnings:${recomputed.warningCount},infos:${recomputed.infoCount},files:${recomputed.fileCount}}`,
-      } as any);
-      this.stats.totalAssertions++;
+      this.emitAssertion('STALE_AGGREGATE', `Folder aggregate for ${uriStr} does not match recomputed children`, uriStr,
+        `current={errors:${current.errorCount},warnings:${current.warningCount},infos:${current.infoCount},files:${current.fileCount}} recomputed={errors:${recomputed.errorCount},warnings:${recomputed.warningCount},infos:${recomputed.infoCount},files:${recomputed.fileCount}}`);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Runtime assertions (Task 6)                                         */
+  /* ------------------------------------------------------------------ */
+
+  private emitAssertion(code: string, message: string, uri?: string, detail?: string): void {
+    this.stats.totalAssertions++;
+    this.reporter.report({
+      type: 'folder.assertion',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'FolderMonitor',
+      code,
+      message,
+      uri,
+      detail,
+    } as any);
+  }
+
+  /** Check for negative counts in a ProblemState */
+  private checkNegativeCounts(state: ProblemState, uriStr: string): void {
+    if (state.errorCount < 0) {
+      this.emitAssertion('NEGATIVE_COUNT', `Negative errorCount for ${uriStr}`, uriStr, `errorCount=${state.errorCount}`);
+    }
+    if (state.warningCount < 0) {
+      this.emitAssertion('NEGATIVE_COUNT', `Negative warningCount for ${uriStr}`, uriStr, `warningCount=${state.warningCount}`);
+    }
+    if (state.infoCount < 0) {
+      this.emitAssertion('NEGATIVE_COUNT', `Negative infoCount for ${uriStr}`, uriStr, `infoCount=${state.infoCount}`);
+    }
+    if (state.fileCount < 0) {
+      this.emitAssertion('NEGATIVE_COUNT', `Negative fileCount for ${uriStr}`, uriStr, `fileCount=${state.fileCount}`);
+    }
+  }
+
+  /** Check that severity is within valid bounds */
+  private checkInvalidSeverity(state: ProblemState, uriStr: string): void {
+    if (state.severity < 0 || state.severity > 3) {
+      this.emitAssertion('INVALID_SEVERITY', `Invalid severity ${state.severity} for ${uriStr}`, uriStr, `severity=${state.severity}`);
+    }
+  }
+
+  /** Check if a folder aggregate is orphaned (no children in store) */
+  private checkOrphanFolder(folderUri: Uri): void {
+    const uriStr = folderUri.toString();
+    if (!this.problemStore.isFolderAggregate(folderUri)) return;
+    const current = this.problemStore.get(folderUri);
+    if (!current) return;
+    if (current.fileCount === 0) {
+      this.emitAssertion('ORPHAN_FOLDER', `Orphan folder aggregate for ${uriStr} (fileCount=0)`, uriStr,
+        `state={errors:${current.errorCount},warnings:${current.warningCount},infos:${current.infoCount}}`);
+    }
+  }
+
+  /** Check if any ancestors were missed in propagation */
+  private checkMissingAncestorUpdate(changedUris: string[], ancestors: string[], fileUri: string): void {
+    const updatedSet = new Set(changedUris);
+    for (const ancestor of ancestors) {
+      if (!updatedSet.has(ancestor) && this.problemStore.isFolderAggregate(Uri.parse(ancestor))) {
+        this.emitAssertion('MISSING_ANCESTOR_UPDATE',
+          `Ancestor ${ancestor} should have been updated during propagation from ${fileUri}`,
+          ancestor, `ancestorChain=[${ancestors.join(',')}] changed=[${changedUris.join(',')}]`);
+      }
+    }
+  }
+
+  /** Check for duplicate folder updates within a single propagation */
+  private checkDuplicateFolderUpdate(changedUris: string[], fileUri: string): void {
+    const seen = new Set<string>();
+    for (const uri of changedUris) {
+      if (seen.has(uri)) {
+        this.emitAssertion('DUPLICATE_FOLDER_UPDATE', `Duplicate folder update for ${uri}`, uri,
+          `propagation from ${fileUri}`);
+      }
+      seen.add(uri);
+    }
+  }
+
+  /** Check for impossible aggregate transitions */
+  private checkImpossibleTransition(before: ProblemState | undefined, after: ProblemState | undefined, uriStr: string): void {
+    if (!before || !after) return;
+    if (after.fileCount < before.fileCount && after.severity > before.severity) {
+      this.emitAssertion('IMPOSSIBLE_TRANSITION',
+        `Aggregate for ${uriStr} severity increased (${before.severity}→${after.severity}) while fileCount decreased (${before.fileCount}→${after.fileCount})`,
+        uriStr, `before={severity:${before.severity},errors:${before.errorCount},files:${before.fileCount}} after={severity:${after.severity},errors:${after.errorCount},files:${after.fileCount}}`);
     }
   }
 
