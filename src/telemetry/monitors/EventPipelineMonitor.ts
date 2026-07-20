@@ -296,6 +296,7 @@ export class EventPipelineMonitor {
     const now = Date.now();
     if (now - this.lastSnapshotTime < this.snapshotIntervalMs) return;
     this.lastSnapshotTime = now;
+    const snapshotStart = performance.now();
 
     const byType: Record<string, number> = {};
     for (const [k, v] of this.eventCountByType) byType[k] = v;
@@ -312,7 +313,7 @@ export class EventPipelineMonitor {
       activePipelines: this.pipelines.filter((p) => !p.complete).length,
       completedPipelines: this.completedPipelineCount,
       eventsBySource: bySource,
-      executionTimeMs: SNAPSHOT_INTERVAL_MS,
+      executionTimeMs: performance.now() - snapshotStart,
     } as any);
   }
 
