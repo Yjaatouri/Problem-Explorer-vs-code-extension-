@@ -268,7 +268,12 @@ export class FolderMonitor {
 
   private computeAncestorChain(fileUriStr: string): { ancestors: string[]; rootStr: string } {
     const ancestors: string[] = [];
-    const rootStr = normalizeUriKey(workspace.workspaceFolders?.[0]?.uri ?? Uri.parse('/'));
+    const fileUri = Uri.parse(fileUriStr);
+    const wf = workspace.getWorkspaceFolder(fileUri);
+    if (!wf) {
+      return { ancestors: [], rootStr: '' };
+    }
+    const rootStr = normalizeUriKey(wf.uri);
     let parentKey = getParentKey(fileUriStr);
     let childKey = fileUriStr;
 
