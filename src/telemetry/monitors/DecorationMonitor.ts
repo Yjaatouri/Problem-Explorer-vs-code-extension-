@@ -1,125 +1,260 @@
-import { CancellationToken, FileDecoration, Uri } from 'vscode';
+import {
+  CancellationToken,
+  FileDecoration,
+  Uri,
+} from 'vscode';
 import { DecorationEngine } from '../../decoration/decorationEngine';
-import { TelemetryReporter } from '../../telemetry';
-import { TelemetryEvent, generateTraceId } from '../../telemetry';
+import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
+import { ProblemStore } from '../../store/ProblemStore';
 
-/** Structured event payload for fireDidChange */
-export interface DecorationFireDidChangeEventData extends TelemetryEvent {
-  readonly type: 'decoration.fireDidChange';
+/* ------------------------------------------------------------------ */
+/*  Event data interfaces                                              */
+/* ------------------------------------------------------------------ */
+
+/** Trigger: fireDidChange() was called */
+export interface DecorationRefreshStartEventData extends TelemetryEvent {
+  readonly type: 'decoration.refresh.start';
+  readonly source: 'DecorationMonitor';
   readonly callType: 'full' | 'array' | 'single';
   readonly uriCount: number;
-  readonly executionTimeMs: number;
+  readonly uris?: string[];
+  readonly trigger?: string;
+  readonly correlationId?: string;
 }
 
-/** Structured event payload for provideFileDecoration */
+/** Trigger: coalesced fire was delivered to VS Code */
+export interface DecorationFireEventData extends TelemetryEvent {
+  readonly type: 'decoration.fire';
+  readonly source: 'DecorationMonitor';
+  readonly uris?: string[];
+  readonly uriCount: number;
+  readonly coalesced: boolean;
+  readonly queueLatencyMs: number;
+}
+
+/** Trigger: provideFileDecoration was called */
+export interface DecorationProvideStartEventData extends TelemetryEvent {
+  readonly type: 'decoration.provide.start';
+  readonly source: 'DecorationMonitor';
+  readonly uri: string;
+}
+
+/** Trigger: provideFileDecoration returned a result */
 export interface DecorationProvideEventData extends TelemetryEvent {
-  readonly type: 'decoration.provideFileDecoration';
+  readonly type: 'decoration.provide';
+  readonly source: 'DecorationMonitor';
   readonly uri: string;
   readonly hit: boolean;
-  readonly badge: string | undefined;
+  readonly badge?: string;
+  readonly badgeLength: number;
+  readonly colorId?: string;
+  readonly tooltip?: string;
+  readonly severity?: number;
+  readonly errorCount: number;
+  readonly warningCount: number;
+  readonly infoCount: number;
+  readonly fileCount: number;
   readonly executionTimeMs: number;
+  readonly cached: boolean;
+  readonly reasonSkipped?: string;
+}
+
+/** Trigger: a decoration decision was made during pipeline */
+export interface DecorationDecisionEventData extends TelemetryEvent {
+  readonly type: 'decoration.decision';
+  readonly source: 'DecorationMonitor';
+  readonly uri: string;
+  readonly step: string;
+  readonly outcome: string;
+  readonly detail?: string;
+}
+
+/** Trigger: runtime assertion */
+export interface DecorationAssertionEventData extends TelemetryEvent {
+  readonly type: 'decoration.assertion';
+  readonly source: 'DecorationMonitor';
+  readonly code: string;
+  readonly message: string;
+  readonly uri?: string;
+  readonly detail?: string;
 }
 
 /** Union of all decoration monitor event types */
-export type DecorationMonitorEvent =
-  | DecorationFireDidChangeEventData
-  | DecorationProvideEventData;
+export type DecorationTelemetryEvent =
+  | DecorationRefreshStartEventData
+  | DecorationFireEventData
+  | DecorationProvideStartEventData
+  | DecorationProvideEventData
+  | DecorationDecisionEventData
+  | DecorationAssertionEventData;
 
-/** Monitors DecorationEngine activity by wrapping fireDidChange and provideFileDecoration */
+/* ------------------------------------------------------------------ */
+/*  Statistics & Snapshot interfaces                                   */
+/* ------------------------------------------------------------------ */
+
+export interface DecorationStatistics {
+  totalRefreshes: number;
+  totalFires: number;
+  totalProvideCalls: number;
+  totalDecorationsReturned: number;
+  totalSkipped: number;
+  totalCacheHits: number;
+  totalCacheMisses: number;
+  provideDurationSumMs: number;
+  peakProvideDurationMs: number;
+  coalescedBatches: number;
+  duplicateRefreshesDetected: number;
+  totalUrisRefreshed: number;
+  totalAssertions: number;
+  averageProvideDurationMs: number;
+  cacheHitRatio: number;
+  averageRefreshSize: number;
+  decorationsPerSecond: number;
+}
+
+export interface DecorationSnapshot {
+  activeRefreshCount: number;
+  activeProvideCount: number;
+  coalesceQueueSize: number;
+  statistics: DecorationStatistics;
+}
+
+/* ------------------------------------------------------------------ */
+/*  DecorationMonitor                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Monitors DecorationEngine by wrapping its public methods */
 export class DecorationMonitor {
   private readonly originalFireDidChange: (uris: Uri | Uri[] | undefined) => void;
   private readonly originalProvideFileDecoration: (uri: Uri, token: CancellationToken) => FileDecoration | undefined;
+  private readonly stats: DecorationStatistics;
   private disposed = false;
+
+  /* Concurrency tracking */
+  private activeRefreshCount = 0;
+  private activeProvideCount = 0;
+
+  /* Coalesce observation */
+  private _coalesceQueueSize = 0;
+
+  /* Performance counters */
+  private _statsStarted = Date.now();
 
   constructor(
     private readonly engine: DecorationEngine,
-    private readonly reporter: TelemetryReporter
+    reporter: TelemetryReporter,
+    _problemStore?: ProblemStore,
   ) {
+    /* reporter and problemStore are stored in sub-tasks */
+    void reporter;
+    void _problemStore;
     this.originalFireDidChange = engine.fireDidChange.bind(engine);
     this.originalProvideFileDecoration = engine.provideFileDecoration.bind(engine);
 
-    const self = this;
-
-    engine.fireDidChange = function (uris: Uri | Uri[] | undefined): void {
-      if (self.disposed) {
-        self.originalFireDidChange(uris);
-        return;
-      }
-      const start = Date.now();
-      let callType: 'full' | 'array' | 'single';
-      let uriCount: number;
-      if (uris === undefined) {
-        callType = 'full';
-        uriCount = 0;
-      } else if (Array.isArray(uris)) {
-        callType = 'array';
-        uriCount = uris.length;
-      } else {
-        callType = 'single';
-        uriCount = 1;
-      }
-
-      self.originalFireDidChange(uris);
-
-      const event: DecorationFireDidChangeEventData = {
-        type: 'decoration.fireDidChange',
-        timestamp: Date.now(),
-        traceId: generateTraceId(),
-        source: 'DecorationMonitor',
-        callType,
-        uriCount,
-        executionTimeMs: Date.now() - start,
-      };
-      self.reporter.report(event);
+    this.stats = {
+      totalRefreshes: 0,
+      totalFires: 0,
+      totalProvideCalls: 0,
+      totalDecorationsReturned: 0,
+      totalSkipped: 0,
+      totalCacheHits: 0,
+      totalCacheMisses: 0,
+      provideDurationSumMs: 0,
+      peakProvideDurationMs: 0,
+      coalescedBatches: 0,
+      duplicateRefreshesDetected: 0,
+      totalUrisRefreshed: 0,
+      totalAssertions: 0,
+      averageProvideDurationMs: 0,
+      cacheHitRatio: 0,
+      averageRefreshSize: 0,
+      decorationsPerSecond: 0,
     };
 
-    engine.provideFileDecoration = function (
+    this.wrapMethods();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Method wrapping                                                     */
+  /* ------------------------------------------------------------------ */
+
+  private wrapMethods(): void {
+    const self = this;
+
+    this.engine.fireDidChange = function (uris: Uri | Uri[] | undefined): void {
+      if (self.disposed) { self.originalFireDidChange(uris); return; }
+      self.handleFireDidChange(uris);
+    };
+
+    this.engine.provideFileDecoration = function (
       uri: Uri,
       token: CancellationToken,
     ): FileDecoration | undefined {
-      if (self.disposed) {
-        return self.originalProvideFileDecoration(uri, token);
-      }
-      const start = Date.now();
-      const result = self.originalProvideFileDecoration(uri, token);
-
-      if (result instanceof Promise) {
-        // original returned a Promise — pass through without wrapping (async timing not tracked)
-        return result as unknown as FileDecoration | undefined;
-      }
-
-      self.reportProvide(uri, result, Date.now() - start);
-      return result;
+      if (self.disposed) { return self.originalProvideFileDecoration(uri, token); }
+      return self.handleProvideFileDecoration(uri, token);
     };
   }
 
-  private reportProvide(uri: Uri, result: FileDecoration | undefined | null, elapsed: number): void {
-    const event: DecorationProvideEventData = {
-      type: 'decoration.provideFileDecoration',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'DecorationMonitor',
-      uri: uri.toString(),
-      hit: result !== undefined && result !== null,
-      badge: result?.badge,
-      executionTimeMs: elapsed,
-    };
-    this.reporter.report(event);
+  /* ------------------------------------------------------------------ */
+  /*  Event emit helpers                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /* ------------------------------------------------------------------ */
+  /*  Snapshot & Statistics                                              */
+  /* ------------------------------------------------------------------ */
+
+  getStatistics(): DecorationStatistics {
+    const elapsedSec = (Date.now() - this._statsStarted) / 1000;
+    const s = { ...this.stats };
+    s.averageProvideDurationMs = s.totalProvideCalls > 0
+      ? Math.round(s.provideDurationSumMs / s.totalProvideCalls) : 0;
+    s.cacheHitRatio = (s.totalCacheHits + s.totalCacheMisses) > 0
+      ? Math.round((s.totalCacheHits / (s.totalCacheHits + s.totalCacheMisses)) * 100) : 0;
+    s.averageRefreshSize = s.totalRefreshes > 0
+      ? Math.round(s.totalUrisRefreshed / s.totalRefreshes) : 0;
+    s.decorationsPerSecond = elapsedSec > 0
+      ? Math.round(s.totalProvideCalls / elapsedSec) : 0;
+    return s;
   }
 
-  /** Restore original methods and stop monitoring */
+  captureSnapshot(): DecorationSnapshot {
+    return {
+      activeRefreshCount: this.activeRefreshCount,
+      activeProvideCount: this.activeProvideCount,
+      coalesceQueueSize: this._coalesceQueueSize,
+      statistics: this.getStatistics(),
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Dispose                                                             */
+  /* ------------------------------------------------------------------ */
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.engine.fireDidChange = this.originalFireDidChange;
     this.engine.provideFileDecoration = this.originalProvideFileDecoration;
   }
+
+  /* ------------------------------------------------------------------ */
+  /*  Placeholder handlers (will be implemented in later tasks)          */
+  /* ------------------------------------------------------------------ */
+
+  private handleFireDidChange(uris: Uri | Uri[] | undefined): void {
+    this.originalFireDidChange(uris);
+  }
+
+  private handleProvideFileDecoration(uri: Uri, token: CancellationToken): FileDecoration | undefined {
+    return this.originalProvideFileDecoration(uri, token);
+  }
 }
 
 /** Create a DecorationMonitor attached to the given engine and reporter */
 export function createDecorationMonitor(
   engine: DecorationEngine,
-  reporter: TelemetryReporter
+  reporter: TelemetryReporter,
+  problemStore?: ProblemStore,
 ): DecorationMonitor {
-  return new DecorationMonitor(engine, reporter);
+  return new DecorationMonitor(engine, reporter, problemStore);
 }
