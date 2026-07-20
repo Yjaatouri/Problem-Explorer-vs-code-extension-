@@ -291,6 +291,34 @@ export class AutoScannerMonitor implements Disposable {
       selected: ownerName !== undefined,
       skipReason: ownerName ? undefined : 'no provider owns this extension',
     });
+
+    if (!ownerName) return;
+
+    /* Queue management — mirror the AutoScanController's queuedProviders set */
+    if (this.state.queuedProviders.has(ownerName)) {
+      this.state.totalDuplicateQueueAttempts++;
+      this.emit({
+        type: 'autoscan.queue',
+        timestamp: now,
+        traceId: generateTraceId(),
+        source: 'AutoScannerMonitor',
+        provider: ownerName,
+        queueSize: this.state.queuedProviders.size,
+        action: 'duplicate',
+      });
+    } else {
+      this.state.queuedProviders.add(ownerName);
+      this.state.totalQueued++;
+      this.emit({
+        type: 'autoscan.queue',
+        timestamp: now,
+        traceId: generateTraceId(),
+        source: 'AutoScannerMonitor',
+        provider: ownerName,
+        queueSize: this.state.queuedProviders.size,
+        action: 'added',
+      });
+    }
   }
 
   /* ------------------------------------------------------------------ */
