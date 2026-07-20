@@ -179,6 +179,9 @@ export class DiagnosticsMonitor implements Disposable {
   /* Pipeline timing */
   private activeMappings = 0;
   private pendingWrites = 0;
+  private readonly mappingStartTimes = new Map<string, number>();
+  private readonly writeStartTimes = new Map<string, number>();
+  private snapshotTimer: ReturnType<typeof setInterval> | undefined;
 
   /* Cumulative statistics */
   private readonly stats: DiagnosticsStatistics = {
@@ -258,6 +261,12 @@ export class DiagnosticsMonitor implements Disposable {
         this.handleAssertionEvent(event as TelemetryEvent & { assertion: string; detail: string });
       })
     );
+
+    /* Periodic performance snapshot */
+    this.snapshotTimer = setInterval(() => {
+      if (this.disposed) return;
+      this.reportSnapshot();
+    }, 60000);
   }
 
   /* ------------------------------------------------------------------ */
@@ -266,10 +275,11 @@ export class DiagnosticsMonitor implements Disposable {
 
   private handleChangeEvent(e: DiagnosticChangeEvent): void {
     const traceId = generateTraceId();
+    const nowMs = Date.now();
     const uris = e.uris.map((u: Uri) => u.toString());
     const event: DiagnosticsChangeEventData = {
       type: 'diagnostics.change',
-      timestamp: Date.now(),
+      timestamp: nowMs,
       traceId,
       source: 'DiagnosticsMonitor',
       uriCount: uris.length,
@@ -280,6 +290,7 @@ export class DiagnosticsMonitor implements Disposable {
     this.stats.totalUris += uris.length;
     for (const uri of uris) {
       this.knownUris.add(uri);
+      this.mappingStartTimes.set(uri, nowMs);
     }
 
     this.reporter.report(event as TelemetryEvent);
@@ -307,6 +318,14 @@ export class DiagnosticsMonitor implements Disposable {
     for (const uri of uris) {
       const traceId = generateTraceId();
       const uriStr = uri.toString();
+      const nowMs = Date.now();
+
+      /* Compute mapping duration from change event to provider update */
+      const startMs = this.mappingStartTimes.get(uriStr);
+      this.mappingStartTimes.delete(uriStr);
+      const mappingDurationUs = startMs !== undefined
+        ? Math.round((nowMs - startMs) * 1000)
+        : 0;
 
       /* Count raw VS Code diagnostics before aggregation */
       let diagnosticCount = 0;
@@ -329,9 +348,18 @@ export class DiagnosticsMonitor implements Disposable {
       }
 
       const success = true;
+
+      /* Update mapping duration statistics */
+      if (mappingDurationUs > 0) {
+        this.stats.mappingDurationSumUs += mappingDurationUs;
+        if (mappingDurationUs > this.stats.peakMappingDurationUs) {
+          this.stats.peakMappingDurationUs = mappingDurationUs;
+        }
+      }
+
       this.reporter.report({
         type: 'diagnostics.mapping',
-        timestamp: Date.now(),
+        timestamp: nowMs,
         traceId,
         source: 'DiagnosticsMonitor',
         uri: uriStr,
@@ -339,7 +367,7 @@ export class DiagnosticsMonitor implements Disposable {
         errorCount,
         warningCount,
         infoCount,
-        mappingDurationUs: 0,
+        mappingDurationUs,
         success,
       } as TelemetryEvent);
 
@@ -351,7 +379,7 @@ export class DiagnosticsMonitor implements Disposable {
       if (currentOwner && currentOwner !== 'vscodeDiagnostics') {
         this.reporter.report({
           type: 'diagnostics.stateChange',
-          timestamp: Date.now(),
+          timestamp: nowMs,
           traceId,
           source: 'DiagnosticsMonitor',
           uri: uriStr,
@@ -401,6 +429,21 @@ export class DiagnosticsMonitor implements Disposable {
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Performance snapshot (Task 7)                                       */
+  /* ------------------------------------------------------------------ */
+
+  private reportSnapshot(): void {
+    const snapshot = this.captureSnapshot();
+    this.reporter.report({
+      type: 'diagnostics.snapshot',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'DiagnosticsMonitor',
+      statistics: snapshot.statistics,
+    } as TelemetryEvent);
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Store event handlers (Task 4)                                      */
   /* ------------------------------------------------------------------ */
 
@@ -409,6 +452,22 @@ export class DiagnosticsMonitor implements Disposable {
       case 'added':
       case 'updated': {
         const uriStr = change.uri.toString();
+        const nowMs = Date.now();
+
+        /* Compute write duration from previous recorded start time */
+        const writeStartMs = this.writeStartTimes.get(uriStr);
+        this.writeStartTimes.delete(uriStr);
+        const writeDurationUs = writeStartMs !== undefined
+          ? Math.round((nowMs - writeStartMs) * 1000)
+          : 0;
+
+        if (writeDurationUs > 0) {
+          this.stats.writeDurationSumUs += writeDurationUs;
+          if (writeDurationUs > this.stats.peakWriteDurationUs) {
+            this.stats.peakWriteDurationUs = writeDurationUs;
+          }
+        }
+
         const state = store.get(change.uri);
         const ownerAfter = store.getOwningProvider(change.uri);
         const ownerBefore = this.knownOwners.get(uriStr);
@@ -420,7 +479,7 @@ export class DiagnosticsMonitor implements Disposable {
 
         this.reporter.report({
           type: 'diagnostics.storeWrite',
-          timestamp: Date.now(),
+          timestamp: nowMs,
           traceId: generateTraceId(),
           source: 'DiagnosticsMonitor',
           uri: uriStr,
@@ -432,12 +491,12 @@ export class DiagnosticsMonitor implements Disposable {
           accepted: true,
           ownerBefore,
           ownerAfter,
-          writeDurationUs: 0,
+          writeDurationUs,
         } as TelemetryEvent);
 
         this.reporter.report({
           type: 'diagnostics.stateChange',
-          timestamp: Date.now(),
+          timestamp: nowMs,
           traceId: generateTraceId(),
           source: 'DiagnosticsMonitor',
           uri: uriStr,
@@ -474,6 +533,21 @@ export class DiagnosticsMonitor implements Disposable {
 
       case 'removed': {
         const uriStr = change.uri.toString();
+        const nowMs = Date.now();
+
+        const writeStartMs = this.writeStartTimes.get(uriStr);
+        this.writeStartTimes.delete(uriStr);
+        const writeDurationUs = writeStartMs !== undefined
+          ? Math.round((nowMs - writeStartMs) * 1000)
+          : 0;
+
+        if (writeDurationUs > 0) {
+          this.stats.writeDurationSumUs += writeDurationUs;
+          if (writeDurationUs > this.stats.peakWriteDurationUs) {
+            this.stats.peakWriteDurationUs = writeDurationUs;
+          }
+        }
+
         const ownerBefore = this.knownOwners.get(uriStr);
         const prevState = this.previousStates.get(uriStr);
         this.knownOwners.delete(uriStr);
@@ -481,7 +555,7 @@ export class DiagnosticsMonitor implements Disposable {
 
         this.reporter.report({
           type: 'diagnostics.storeWrite',
-          timestamp: Date.now(),
+          timestamp: nowMs,
           traceId: generateTraceId(),
           source: 'DiagnosticsMonitor',
           uri: uriStr,
@@ -493,12 +567,12 @@ export class DiagnosticsMonitor implements Disposable {
           accepted: true,
           ownerBefore,
           ownerAfter: undefined,
-          writeDurationUs: 0,
+          writeDurationUs,
         } as TelemetryEvent);
 
         this.reporter.report({
           type: 'diagnostics.stateChange',
-          timestamp: Date.now(),
+          timestamp: nowMs,
           traceId: generateTraceId(),
           source: 'DiagnosticsMonitor',
           uri: uriStr,
@@ -551,12 +625,18 @@ export class DiagnosticsMonitor implements Disposable {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.snapshotTimer !== undefined) {
+      clearInterval(this.snapshotTimer);
+      this.snapshotTimer = undefined;
+    }
     for (const d of this.disposables) {
       d.dispose();
     }
     this.disposables.length = 0;
     this.knownUris.clear();
     this.uriProvider.clear();
+    this.mappingStartTimes.clear();
+    this.writeStartTimes.clear();
   }
 }
 
