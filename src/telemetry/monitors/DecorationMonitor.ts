@@ -237,6 +237,20 @@ export class DecorationMonitor {
     }
   }
 
+  /** Emit a decision point in the decoration pipeline */
+  private _emitDecision(uri: string, step: string, outcome: string, detail?: string): void {
+    this._emit({
+      type: 'decoration.decision',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'DecorationMonitor',
+      uri,
+      step,
+      outcome,
+      detail,
+    });
+  }
+
   /* ------------------------------------------------------------------ */
   /*  Snapshot & Statistics                                              */
   /* ------------------------------------------------------------------ */
@@ -386,6 +400,15 @@ export class DecorationMonitor {
       uri: uriStr,
     });
 
+    /* Decision: workspace folder check */
+    const wf = workspace.getWorkspaceFolder(uri);
+    this._emitDecision(uriStr, 'wsFolderCheck', wf ? 'found' : 'missing', wf ? wf.name : undefined);
+
+    /* Decision: store lookup */
+    const storeState = this.problemStore?.get(uri);
+    this._emitDecision(uriStr, 'storeLookup', storeState ? 'found' : 'missing',
+      storeState ? `severity=${storeState.severity} errors=${storeState.errorCount} warnings=${storeState.warningCount}` : undefined);
+
     let result: FileDecoration | undefined;
     let executionTimeMs: number;
     let error: string | undefined;
@@ -452,6 +475,20 @@ export class DecorationMonitor {
           fileCount = state.fileCount;
         }
       }
+    }
+
+    /* Decision: severity evaluation */
+    this._emitDecision(uriStr, 'severityEvaluation',
+      severity !== undefined ? `severity=${severity}` : 'no state',
+      `errors=${errorCount} warnings=${warningCount} infos=${infoCount}`);
+
+    /* Decision: decoration result */
+    if (result) {
+      this._emitDecision(uriStr, 'badgeSelection', `badge=${result.badge ?? 'none'}`, `length=${result.badge?.length ?? 0}`);
+      this._emitDecision(uriStr, 'colorSelection', `colorId=${(result.color as any)?.id ?? 'none'}`);
+      this._emitDecision(uriStr, 'tooltipFormat', `tooltip=${result.tooltip ?? 'none'}`);
+    } else {
+      this._emitDecision(uriStr, 'decorationResult', 'noDecoration', reasonSkipped);
     }
 
     /* Cache hit/miss detection */
