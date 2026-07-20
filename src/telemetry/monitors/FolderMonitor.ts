@@ -1,7 +1,8 @@
-import { Uri, Disposable, workspace } from 'vscode';
+import { Uri, workspace } from 'vscode';
 import { FolderStatusManager } from '../../folder/folderStatusManager';
 import { ProblemStore } from '../../store/ProblemStore';
-import { ProblemState, ProblemSeverity } from '../../core/types';
+import { ProblemState } from '../../core/types';
+import type { ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 import { normalizeUriKey, getParentKey } from '../../core/uriKey';
@@ -199,7 +200,6 @@ export interface FolderSnapshot {
 /** Monitors FolderStatusManager by wrapping its aggregation methods */
 export class FolderMonitor {
   private disposed = false;
-  private readonly disposables: Disposable[] = [];
 
   /* Original method references for restoration */
   private readonly originalUpdateAncestors: (fileUri: Uri) => Uri[];
@@ -774,10 +774,6 @@ export class FolderMonitor {
     this.folderManager.recomputeFolderStatus = this.originalRecomputeFolderStatus;
     this.problemStore.setFolderAggregate = this.originalSetFolderAggregate;
     this.problemStore.delete = this.originalStoreDelete;
-    for (const d of this.disposables) {
-      d.dispose();
-    }
-    this.disposables.length = 0;
   }
 }
 
