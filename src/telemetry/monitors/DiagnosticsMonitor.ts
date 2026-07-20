@@ -173,8 +173,6 @@ export class DiagnosticsMonitor implements Disposable {
   private activeMappings = 0;
   private pendingWrites = 0;
   private readonly mappingStartTimes = new Map<string, number>();
-  private snapshotTimer: ReturnType<typeof setInterval> | undefined;
-
   /* Cumulative statistics */
   private readonly stats: DiagnosticsStatistics = {
     totalChanges: 0,
@@ -241,10 +239,11 @@ export class DiagnosticsMonitor implements Disposable {
     );
 
     /* Periodic performance snapshot */
-    this.snapshotTimer = setInterval(() => {
+    const timer = setInterval(() => {
       if (this.disposed) return;
       this.reportSnapshot();
     }, 60000);
+    this.disposables.push({ dispose: () => { clearInterval(timer); } });
   }
 
   /* ------------------------------------------------------------------ */
@@ -661,10 +660,6 @@ export class DiagnosticsMonitor implements Disposable {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.snapshotTimer !== undefined) {
-      clearInterval(this.snapshotTimer);
-      this.snapshotTimer = undefined;
-    }
     for (const d of this.disposables) {
       d.dispose();
     }
