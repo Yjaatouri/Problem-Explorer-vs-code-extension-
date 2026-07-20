@@ -150,6 +150,9 @@ export class DecorationMonitor {
   /* Decoration result cache for hit/miss tracking */
   private _lastDecoration = new Map<string, { badge?: string; colorId?: string; tooltip?: string; timestamp: number }>();
 
+  /* Loop detection counter */
+  private _decorationLoopCount = new Map<string, number>();
+
   /* Decoration fire subscription */
   private readonly _fireSubscription: { dispose(): void };
 
@@ -269,6 +272,127 @@ export class DecorationMonitor {
       outcome,
       detail,
     });
+  }
+
+  /** Emit a runtime assertion */
+  private _emitAssertion(code: string, message: string, uri?: string, detail?: string): void {
+    this.stats.totalAssertions++;
+    this._emit({
+      type: 'decoration.assertion',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'DecorationMonitor',
+      code,
+      message,
+      uri,
+      detail,
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Runtime assertions                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /** Assert: check for duplicate refreshes of the same URI */
+  private _assertDuplicateRefresh(uriStrs: string[] | undefined): void {
+    if (!uriStrs) return;
+    const now = Date.now();
+    for (const u of uriStrs) {
+      if (this._recentChanges.has(u)) {
+        const entry = this._recentChanges.get(u)!;
+        if ((now - entry.timestamp) < 100) {
+          this.stats.duplicateRefreshesDetected++;
+          this._emitAssertion('DUPLICATE_REFRESH', `Duplicate refresh for ${u}`, u,
+            `lastChange=${now - entry.timestamp}ms ago`);
+        }
+      }
+    }
+  }
+
+  /** Assert: decoration returned but no state in store */
+  private _assertDecorationWithoutState(uriStr: string, result: FileDecoration | undefined): void {
+    if (!result) return;
+    if (this.problemStore) {
+      const state = this.problemStore.get(Uri.parse(uriStr));
+      if (!state) {
+        this._emitAssertion('DECORATION_WITHOUT_STATE',
+          `Decoration returned for ${uriStr} but no state in store`,
+          uriStr, `badge=${result.badge} tooltip=${result.tooltip}`);
+      } else if (state.severity === 0) {
+        this._emitAssertion('DECORATION_WITHOUT_STATE',
+          `Decoration returned for ${uriStr} but severity is None`,
+          uriStr, `severity=${state.severity}`);
+      }
+    }
+  }
+
+  /** Assert: state in store but no decoration returned */
+  private _assertStateWithoutDecoration(uriStr: string, result: FileDecoration | undefined, reasonSkipped?: string): void {
+    if (result) return;
+    if (this.problemStore) {
+      const state = this.problemStore.get(Uri.parse(uriStr));
+      if (state && state.severity > 0 && reasonSkipped && reasonSkipped.startsWith('unknown')) {
+        this._emitAssertion('STATE_WITHOUT_DECORATION',
+          `State exists for ${uriStr} but no decoration returned`,
+          uriStr, `severity=${state.severity} errors=${state.errorCount} reason=${reasonSkipped}`);
+      }
+    }
+  }
+
+  /** Assert: invalid badge string */
+  private _assertInvalidBadge(uriStr: string, badge: string | undefined): void {
+    if (!badge) return;
+    if (badge.length > 2) {
+      this._emitAssertion('INVALID_BADGE', `Badge too long for ${uriStr}: "${badge}" (len=${badge.length})`, uriStr,
+        `badge=${badge} maxLength=2`);
+    }
+    if (/[^a-zA-Z0-9+]/.test(badge)) {
+      this._emitAssertion('INVALID_BADGE', `Badge has invalid chars for ${uriStr}: "${badge}"`, uriStr,
+        `badge=${badge}`);
+    }
+  }
+
+  /** Assert: invalid severity value */
+  private _assertInvalidSeverity(uriStr: string, severity: number | undefined): void {
+    if (severity === undefined) return;
+    if (severity < 0 || severity > 3) {
+      this._emitAssertion('INVALID_SEVERITY', `Invalid severity ${severity} for ${uriStr}`, uriStr,
+        `severity=${severity} expected=[0-3]`);
+    }
+  }
+
+  /** Assert: invalid color (decoration returned without color) */
+  private _assertInvalidColor(uriStr: string, result: FileDecoration | undefined): void {
+    if (!result) return;
+    if (!result.color) {
+      this._emitAssertion('INVALID_COLOR', `Decoration for ${uriStr} has no color`, uriStr,
+        `badge=${result.badge} tooltip=${result.tooltip}`);
+    }
+  }
+
+  /** Assert: repeated decoration loops (same result returned many times for the same URI) */
+  private _assertRepeatedDecoration(uriStr: string, result: FileDecoration | undefined): void {
+    const key = `${uriStr}::${result?.badge ?? 'none'}::${(result?.color as any)?.id ?? 'none'}`;
+    const count = this._decorationLoopCount.get(key) ?? 0;
+    this._decorationLoopCount.set(key, count + 1);
+    if (count + 1 >= 10) {
+      this._emitAssertion('REPEATED_DECORATION', `Decoration loop detected for ${uriStr}: same result ${count + 1} times`,
+        uriStr, `badge=${result?.badge} colorId=${(result?.color as any)?.id}`);
+    }
+  }
+
+  /** Assert: impossible decoration transition (severity changed without store change) */
+  private _assertImpossibleTransition(uriStr: string, resultBadge: string | undefined): void {
+    const prev = this._lastDecoration.get(uriStr);
+    if (prev && prev.badge && resultBadge && prev.badge !== resultBadge) {
+      /* Check if a store change occurred between the two provide calls */
+      const storeEntry = this._recentChanges.get(uriStr);
+      if (!storeEntry || (Date.now() - storeEntry.timestamp) > 5000) {
+        this._emitAssertion('IMPOSSIBLE_TRANSITION',
+          `Decoration changed from "${prev.badge}" to "${resultBadge}" for ${uriStr} without store change`,
+          uriStr, `prevBadge=${prev.badge} newBadge=${resultBadge}`);
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -417,6 +541,9 @@ export class DecorationMonitor {
         if (cid) { correlationId = cid; break; }
       }
     }
+
+    /* Assert: duplicate refresh detection */
+    this._assertDuplicateRefresh(uriStrs);
 
     /* Emit start event */
     this._emit({
@@ -600,6 +727,15 @@ export class DecorationMonitor {
     } else {
       this._emitDecision(uriStr, 'decorationResult', 'noDecoration', reasonSkipped);
     }
+
+    /* Run runtime assertions */
+    this._assertInvalidSeverity(uriStr, severity);
+    this._assertDecorationWithoutState(uriStr, result);
+    this._assertStateWithoutDecoration(uriStr, result, reasonSkipped);
+    this._assertInvalidBadge(uriStr, result?.badge);
+    this._assertInvalidColor(uriStr, result);
+    this._assertRepeatedDecoration(uriStr, result);
+    this._assertImpossibleTransition(uriStr, result?.badge);
 
     /* Cache hit/miss detection */
     const prev = this._lastDecoration.get(uriStr);
