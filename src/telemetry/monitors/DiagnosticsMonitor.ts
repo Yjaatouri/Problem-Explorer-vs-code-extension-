@@ -307,6 +307,8 @@ export class DiagnosticsMonitor implements Disposable {
     this.disposables.push(
       store.onDidChange((change: ProblemStoreChange) => {
         if (this.disposed) return;
+        /* Ignore events from stale store instances after provider re-registration */
+        if (this.vsDiagProvider?.store !== store) return;
         this.handleStoreChange(change, store, provider.name);
       })
     );
