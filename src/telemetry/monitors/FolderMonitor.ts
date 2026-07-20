@@ -582,18 +582,20 @@ export class FolderMonitor {
     const self = this;
     this.problemStore.delete = function (uri: Uri): boolean {
       if (self.disposed) return self.originalStoreDelete(uri);
+      if (!self.problemStore.isFolderAggregate(uri)) {
+        return self.originalStoreDelete(uri);
+      }
       if (self.reentrant > 0) return self.originalStoreDelete(uri);
       self.reentrant++;
       try {
         const start = Date.now();
         const uriStr = uri.toString();
-        const isFolder = self.problemStore.isFolderAggregate(uri);
-        const before = isFolder ? self.problemStore.get(uri) : undefined;
+        const before = self.problemStore.get(uri);
         const owner = self.problemStore.getOwningProvider(uri);
         const result = self.originalStoreDelete(uri);
         const durationMs = Date.now() - start;
 
-        if (isFolder && result && before) {
+        if (result && before) {
           self.emitAggregateEvent(uriStr, 'removed', before, undefined);
 
           self.reporter.report({
