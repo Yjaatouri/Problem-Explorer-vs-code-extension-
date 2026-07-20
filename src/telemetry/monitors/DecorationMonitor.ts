@@ -5,6 +5,7 @@ import {
 } from 'vscode';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
+import { generateTraceId } from '../../telemetry';
 import { ProblemStore } from '../../store/ProblemStore';
 
 /* ------------------------------------------------------------------ */
@@ -136,20 +137,28 @@ export class DecorationMonitor {
 
   /* Coalesce observation */
   private _coalesceQueueSize = 0;
+  private _lastRefreshTimestamp = 0;
+  private _pendingFireUris = new Set<string>();
+  private _pendingFireIsFull = false;
+
+  /* Decoration fire subscription */
+  private readonly _fireSubscription: { dispose(): void };
 
   /* Performance counters */
   private _statsStarted = Date.now();
 
   constructor(
     private readonly engine: DecorationEngine,
-    reporter: TelemetryReporter,
-    _problemStore?: ProblemStore,
+    private readonly reporter: TelemetryReporter,
+    private readonly problemStore?: ProblemStore,
   ) {
-    /* reporter and problemStore are stored in sub-tasks */
-    void reporter;
-    void _problemStore;
     this.originalFireDidChange = engine.fireDidChange.bind(engine);
     this.originalProvideFileDecoration = engine.provideFileDecoration.bind(engine);
+
+    /* Subscribe to actual decoration fire events from the engine */
+    this._fireSubscription = engine.onDidChangeFileDecorations((uris: Uri | Uri[] | undefined) => {
+      this._onDecorationFire(uris);
+    });
 
     this.stats = {
       totalRefreshes: 0,
@@ -170,6 +179,9 @@ export class DecorationMonitor {
       averageRefreshSize: 0,
       decorationsPerSecond: 0,
     };
+
+    /* problemStore available for sub-tasks */
+    void this.problemStore;
 
     this.wrapMethods();
   }
@@ -198,6 +210,28 @@ export class DecorationMonitor {
   /* ------------------------------------------------------------------ */
   /*  Event emit helpers                                                  */
   /* ------------------------------------------------------------------ */
+
+  private _emit(event: DecorationTelemetryEvent): void {
+    this.reporter.report(event as TelemetryEvent);
+  }
+
+  /** Extract caller info from stack trace */
+  private _getCaller(): string {
+    try {
+      throw new Error();
+    } catch (e: unknown) {
+      const stack = (e as Error).stack ?? '';
+      const lines = stack.split('\n');
+      /* Skip our own frames (index 0-3) to find the actual caller */
+      for (let i = 3; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line && !line.includes('DecorationMonitor') && !line.includes('Error')) {
+          return line.replace(/^at\s+/, '').trim();
+        }
+      }
+      return 'unknown';
+    }
+  }
 
   /* ------------------------------------------------------------------ */
   /*  Snapshot & Statistics                                              */
@@ -235,15 +269,104 @@ export class DecorationMonitor {
     this.disposed = true;
     this.engine.fireDidChange = this.originalFireDidChange;
     this.engine.provideFileDecoration = this.originalProvideFileDecoration;
+    this._fireSubscription.dispose();
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Placeholder handlers (will be implemented in later tasks)          */
+  /*  Refresh monitoring                                                  */
   /* ------------------------------------------------------------------ */
 
   private handleFireDidChange(uris: Uri | Uri[] | undefined): void {
+    const ts = Date.now();
+    let callType: 'full' | 'array' | 'single';
+    let uriCount: number;
+    let uriStrs: string[] | undefined;
+
+    if (uris === undefined) {
+      callType = 'full';
+      uriCount = 0;
+      this._pendingFireIsFull = true;
+    } else if (Array.isArray(uris)) {
+      callType = 'array';
+      uriCount = uris.length;
+      uriStrs = uris.map((u) => u.toString());
+      for (const u of uriStrs) { this._pendingFireUris.add(u); }
+    } else {
+      callType = 'single';
+      uriCount = 1;
+      uriStrs = [uris.toString()];
+      this._pendingFireUris.add(uriStrs[0]);
+    }
+
+    this.activeRefreshCount++;
+    this.stats.totalRefreshes++;
+    this.stats.totalUrisRefreshed += uriCount;
+    this._lastRefreshTimestamp = ts;
+
+    const caller = this._getCaller();
+
+    /* Emit start event */
+    this._emit({
+      type: 'decoration.refresh.start',
+      timestamp: ts,
+      traceId: generateTraceId(),
+      source: 'DecorationMonitor',
+      callType,
+      uriCount,
+      uris: uriStrs,
+      trigger: caller,
+    });
+
+    /* Call through to original */
     this.originalFireDidChange(uris);
+
+    this.activeRefreshCount--;
   }
+
+  /** Called when the engine actually fires decoration change to VS Code */
+  private _onDecorationFire(uris: Uri | Uri[] | undefined): void {
+    let uriStrs: string[] | undefined;
+    let uriCount: number;
+    let coalesced: boolean;
+
+    if (uris === undefined) {
+      uriCount = 0;
+      coalesced = this._pendingFireIsFull;
+      this._pendingFireIsFull = false;
+    } else if (Array.isArray(uris)) {
+      uriStrs = uris.map((u) => u.toString());
+      uriCount = uriStrs.length;
+      coalesced = true;
+      /* Remove fired URIs from pending set */
+      for (const u of uriStrs) { this._pendingFireUris.delete(u); }
+    } else {
+      uriStrs = [uris.toString()];
+      uriCount = 1;
+      coalesced = !this._pendingFireIsFull; /* single URI fires are typically coalesced */
+      this._pendingFireUris.delete(uriStrs[0]);
+    }
+
+    this._coalesceQueueSize = this._pendingFireUris.size;
+    this.stats.totalFires++;
+    if (coalesced) { this.stats.coalescedBatches++; }
+
+    const queueLatencyMs = this._lastRefreshTimestamp > 0 ? Date.now() - this._lastRefreshTimestamp : 0;
+
+    this._emit({
+      type: 'decoration.fire',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'DecorationMonitor',
+      uris: uriStrs,
+      uriCount,
+      coalesced,
+      queueLatencyMs,
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Decoration provider monitoring                                      */
+  /* ------------------------------------------------------------------ */
 
   private handleProvideFileDecoration(uri: Uri, token: CancellationToken): FileDecoration | undefined {
     return this.originalProvideFileDecoration(uri, token);
