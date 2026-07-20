@@ -411,10 +411,6 @@ export class DiagnosticsMonitor implements Disposable {
     const traceId = generateTraceId();
     this.stats.totalFlushUpdates++;
     this.stats.totalFlushUris += uris.length;
-    for (const uri of uris) {
-      const uriStr = uri.toString();
-      this.knownUris.add(uriStr);
-    }
 
     this.reporter.report({
       type: 'diagnostics.flush',
