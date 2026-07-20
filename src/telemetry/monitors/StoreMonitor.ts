@@ -305,6 +305,17 @@ export class StoreMonitor {
   /* ------------------------------------------------------------------ */
 
   private bindOriginals(): void {
+    /* Guard: verify store methods haven't been wrapped by another component */
+    const proto = Object.getPrototypeOf(this.store);
+    const methodNames = ['set', 'delete', 'clear', 'beginBatch', 'endBatch',
+      'configureProvider', 'releaseOwnership', 'setFolderAggregate',
+      'deleteByPrefix', 'movePrefix', 'unconfigureProvider', 'dispose'] as const;
+    for (const name of methodNames) {
+      if ((this.store as any)[name] !== (proto as any)[name]) {
+        console.warn(`[StoreMonitor] "${name}" was already replaced — wrapping may be fragile`);
+      }
+    }
+
     this.originalSet = this.store.set.bind(this.store);
     this.originalDelete = this.store.delete.bind(this.store);
     this.originalClear = this.store.clear.bind(this.store);
