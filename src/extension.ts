@@ -316,8 +316,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       configManager,
       workspaceManager,
       problemStore,
-      tscProvider,
-      eslintProvider,
       diagProviderManager,
       vsDiagnosticsProvider,
       decorationEngine,
