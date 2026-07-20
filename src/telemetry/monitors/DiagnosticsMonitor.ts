@@ -603,18 +603,72 @@ export class DiagnosticsMonitor implements Disposable {
       }
 
       case 'cleared': {
+        this.knownUris.clear();
+        this.knownOwners.clear();
+        this.previousStates.clear();
+        this.mappingStartTimes.clear();
         break;
       }
 
       case 'batch': {
+        /* Batches are internal to the store; no monitor action needed */
         break;
       }
 
       case 'prefixDeleted': {
+        const prefix = change.prefix;
+        const filter = (key: string) => key.startsWith(prefix);
+        for (const key of this.knownUris) { if (filter(key)) this.knownUris.delete(key); }
+        for (const key of this.knownOwners.keys()) { if (filter(key)) this.knownOwners.delete(key); }
+        for (const key of this.previousStates.keys()) { if (filter(key)) this.previousStates.delete(key); }
+        for (const key of this.mappingStartTimes.keys()) { if (filter(key)) this.mappingStartTimes.delete(key); }
         break;
       }
 
       case 'prefixMoved': {
+        const { oldPrefix, newPrefix } = change;
+        const remap = (key: string) =>
+          key.startsWith(oldPrefix) ? newPrefix + key.slice(oldPrefix.length) : key;
+
+        /* Remap knownUris */
+        const urisToMove: string[] = [];
+        for (const key of this.knownUris) {
+          if (key.startsWith(oldPrefix)) urisToMove.push(key);
+        }
+        for (const key of urisToMove) {
+          this.knownUris.delete(key);
+          this.knownUris.add(remap(key));
+        }
+
+        /* Remap knownOwners */
+        const ownersToMove: Array<[string, string]> = [];
+        for (const [key, val] of this.knownOwners) {
+          if (key.startsWith(oldPrefix)) ownersToMove.push([key, val]);
+        }
+        for (const [key, val] of ownersToMove) {
+          this.knownOwners.delete(key);
+          this.knownOwners.set(remap(key), val);
+        }
+
+        /* Remap previousStates */
+        const statesToMove: Array<[string, ProblemState]> = [];
+        for (const [key, val] of this.previousStates) {
+          if (key.startsWith(oldPrefix)) statesToMove.push([key, val]);
+        }
+        for (const [key, val] of statesToMove) {
+          this.previousStates.delete(key);
+          this.previousStates.set(remap(key), val);
+        }
+
+        /* Remap mappingStartTimes */
+        const timesToMove: Array<[string, number]> = [];
+        for (const [key, val] of this.mappingStartTimes) {
+          if (key.startsWith(oldPrefix)) timesToMove.push([key, val]);
+        }
+        for (const [key, val] of timesToMove) {
+          this.mappingStartTimes.delete(key);
+          this.mappingStartTimes.set(remap(key), val);
+        }
         break;
       }
     }
