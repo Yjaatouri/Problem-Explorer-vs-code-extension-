@@ -2,6 +2,7 @@ import {
   CancellationToken,
   FileDecoration,
   Uri,
+  workspace,
 } from 'vscode';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { TelemetryReporter, TelemetryEvent } from '../../telemetry';
@@ -140,6 +141,9 @@ export class DecorationMonitor {
   private _lastRefreshTimestamp = 0;
   private _pendingFireUris = new Set<string>();
   private _pendingFireIsFull = false;
+
+  /* Decoration result cache for hit/miss tracking */
+  private _lastDecoration = new Map<string, { badge?: string; colorId?: string; tooltip?: string; timestamp: number }>();
 
   /* Decoration fire subscription */
   private readonly _fireSubscription: { dispose(): void };
@@ -369,7 +373,136 @@ export class DecorationMonitor {
   /* ------------------------------------------------------------------ */
 
   private handleProvideFileDecoration(uri: Uri, token: CancellationToken): FileDecoration | undefined {
-    return this.originalProvideFileDecoration(uri, token);
+    const ts = Date.now();
+    const uriStr = uri.toString();
+    this.activeProvideCount++;
+
+    /* Emit start event */
+    this._emit({
+      type: 'decoration.provide.start',
+      timestamp: ts,
+      traceId: generateTraceId(),
+      source: 'DecorationMonitor',
+      uri: uriStr,
+    });
+
+    let result: FileDecoration | undefined;
+    let executionTimeMs: number;
+    let error: string | undefined;
+
+    try {
+      result = this.originalProvideFileDecoration(uri, token);
+      executionTimeMs = Date.now() - ts;
+    } catch (e: unknown) {
+      executionTimeMs = Date.now() - ts;
+      error = e instanceof Error ? e.message : String(e);
+      result = undefined;
+    }
+
+    this.activeProvideCount--;
+    this.stats.totalProvideCalls++;
+
+    /* Determine skip reason when no decoration returned */
+    let reasonSkipped: string | undefined;
+    let severity: number | undefined;
+    let errorCount = 0;
+    let warningCount = 0;
+    let infoCount = 0;
+    let fileCount = 0;
+
+    if (!result || error) {
+      this.stats.totalSkipped++;
+      if (error) {
+        reasonSkipped = `exception: ${error}`;
+      } else {
+        /* Infer reason from store state and workspace */
+        const wf = workspace.getWorkspaceFolder(uri);
+        if (!wf) {
+          reasonSkipped = 'no workspace folder';
+        } else if (this.problemStore) {
+          const state = this.problemStore.get(uri);
+          if (!state) {
+            reasonSkipped = 'no state in store';
+          } else {
+            severity = state.severity;
+            errorCount = state.errorCount;
+            warningCount = state.warningCount;
+            infoCount = state.infoCount;
+            fileCount = state.fileCount;
+            if (state.severity === 0) {
+              reasonSkipped = 'severity None';
+            } else {
+              reasonSkipped = 'unknown (config: disabled/showWarnings/ignored)';
+            }
+          }
+        } else {
+          reasonSkipped = 'unknown';
+        }
+      }
+    } else {
+      this.stats.totalDecorationsReturned++;
+      /* Read state from store for the event payload */
+      if (this.problemStore) {
+        const state = this.problemStore.get(uri);
+        if (state) {
+          severity = state.severity;
+          errorCount = state.errorCount;
+          warningCount = state.warningCount;
+          infoCount = state.infoCount;
+          fileCount = state.fileCount;
+        }
+      }
+    }
+
+    /* Cache hit/miss detection */
+    const prev = this._lastDecoration.get(uriStr);
+    const cached = !!prev && (
+      prev.badge === result?.badge &&
+      prev.colorId === (result?.color as any)?.id &&
+      prev.tooltip === result?.tooltip
+    );
+    if (cached) {
+      this.stats.totalCacheHits++;
+    } else {
+      this.stats.totalCacheMisses++;
+      /* Update cache */
+      this._lastDecoration.set(uriStr, {
+        badge: result?.badge,
+        colorId: (result?.color as any)?.id,
+        tooltip: result?.tooltip,
+        timestamp: Date.now(),
+      });
+    }
+
+    /* Track peak duration */
+    if (executionTimeMs > this.stats.peakProvideDurationMs) {
+      this.stats.peakProvideDurationMs = executionTimeMs;
+    }
+    this.stats.provideDurationSumMs += executionTimeMs;
+
+    /* Emit completion event */
+    this._emit({
+      type: 'decoration.provide',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'DecorationMonitor',
+      uri: uriStr,
+      hit: !!result,
+      badge: result?.badge,
+      badgeLength: result?.badge?.length ?? 0,
+      colorId: (result?.color as any)?.id,
+      tooltip: result?.tooltip,
+      severity,
+      errorCount,
+      warningCount,
+      infoCount,
+      fileCount,
+      executionTimeMs,
+      cached,
+      reasonSkipped,
+    });
+
+    return result;
   }
 }
 
