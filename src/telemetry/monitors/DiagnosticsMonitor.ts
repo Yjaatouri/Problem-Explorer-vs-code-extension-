@@ -525,7 +525,7 @@ export class DiagnosticsMonitor implements Disposable {
           /* First ownership seen — URI not previously tracked */
           this.reporter.report({
             type: 'diagnostics.ownership',
-            timestamp: Date.now(),
+            timestamp: nowMs,
             traceId: generateTraceId(),
             source: 'DiagnosticsMonitor',
             uri: uriStr,
@@ -593,7 +593,7 @@ export class DiagnosticsMonitor implements Disposable {
 
         this.reporter.report({
           type: 'diagnostics.ownership',
-          timestamp: Date.now(),
+          timestamp: nowMs,
           traceId: generateTraceId(),
           source: 'DiagnosticsMonitor',
           uri: uriStr,
