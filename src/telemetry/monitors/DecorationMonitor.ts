@@ -1,10 +1,10 @@
 import { CancellationToken, FileDecoration, Uri } from 'vscode';
 import { DecorationEngine } from '../../decoration/decorationEngine';
 import { TelemetryReporter } from '../../telemetry';
-import { generateTraceId } from '../../telemetry';
+import { TelemetryEvent, generateTraceId } from '../../telemetry';
 
 /** Structured event payload for fireDidChange */
-export interface DecorationFireDidChangeEventData {
+export interface DecorationFireDidChangeEventData extends TelemetryEvent {
   readonly type: 'decoration.fireDidChange';
   readonly callType: 'full' | 'array' | 'single';
   readonly uriCount: number;
@@ -12,7 +12,7 @@ export interface DecorationFireDidChangeEventData {
 }
 
 /** Structured event payload for provideFileDecoration */
-export interface DecorationProvideEventData {
+export interface DecorationProvideEventData extends TelemetryEvent {
   readonly type: 'decoration.provideFileDecoration';
   readonly uri: string;
   readonly hit: boolean;
@@ -61,7 +61,7 @@ export class DecorationMonitor {
 
       self.originalFireDidChange(uris);
 
-      self.reporter.report({
+      const event: DecorationFireDidChangeEventData = {
         type: 'decoration.fireDidChange',
         timestamp: Date.now(),
         traceId: generateTraceId(),
@@ -69,7 +69,8 @@ export class DecorationMonitor {
         callType,
         uriCount,
         executionTimeMs: Date.now() - start,
-      } as any);
+      };
+      self.reporter.report(event);
     };
 
     engine.provideFileDecoration = function (
@@ -82,11 +83,9 @@ export class DecorationMonitor {
       const start = Date.now();
       const result = self.originalProvideFileDecoration(uri, token);
 
-      if (result !== undefined && result !== null && typeof (result as any).then === 'function') {
-        return (result as any).then((resolved: FileDecoration | undefined | null) => {
-          self.reportProvide(uri, resolved, Date.now() - start);
-          return resolved;
-        }) as unknown as FileDecoration | undefined;
+      if (result instanceof Promise) {
+        // original returned a Promise — pass through without wrapping (async timing not tracked)
+        return result as unknown as FileDecoration | undefined;
       }
 
       self.reportProvide(uri, result, Date.now() - start);
@@ -95,7 +94,7 @@ export class DecorationMonitor {
   }
 
   private reportProvide(uri: Uri, result: FileDecoration | undefined | null, elapsed: number): void {
-    this.reporter.report({
+    const event: DecorationProvideEventData = {
       type: 'decoration.provideFileDecoration',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -104,7 +103,8 @@ export class DecorationMonitor {
       hit: result !== undefined && result !== null,
       badge: result?.badge,
       executionTimeMs: elapsed,
-    } as any);
+    };
+    this.reporter.report(event);
   }
 
   /** Restore original methods and stop monitoring */
