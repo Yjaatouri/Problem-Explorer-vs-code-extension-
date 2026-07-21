@@ -186,7 +186,11 @@ export class SnapshotSystem {
   protected readonly snapshots = new Map<SnapshotId, Snapshot>();
   protected readonly sub: TelemetrySubscription;
   protected readonly assertionSub: TelemetrySubscription;
+  protected readonly pipelineFailureSub: TelemetrySubscription;
+  protected readonly providerFailureSub: TelemetrySubscription;
   protected disposed = false;
+  protected autoCaptureTimer?: ReturnType<typeof setInterval>;
+  protected autoCaptureIntervalMs = 0;
 
   /* Runtime state tracked via events */
   protected activeScans = 0;
@@ -241,8 +245,43 @@ export class SnapshotSystem {
     });
 
     this.assertionSub = reporter.subscribe('assertion.failure', () => {
-      this.captureAndReport();
+      this.captureAndReport(SnapshotTrigger.AssertionFailure);
     });
+
+    this.pipelineFailureSub = reporter.subscribe('pipeline.execution.failed', () => {
+      this.captureAndReport(SnapshotTrigger.PipelineFailure);
+    });
+
+    this.providerFailureSub = reporter.subscribe('provider.error', () => {
+      this.captureAndReport(SnapshotTrigger.ProviderFailure);
+    });
+  }
+
+  /** Trigger a manual snapshot — returns the captured Snapshot */
+  captureManual(extra?: Partial<SnapshotMetadata>): Snapshot {
+    return this.createSnapshot(SnapshotTrigger.Manual, extra);
+  }
+
+  /** Trigger a snapshot on fatal/unhandled exception */
+  captureFatalException(error: Error, extra?: Partial<SnapshotMetadata>): Snapshot {
+    return this.createSnapshot(SnapshotTrigger.FatalException, {
+      ...extra,
+      ruleName: extra?.ruleName ?? error.message,
+    });
+  }
+
+  /** Enable periodic automatic snapshots at a given interval (ms). Pass 0 to disable. */
+  setAutoCaptureInterval(intervalMs: number): void {
+    if (this.autoCaptureTimer) {
+      clearInterval(this.autoCaptureTimer);
+      this.autoCaptureTimer = undefined;
+    }
+    this.autoCaptureIntervalMs = intervalMs;
+    if (intervalMs > 0) {
+      this.autoCaptureTimer = setInterval(() => {
+        this.captureAndReport(SnapshotTrigger.Periodic);
+      }, intervalMs);
+    }
   }
 
   setEnvironmentInfo(vscodeVersion: string, extensionVersion: string, workspaceFolders: readonly string[]): void {
@@ -558,6 +597,12 @@ export class SnapshotSystem {
     this.disposed = true;
     this.sub.dispose();
     this.assertionSub.dispose();
+    this.pipelineFailureSub.dispose();
+    this.providerFailureSub.dispose();
+    if (this.autoCaptureTimer) {
+      clearInterval(this.autoCaptureTimer);
+      this.autoCaptureTimer = undefined;
+    }
     this.snapshots.clear();
   }
 }
