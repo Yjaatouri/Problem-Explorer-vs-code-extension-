@@ -204,6 +204,9 @@ export class TimelineGenerator {
 
   /* Statistics */
   protected statsStarted = Date.now();
+  protected totalCreated = 0;
+  protected totalReconstructionTimeMs = 0;
+  protected reconstructionCount = 0;
 
   constructor(reporter: TelemetryReporter) {
     this.subscription = reporter.subscribeAll((event: TelemetryEvent) => {
@@ -266,6 +269,7 @@ export class TimelineGenerator {
     };
 
     this.timelines.set(id, timeline);
+    this.totalCreated++;
     this.timelineOrder.push(id);
 
     if (this.timelineOrder.length > MAX_TIMELINES) {
@@ -460,6 +464,7 @@ export class TimelineGenerator {
     };
 
     this.timelines.set(id, timeline);
+    this.totalCreated++;
     this.timelineOrder.push(id);
     return id;
   }
@@ -608,6 +613,7 @@ export class TimelineGenerator {
   ];
 
   reconstructTimeline(timelineId: TimelineId): ReconstructionReport {
+    const reconStart = Date.now();
     const tl = this.timelines.get(timelineId);
     if (!tl) {
       return { timelineId, status: 'unknown', steps: [], missingSteps: [], durationMs: 0, concurrentTimelines: [], type: 'unknown', eventCount: 0, hasError: false, isPartial: false, isConcurrent: false };
@@ -643,6 +649,10 @@ export class TimelineGenerator {
       provider: ev.provider,
       pipelineId: ev.pipelineId,
     }));
+
+    const reconTime = Date.now() - reconStart;
+    this.totalReconstructionTimeMs += reconTime;
+    this.reconstructionCount++;
 
     return {
       timelineId,
@@ -740,6 +750,47 @@ export class TimelineGenerator {
 
   getFailedTimelines(): readonly Timeline[] {
     return [...this.timelines.values()].filter((t) => t.status === TimelineStatus.Failed || t.hasAssertionFailure || t.hasPipelineFailure || t.hasProviderFailure);
+  }
+
+  getStatistics(): TimelineStatistics {
+    const all = [...this.timelines.values()];
+    let liveCount = 0, completedCount = 0, failedCount = 0, cancelledCount = 0, timedOutCount = 0;
+    let totalEvents = 0, totalDurationMs = 0, longestMs = 0;
+    let assertionFailures = 0, pipelineFailures = 0, incomplete = 0;
+
+    for (const tl of all) {
+      switch (tl.status) {
+        case TimelineStatus.Live: liveCount++; break;
+        case TimelineStatus.Completed: completedCount++; break;
+        case TimelineStatus.Failed: failedCount++; break;
+        case TimelineStatus.Cancelled: cancelledCount++; break;
+        case TimelineStatus.TimedOut: timedOutCount++; break;
+      }
+      totalEvents += tl.events.length;
+      if (tl.durationMs !== undefined) {
+        totalDurationMs += tl.durationMs;
+        if (tl.durationMs > longestMs) longestMs = tl.durationMs;
+      }
+      if (tl.status === TimelineStatus.Live) incomplete++;
+      if (tl.hasAssertionFailure) assertionFailures++;
+      if (tl.hasPipelineFailure) pipelineFailures++;
+    }
+
+    return {
+      totalTimelines: this.totalCreated,
+      liveTimelines: liveCount,
+      completedTimelines: completedCount,
+      failedTimelines: failedCount,
+      cancelledTimelines: cancelledCount,
+      timedOutTimelines: timedOutCount,
+      totalEvents,
+      averageEventsPerTimeline: all.length > 0 ? Math.round(totalEvents / all.length) : 0,
+      averageDurationMs: completedCount > 0 ? Math.round(totalDurationMs / completedCount) : 0,
+      longestTimelineMs: longestMs,
+      incompleteTimelines: incomplete,
+      timelinesWithAssertionFailures: assertionFailures,
+      timelinesWithPipelineFailures: pipelineFailures,
+    };
   }
 
   protected rangesOverlap(a: Timeline, b: Timeline): boolean {
