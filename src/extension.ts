@@ -394,9 +394,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     }, 15000);
     context.subscriptions.push({ dispose: () => clearTimeout(forensicTimeout) });
 
+    // Register all domain assertion rules
+    runtimeAssertions.registerStoreAssertions(problemStore, diagProviderManager);
+    runtimeAssertions.registerProviderAssertions(diagProviderManager, problemStore);
+    runtimeAssertions.registerDiagnosticsAssertions(diagnosticsMonitor, problemStore);
+    runtimeAssertions.registerDecorationAssertions(decorationMonitor, problemStore);
+    runtimeAssertions.registerFolderAssertions(folderStatusManager, problemStore);
+    runtimeAssertions.registerPipelineAssertions(pipelineMonitor);
+
+    // Set up recovery handlers
+    runtimeAssertions.engine.setRecoveryHandlers({
+      notifyDashboard: () => devDashboard.notifyAssertion(),
+      requestSnapshot: () => {
+        const snapshot = snapshotSystem.captureSnapshot();
+        log(`[ASSERTION] Snapshot captured: ${Object.keys(snapshot).length} entries`);
+      },
+      stopPipeline: (pipelineId?: string) => {
+        if (pipelineId) {
+          pipelineMonitor.cancelExecution(pipelineId as any, 'Assertion failure recovery');
+          log(`[ASSERTION] Pipeline ${pipelineId} stopped via recovery`);
+        }
+      },
+      autoRecover: (_rule: string) => {
+        log(`[ASSERTION] Auto-recovery triggered for rule: ${_rule}`);
+      },
+    });
+
     // Periodic runtime assertions every 30s
-    // (re-enabled in Task 11 — Integration)
-    void runtimeAssertions;
+    const assertionInterval = setInterval(async () => {
+      const results = await runtimeAssertions.engine.executeAll();
+      const failed = results.filter((r) => !r.passed);
+      if (failed.length > 0) {
+        log(`[ASSERTION] ${failed.length} assertion(s) failed out of ${results.length} executed`);
+      }
+    }, 30000);
+    context.subscriptions.push({ dispose: () => clearInterval(assertionInterval) });
 
     // OFFLINE FORENSIC ANALYSIS COMMAND — run TimelineGenerator against saved telemetry log
     context.subscriptions.push(
