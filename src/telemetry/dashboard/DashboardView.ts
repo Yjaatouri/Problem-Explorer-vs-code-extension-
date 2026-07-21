@@ -380,18 +380,44 @@ export class DashboardView implements DashboardViewApi {
     var live = d.live || [];
     var historical = d.historical || [];
     var failed = d.failed || [];
-    return '<div class=\"stat-grid\">' +
-      statCard('Live', live.length) +
-      statCard('Historical', historical.length) +
-      statCard('Failed', failed.length) +
+    var filter = state.filter || {};
+    function matches(t) {
+      if (filter.uri && t.uri && t.uri.indexOf(filter.uri) < 0) return false;
+      if (filter.provider && t.provider && t.provider.indexOf(filter.provider) < 0) return false;
+      if (filter.pipelineId && t.pipelineId && t.pipelineId.indexOf(filter.pipelineId) < 0) return false;
+      return true;
+    }
+    var filteredLive = live.filter(matches);
+    var filteredHistorical = historical.filter(matches);
+    var filteredFailed = failed.filter(matches);
+    var html = '<div class=\"search-bar\">' +
+      '<input id=\"timelineFilterUri\" placeholder=\"Filter by URI...\" value=\"' + esc(filter.uri || '') + '\" oninput=\"onTimelineFilter()\">' +
+      '<input id=\"timelineFilterProvider\" placeholder=\"Filter by Provider...\" value=\"' + esc(filter.provider || '') + '\" oninput=\"onTimelineFilter()\">' +
+      '<input id=\"timelineFilterPipeline\" placeholder=\"Filter by Pipeline ID...\" value=\"' + esc(filter.pipelineId || '') + '\" oninput=\"onTimelineFilter()\">' +
+    '</div>' +
+    '<div class=\"stat-grid\">' +
+      statCard('Live', filteredLive.length) +
+      statCard('Historical', filteredHistorical.length) +
+      statCard('Failed', filteredFailed.length) +
       statCard('Total Events', stats.totalEvents ?? 0) +
     '</div>' +
-    '<div class=\"section\"><h3>Live Timelines (' + live.length + ')</h3>' +
-    (live.length === 0 ? '<div class=\"empty-state\">No live timelines</div>' : makeTable(['ID','Status','Events'], live, function(t) { return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0]; })) +
+    '<div class=\"section\"><h3>Live Timelines (' + filteredLive.length + ')</h3>' +
+    (filteredLive.length === 0 ? '<div class=\"empty-state\">No live timelines' + (filter.uri || filter.provider || filter.pipelineId ? ' matching filter' : '') + '</div>' : makeTable(['ID','Status','Events','Actions'], filteredLive, function(t) {
+      return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\'' + esc(t.id || '') + '\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
+    })) +
     '</div>' +
-    '<div class=\"section\"><h3>Failed Timelines (' + failed.length + ')</h3>' +
-    (failed.length === 0 ? '<div class=\"empty-state\">No failed timelines</div>' : makeTable(['ID','Error','Events'], failed, function(t) { return [esc(t.id || '?'), esc(t.error || t.status || '?'), t.eventCount ?? 0]; })) +
-    '</div>';
+    '<div class=\"section\"><h3>Historical (' + filteredHistorical.length + ')</h3>' +
+    (filteredHistorical.length === 0 ? '<div class=\"empty-state\">No historical timelines' + (filter.uri || filter.provider || filter.pipelineId ? ' matching filter' : '') + '</div>' : makeTable(['ID','Status','Events','Actions'], filteredHistorical, function(t) {
+      return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\'' + esc(t.id || '') + '\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
+    })) +
+    '</div>' +
+    '<div class=\"section\"><h3>Failed (' + filteredFailed.length + ')</h3>' +
+    (filteredFailed.length === 0 ? '<div class=\"empty-state\">No failed timelines' + (filter.uri || filter.provider || filter.pipelineId ? ' matching filter' : '') + '</div>' : makeTable(['ID','Error','Events','Actions'], filteredFailed, function(t) {
+      return [esc(t.id || '?'), esc(t.error || t.status || '?'), t.eventCount ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\'' + esc(t.id || '') + '\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
+    })) +
+    '</div>' +
+    '<div id=\"timelineDetail\"></div>';
+    return html;
   }
 
   /* ---- File Logger ---- */
@@ -513,6 +539,34 @@ export class DashboardView implements DashboardViewApi {
     if (score >= 30) return '#d7ba7d';
     return '#f44747';
   }
+
+  /* ---- Timeline Search (exposed globally for inline onclick) ---- */
+  window.onTimelineFilter = function() {
+    state.filter = state.filter || {};
+    state.filter.uri = document.getElementById('timelineFilterUri')?.value || '';
+    state.filter.provider = document.getElementById('timelineFilterProvider')?.value || '';
+    state.filter.pipelineId = document.getElementById('timelineFilterPipeline')?.value || '';
+    var d = state.data['timeline'];
+    if (d) content.innerHTML = renderTimeline(d);
+  };
+  window.requestTimelineDetails = function(id) {
+    var d = state.data['timeline'];
+    if (!d) return;
+    var all = (d.live || []).concat(d.historical || []).concat(d.failed || []);
+    var tl = null;
+    for (var i = 0; i < all.length; i++) { if (all[i].id === id) { tl = all[i]; break; } }
+    if (!tl) return;
+    var detailEl = document.getElementById('timelineDetail');
+    if (!detailEl) return;
+    detailEl.innerHTML = '<div class=\"section\"><h3>Timeline: ' + esc(id) + '</h3>' +
+      detail('Status', tl.status || '?') +
+      detail('Events', tl.eventCount ?? tl.events?.length ?? 0) +
+      (tl.error ? detail('Error', tl.error) : '') +
+      (tl.durationMs ? detail('Duration', tl.durationMs + 'ms') : '') +
+      (tl.startedAt ? detail('Started', formatTime(tl.startedAt)) : '') +
+      (tl.completedAt ? detail('Completed', formatTime(tl.completedAt)) : '') +
+      '</div><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:300px\">' + safeJson(tl) + '</pre>';
+  };
 
   /* ---- Message Handling ---- */
   window.addEventListener('message', function(event) {
