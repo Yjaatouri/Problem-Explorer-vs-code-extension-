@@ -161,6 +161,7 @@ export interface SystemSnapshot {
 export interface Snapshot {
   readonly metadata: SnapshotMetadata;
   readonly data: SystemSnapshot;
+  readonly sizeBytes: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -192,7 +193,6 @@ export class SnapshotSystem {
   protected readonly providerFailureSub: TelemetrySubscription;
   protected disposed = false;
   protected autoCaptureTimer?: ReturnType<typeof setInterval>;
-  protected autoCaptureIntervalMs = 0;
 
   /* Runtime state tracked via events */
   protected activeScans = 0;
@@ -278,7 +278,6 @@ export class SnapshotSystem {
       clearInterval(this.autoCaptureTimer);
       this.autoCaptureTimer = undefined;
     }
-    this.autoCaptureIntervalMs = intervalMs;
     if (intervalMs > 0) {
       this.autoCaptureTimer = setInterval(() => {
         if (this.disposed) return;
@@ -314,7 +313,7 @@ export class SnapshotSystem {
         workspaceFolders: this.workspaceFolders,
       };
 
-      const snapshot: Snapshot = { metadata, data };
+      const snapshot: Snapshot = { metadata, data, sizeBytes };
 
       this.snapshots.set(id, snapshot);
       this.evictSnapshots();
@@ -343,7 +342,7 @@ export class SnapshotSystem {
       const removed = this.snapshots.get(oldest);
       this.snapshots.delete(oldest);
       if (removed) {
-        try { this.totalSnapshotSizeBytes -= new TextEncoder().encode(JSON.stringify(removed.data)).length; } catch { this.totalSnapshotSizeBytes -= JSON.stringify(removed.data).length * 2; }
+        this.totalSnapshotSizeBytes -= removed.sizeBytes;
       }
     }
   }
@@ -355,7 +354,7 @@ export class SnapshotSystem {
   deleteSnapshot(id: SnapshotId): boolean {
     const snapshot = this.snapshots.get(id);
     if (!snapshot) return false;
-    try { this.totalSnapshotSizeBytes = Math.max(0, this.totalSnapshotSizeBytes - new TextEncoder().encode(JSON.stringify(snapshot.data)).length); } catch { /* skip size adjustment */ }
+    this.totalSnapshotSizeBytes = Math.max(0, this.totalSnapshotSizeBytes - snapshot.sizeBytes);
     return this.snapshots.delete(id);
   }
 
@@ -413,14 +412,18 @@ export class SnapshotSystem {
     let imported = 0;
     for (const snapshot of snapshots) {
       if (!this.snapshots.has(snapshot.metadata.id)) {
-        this.snapshots.set(snapshot.metadata.id, snapshot);
+        const entry = { ...snapshot, sizeBytes: snapshot.sizeBytes ?? 0 };
+        if (entry.sizeBytes === 0) {
+          try { entry.sizeBytes = new TextEncoder().encode(JSON.stringify(entry.data)).length; } catch { entry.sizeBytes = JSON.stringify(entry.data).length * 2; }
+        }
+        this.snapshots.set(entry.metadata.id as SnapshotId, entry);
         imported++;
         this.totalSnapshots++;
-        const triggerKey = snapshot.metadata.trigger as string;
+        const triggerKey = entry.metadata.trigger as string;
         this.snapshotsByTrigger.set(triggerKey, (this.snapshotsByTrigger.get(triggerKey) ?? 0) + 1);
-        if (snapshot.metadata.trigger === SnapshotTrigger.Manual) this.totalManual++;
-        if (snapshot.metadata.trigger === SnapshotTrigger.Automatic) this.totalAutomatic++;
-        try { this.totalSnapshotSizeBytes += new TextEncoder().encode(JSON.stringify(snapshot.data)).length; } catch { this.totalSnapshotSizeBytes += JSON.stringify(snapshot.data).length * 2; }
+        if (entry.metadata.trigger === SnapshotTrigger.Manual) this.totalManual++;
+        if (entry.metadata.trigger === SnapshotTrigger.Automatic) this.totalAutomatic++;
+        this.totalSnapshotSizeBytes += entry.sizeBytes;
       }
     }
     if (imported > 0) this.evictSnapshots();
@@ -459,16 +462,6 @@ export class SnapshotSystem {
 
   private captureMonitors(): SnapshotMonitorState | undefined {
     const monitors: SnapshotMonitorState = {};
-    if (this.storeMonitor) {
-      try {
-        const store = this.problemStore;
-        monitors.store = store ? {
-          version: store.getVersion(),
-          size: store.size(),
-          totals: store.computeTotals(),
-        } : {};
-      } catch { /* skip */ }
-    }
     if (this.providerMonitor) {
       try { monitors.provider = { snapshots: this.providerMonitor.getAllSnapshots() }; } catch { /* skip */ }
     }
@@ -534,6 +527,13 @@ export class SnapshotSystem {
       }
     });
 
+    const providerPriorities: Record<string, number> = {};
+    if (this.dpm) {
+      for (const info of this.dpm.all()) {
+        providerPriorities[info.name] = (info.metadata as any)?.priority ?? -1;
+      }
+    }
+
     return {
       version: this.problemStore.getVersion(),
       entryCount: this.problemStore.size(),
@@ -542,7 +542,7 @@ export class SnapshotSystem {
       totalErrors: totals.errorCount,
       totalWarnings: totals.warningCount,
       totalInfos: totals.infoCount,
-      providerPriorities: {},
+      providerPriorities,
       entries,
       folderAggregates,
     };
@@ -671,6 +671,14 @@ export class SnapshotSystem {
     lines.push(`[SNAPSHOT:REPORT]   Buffer size:             ${s.config.bufferSize}`);
     lines.push(`[SNAPSHOT:REPORT]   Flush interval (ms):     ${s.config.flushIntervalMs}`);
     lines.push(`[SNAPSHOT:REPORT]   Include stack traces:    ${s.config.includeStackTraces}`);
+    lines.push(``);
+    lines.push(`[SNAPSHOT:REPORT] -- Monitors --`);
+    if (s.monitors) {
+      const activeMonitors = Object.keys(s.monitors).filter((k) => s.monitors![k as keyof SnapshotMonitorState] !== undefined);
+      lines.push(`[SNAPSHOT:REPORT]   Active monitors: ${activeMonitors.join(', ') || 'none'}`);
+    } else {
+      lines.push(`[SNAPSHOT:REPORT]   No monitor references available`);
+    }
     lines.push(``);
     lines.push(`[SNAPSHOT:REPORT] ===== END SYSTEM SNAPSHOT =====`);
     return lines.join('\n');
