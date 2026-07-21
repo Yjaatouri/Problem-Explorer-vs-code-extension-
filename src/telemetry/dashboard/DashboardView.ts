@@ -479,43 +479,57 @@ export class DashboardView implements DashboardViewApi {
       statCard('Throughput', (d.throughput || 0) + '/s') +
       statCard('Total Samples', (d.totalSamples || 0).toLocaleString()) +
       statCard('Bottlenecks', (d.bottlenecks || []).length) +
+      statCard('Peak Queue', d.peakQueueSize ?? '--') +
     '</div>';
     if (d.resources) {
       html += '<div class=\"section\"><h3>Resources</h3>' +
         detail('Memory', (d.resources.memoryMb || 0) + ' MB') +
         detail('Heap Used', (d.resources.heapUsedMb || 0) + ' MB') +
+        detail('Heap Total', (d.resources.heapTotalMb || 0) + ' MB') +
         detail('Active Pipelines', d.resources.activePipelines ?? 0) +
         detail('Active Scans', d.resources.activeScans ?? 0) +
         detail('Queued Writes', d.resources.queuedWrites ?? 0) +
+        detail('Snapshot Count', d.resources.snapshotCount ?? 0) +
         '</div>';
     }
     if (d.latency) {
-      html += '<div class=\"section\"><h3>Latency (p95)</h3><table><tr><th>Metric</th><th>Avg</th><th>p50</th><th>p95</th><th>p99</th><th>Samples</th></tr>';
-      for (var k in d.latency) {
-        var l = d.latency[k];
-        html += '<tr><td>' + esc(k) + '</td><td>' + (l.averageMs || 0) + 'ms</td><td>' + (l.p50Ms || 0) + 'ms</td><td>' + (l.p95Ms || 0) + 'ms</td><td>' + (l.p99Ms || 0) + 'ms</td><td>' + (l.sampleCount || 0) + '</td></tr>';
+      var latencyKeys = Object.keys(d.latency);
+      if (latencyKeys.length > 0) {
+        html += '<div class=\"section\"><h3>Latency Metrics (' + latencyKeys.length + ')</h3><table><tr><th>Metric</th><th>Avg</th><th>Min</th><th>Max</th><th>p50</th><th>p95</th><th>p99</th><th>Samples</th></tr>';
+        for (var k = 0; k < latencyKeys.length; k++) {
+          var l = d.latency[latencyKeys[k]];
+          html += '<tr><td>' + esc(latencyKeys[k]) + '</td><td>' + (l.averageMs || 0) + 'ms</td><td>' + (l.minMs || 0) + 'ms</td><td>' + (l.maxMs || 0) + 'ms</td><td>' + (l.p50Ms || 0) + 'ms</td><td>' + (l.p95Ms || 0) + 'ms</td><td>' + (l.p99Ms || 0) + 'ms</td><td>' + (l.sampleCount || 0) + '</td></tr>';
+        }
+        html += '</table>';
       }
-      html += '</table>';
+    }
+    if (d.slowestOperation) {
+      html += '<div class=\"section\"><h3>Slowest Operation</h3>' +
+        detail('Metric', d.slowestOperation.metric || '') +
+        detail('Duration', (d.slowestOperation.valueMs || 0) + 'ms') +
+        detail('Timestamp', formatTime(d.slowestOperation.timestamp)) +
+        '</div>';
     }
     if (d.health && d.health.reasons && d.health.reasons.length > 0) {
-      html += '<div class=\"section\"><h3>Health Reasons</h3><ul>';
+      html += '<div class=\"section\"><h3>Health Deductions</h3><ul>';
       for (var r = 0; r < d.health.reasons.length; r++) {
-        html += '<li>' + esc(d.health.reasons[r]) + '</li>';
+        html += '<li style=\"color:var(--vscode-errorForeground,#f48771)\">\\u26A0 ' + esc(d.health.reasons[r]) + '</li>';
       }
       html += '</ul></div>';
     }
     if (d.bottlenecks && d.bottlenecks.length > 0) {
-      html += '<div class=\"section\"><h3>Bottlenecks</h3><ul>';
+      html += '<div class=\"section\"><h3>Bottlenecks</h3><table><tr><th>Bottleneck</th></tr>';
       for (var b = 0; b < d.bottlenecks.length; b++) {
-        html += '<li>' + esc(d.bottlenecks[b]) + '</li>';
+        html += '<tr><td><span class=\"status-dot red\"></span>' + esc(d.bottlenecks[b]) + '</td></tr>';
       }
-      html += '</ul></div>';
+      html += '</table></div>';
     }
     if (d.provider && d.provider.length > 0) {
-      html += '<div class=\"section\"><h3>Provider Latency</h3>' + makeTable(['Provider','Scans','Avg Scan','Refreshes','Avg Refresh','Failures'], d.provider, function(p) {
-        return [esc(p.provider), p.scanCount || 0, (p.scanAverageMs || 0) + 'ms', p.refreshCount || 0, (p.refreshAverageMs || 0) + 'ms', p.failures || 0];
+      html += '<div class=\"section\"><h3>Provider Performance</h3>' + makeTable(['Provider','Scans','Avg Scan','Refreshes','Avg Refresh','Failures','Timeouts'], d.provider, function(p) {
+        return [esc(p.provider), p.scanCount || 0, (p.scanAverageMs || 0) + 'ms', p.refreshCount || 0, (p.refreshAverageMs || 0) + 'ms', p.failures || 0, p.timeouts || 0];
       }) + '</div>';
     }
+    html += '<div style=\"text-align:right;font-size:10px;color:var(--vscode-descriptionForeground);padding-top:8px\">Last updated: ' + formatTime(Date.now()) + ' | Tracked since: ' + formatTime(d.trackedSince) + '</div>';
     return html;
   }
 
