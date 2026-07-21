@@ -3,6 +3,7 @@ import { ProblemStore } from '../../store/ProblemStore';
 import { DiagnosticProviderManager, ProviderState } from '../../providers/DiagnosticProviderManager';
 import { ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
+import { EventPipelineMonitor, PipelineId } from './EventPipelineMonitor';
 import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 
@@ -815,6 +816,225 @@ export function createProviderInvalidRefreshRule(manager: DiagnosticProviderMana
 }
 
 /* ------------------------------------------------------------------ */
+/*  Task 5 — Pipeline Assertion Rules                                  */
+/* ------------------------------------------------------------------ */
+
+/** Detect missing pipeline stages: a completed pipeline is missing expected stages */
+export function createPipelineMissingStageRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.missingStage', description: 'Detect completed pipelines missing expected stages',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      const stats = monitor.getStatistics();
+      if (stats.totalExecutions === 0) return passResult(start);
+      const depGraph = monitor.getDependencyGraph();
+      const expectedStages = ['autoScan', 'provider', 'diagnostics', 'store', 'folder', 'decoration'];
+      for (const [pipelineId] of depGraph) {
+        const timeline = monitor.getPipelineTimeline(pipelineId);
+        if (!timeline.execution) continue;
+        for (const stage of expectedStages) {
+          if (!timeline.execution.stages.has(stage)) {
+            failures.push({ assertion: 'pipeline.missingStage', category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Pipeline ${pipelineId} missing stage "${stage}"`, pipelineId: pipelineId as string });
+            break;
+          }
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect duplicate stages in a pipeline execution */
+export function createPipelineDuplicateStageRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.duplicateStage', description: 'Detect pipelines with duplicate stage entries',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      const depGraph = monitor.getDependencyGraph();
+      for (const [pipelineId] of depGraph) {
+        const timeline = monitor.getPipelineTimeline(pipelineId);
+        if (!timeline.execution) continue;
+        const stageNames = new Set<string>();
+        for (const stage of (timeline as any).execution.stageOrder as string[]) {
+          if (stageNames.has(stage)) {
+            failures.push({ assertion: 'pipeline.duplicateStage', category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Pipeline ${pipelineId} has duplicate stage "${stage}"`, pipelineId: pipelineId as string });
+          }
+          stageNames.add(stage);
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect invalid stage order: stages out of expected order */
+export function createPipelineInvalidStageOrderRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.invalidStageOrder', description: 'Detect stages in unexpected order',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      const expectedOrder = ['autoScan', 'provider', 'diagnostics', 'store', 'folder', 'decoration'];
+      const depGraph = monitor.getDependencyGraph();
+      for (const [pipelineId] of depGraph) {
+        const timeline = monitor.getPipelineTimeline(pipelineId);
+        if (!timeline.execution) continue;
+        const stageOrder = (timeline as any).execution.stageOrder as string[];
+        let lastIdx = -1;
+        for (const stage of stageOrder) {
+          const idx = expectedOrder.indexOf(stage);
+          if (idx >= 0 && idx < lastIdx) {
+            failures.push({ assertion: 'pipeline.invalidStageOrder', category: AssertionCategory.Pipeline, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Pipeline ${pipelineId}: stage "${stage}" appeared after "${stageOrder[stageOrder.indexOf(stage) - 1]}" in unexpected order`, pipelineId: pipelineId as string });
+          }
+          if (idx >= 0) lastIdx = idx;
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect orphan events: events not linked to any execution */
+export function createPipelineOrphanEventRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.orphanEvent', description: 'Detect pipeline events not linked to any execution',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalExecutions === 0 && stats.totalEvents === 0) return passResult(start);
+      if (stats.totalExecutions === 0 && stats.totalEvents > 0) {
+        return failResult('pipeline.orphanEvent', AssertionCategory.Pipeline, AssertionSeverity.Warning,
+          `${stats.totalEvents} events with no executions`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect broken execution chain: events with missing seq pointers */
+export function createPipelineBrokenChainRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.brokenChain', description: 'Detect broken event sequence chains',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      const depGraph = monitor.getDependencyGraph();
+      for (const [pipelineId] of depGraph) {
+        const timeline = monitor.getPipelineTimeline(pipelineId);
+        if (!timeline.execution) continue;
+        const events = timeline.events;
+        for (let i = 1; i < events.length; i++) {
+          const prev = events[i - 1];
+          const curr = events[i];
+          if (prev.nextEventSeq !== curr.seq && curr.previousEventSeq !== prev.seq) {
+            failures.push({ assertion: 'pipeline.brokenChain', category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Broken seq chain at event ${curr.seq}: prev=${prev.seq} next=${curr.seq}`, pipelineId: pipelineId as string });
+          }
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect pipeline timeout: executions that may have timed out */
+export function createPipelineTimeoutRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.timeout', description: 'Detect timed-out pipeline executions',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.StopPipeline] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.timedOutExecutions > 0) {
+        return failResult('pipeline.timeout', AssertionCategory.Pipeline, AssertionSeverity.Error,
+          `${stats.timedOutExecutions} pipeline(s) timed out`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect circular execution in pipeline dependency graph */
+export function createPipelineCircularExecutionRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.circularExecution', description: 'Detect circular dependencies in pipeline graph',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.StopPipeline] },
+    execute: () => {
+      const start = Date.now();
+      const depGraph = monitor.getDependencyGraph();
+      const visited = new Set<string>();
+      const inStack = new Set<string>();
+
+      function hasCycle(node: string, graph: Map<string, string[]>): boolean {
+        if (inStack.has(node)) return true;
+        if (visited.has(node)) return false;
+        visited.add(node);
+        inStack.add(node);
+        const children = graph.get(node);
+        if (children) {
+          for (const child of children) {
+            if (hasCycle(child, graph)) return true;
+          }
+        }
+        inStack.delete(node);
+        return false;
+      }
+
+      for (const [node] of depGraph) {
+        if (hasCycle(node as string, depGraph as unknown as Map<string, string[]>)) {
+          return failResult('pipeline.circularExecution', AssertionCategory.Pipeline, AssertionSeverity.Error,
+            `Circular dependency detected in pipeline graph starting at ${node}`, start);
+        }
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect duplicate pipeline IDs */
+export function createPipelineDuplicateIdRule(monitor: EventPipelineMonitor): AssertionRule {
+  return {
+    name: 'pipeline.duplicatePipelineId', description: 'Detect duplicate pipeline IDs',
+    category: AssertionCategory.Pipeline, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const executions = m.executions as Map<PipelineId, unknown> | undefined;
+      if (!executions || executions.size === 0) return passResult(start);
+      const seen = new Set<string>();
+      const failures: AssertionFailure[] = [];
+      for (const id of executions.keys()) {
+        const idStr = id as string;
+        if (seen.has(idStr)) {
+          failures.push({ assertion: 'pipeline.duplicatePipelineId', category: AssertionCategory.Pipeline, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Duplicate pipeline ID: ${idStr}`, pipelineId: idStr });
+        }
+        seen.add(idStr);
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  RuntimeAssertions — Main Facade                                    */
 /* ------------------------------------------------------------------ */
 
@@ -883,6 +1103,25 @@ export class RuntimeAssertions implements Disposable {
       createProviderOwnershipMismatchRule(manager, store),
       createProviderDuplicateScanRule(manager),
       createProviderInvalidRefreshRule(manager),
+    ];
+    for (const rule of rules) {
+      disposables.push(this.engine.registerRule(rule));
+    }
+    return disposables;
+  }
+
+  /** Register all pipeline assertion rules (Task 5) */
+  registerPipelineAssertions(monitor: EventPipelineMonitor): Disposable[] {
+    const disposables: Disposable[] = [];
+    const rules: AssertionRule[] = [
+      createPipelineMissingStageRule(monitor),
+      createPipelineDuplicateStageRule(monitor),
+      createPipelineInvalidStageOrderRule(monitor),
+      createPipelineOrphanEventRule(monitor),
+      createPipelineBrokenChainRule(monitor),
+      createPipelineTimeoutRule(monitor),
+      createPipelineCircularExecutionRule(monitor),
+      createPipelineDuplicateIdRule(monitor),
     ];
     for (const rule of rules) {
       disposables.push(this.engine.registerRule(rule));
