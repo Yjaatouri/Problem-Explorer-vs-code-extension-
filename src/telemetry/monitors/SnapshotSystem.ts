@@ -348,6 +348,63 @@ export class SnapshotSystem {
     return [...this.snapshots.values()];
   }
 
+  /** Serialize a snapshot to a JSON string for storage or export */
+  static serializeSnapshot(snapshot: Snapshot, pretty?: boolean): string {
+    return JSON.stringify(snapshot, null, pretty ? 2 : undefined);
+  }
+
+  /** Serialize an array of snapshots to a JSON string */
+  static serializeSnapshots(snapshots: readonly Snapshot[], pretty?: boolean): string {
+    return JSON.stringify(snapshots, null, pretty ? 2 : undefined);
+  }
+
+  /** Deserialize a single snapshot from a JSON string */
+  static deserializeSnapshot(json: string): Snapshot {
+    const parsed = JSON.parse(json);
+    if (!parsed || !parsed.metadata || !parsed.data) {
+      throw new Error('Invalid snapshot JSON: missing metadata or data');
+    }
+    const metadata = parsed.metadata as SnapshotMetadata;
+    const data = parsed.data as SystemSnapshot;
+    if (!metadata.id || !metadata.timestamp || !metadata.trigger) {
+      throw new Error('Invalid snapshot JSON: metadata missing required fields');
+    }
+    return { metadata, data } as Snapshot;
+  }
+
+  /** Deserialize an array of snapshots from a JSON string */
+  static deserializeSnapshots(json: string): Snapshot[] {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) {
+      throw new Error('Invalid snapshots JSON: expected an array');
+    }
+    return parsed.map((item: unknown) => {
+      const obj = item as any;
+      if (!obj?.metadata || !obj?.data) {
+        throw new Error('Invalid snapshot entry in array: missing metadata or data');
+      }
+      return { metadata: obj.metadata as SnapshotMetadata, data: obj.data as SystemSnapshot } as Snapshot;
+    });
+  }
+
+  /** Export all stored snapshots as a JSON string */
+  exportAllSnapshots(pretty?: boolean): string {
+    return SnapshotSystem.serializeSnapshots(this.listSnapshots(), pretty);
+  }
+
+  /** Import snapshots from a JSON string and add them to the store */
+  importSnapshots(json: string): number {
+    const snapshots = SnapshotSystem.deserializeSnapshots(json);
+    let imported = 0;
+    for (const snapshot of snapshots) {
+      if (!this.snapshots.has(snapshot.metadata.id)) {
+        this.snapshots.set(snapshot.metadata.id, snapshot);
+        imported++;
+      }
+    }
+    return imported;
+  }
+
   getStatistics(): SnapshotStatistics {
     return {
       totalSnapshots: this.totalSnapshots,
