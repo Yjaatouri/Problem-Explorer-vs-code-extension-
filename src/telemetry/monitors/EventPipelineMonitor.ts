@@ -145,11 +145,37 @@ export interface PipelineDuplicateEventData {
   readonly duplicateSeq: number;
 }
 
+export interface PipelineCorrelationEventData {
+  readonly type: 'pipeline.correlation';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
+  readonly pipelineId: PipelineId;
+  readonly relatedPipelineId: PipelineId;
+  readonly relation: 'parent-child' | 'traceId' | 'causal';
+  readonly traceIds: string[];
+}
+
+export type CausalChainLink = {
+  readonly pipelineId: PipelineId;
+  readonly pipelineEvent: PipelineEvent;
+  readonly traceId: string;
+  readonly parentTraceId?: string;
+  readonly depth: number;
+};
+
+export type CausalChain = {
+  readonly rootTraceId: string;
+  readonly links: CausalChainLink[];
+  readonly depth: number;
+};
+
 export type EventPipelineMonitorEvent =
   | PipelineExecutionStartedEventData
   | PipelineExecutionCompletedEventData
   | PipelineStageEventData
-  | PipelineDuplicateEventData;
+  | PipelineDuplicateEventData
+  | PipelineCorrelationEventData;
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -206,6 +232,8 @@ export class EventPipelineMonitor {
   private readonly executionsByUri = new Map<string, Set<PipelineId>>();
   private readonly seenKeys = new Map<string, number>();
   private readonly allEvents: PipelineEvent[] = [];
+  private readonly traceIdIndex = new Map<string, Set<PipelineEvent>>();
+  private readonly pipelineDependencies = new Map<PipelineId, Set<PipelineId>>();
   private readonly subscription: TelemetrySubscription;
   private readonly staleTimer: ReturnType<typeof setInterval>;
   private disposed = false;
@@ -267,12 +295,28 @@ export class EventPipelineMonitor {
       }
     }
 
-    /* Check linked by traceId chain to an existing execution */
+    /* Check if this traceId already belongs to an execution */
+    if (event.traceId) {
+      const existing = this.traceIdIndex.get(event.traceId);
+      if (existing && existing.size > 0) {
+        const first = existing.values().next().value;
+        if (first) {
+          const ex = this.executions.get(first.pipelineId);
+          if (ex && ex.status === 'running') {
+            ex.lastActivityAt = Date.now();
+            return ex;
+          }
+        }
+      }
+    }
+
+    /* Check linked by parentTraceId chain to an existing execution */
     if (event.parentTraceId) {
-      for (const [, ex] of this.executions) {
-        if (ex.status !== 'running') continue;
-        for (const pe of ex.events) {
-          if (pe.event.traceId === event.parentTraceId) {
+      const parentSet = this.traceIdIndex.get(event.parentTraceId);
+      if (parentSet) {
+        for (const pe of parentSet) {
+          const ex = this.executions.get(pe.pipelineId);
+          if (ex && ex.status === 'running') {
             ex.lastActivityAt = Date.now();
             return ex;
           }
@@ -358,6 +402,36 @@ export class EventPipelineMonitor {
 
     execution.events.push(pipelineEvent);
     this.allEvents.push(pipelineEvent);
+
+    /* Index by traceId */
+    const traceId = event.traceId;
+    if (traceId) {
+      let eventSet = this.traceIdIndex.get(traceId);
+      if (!eventSet) {
+        eventSet = new Set();
+        this.traceIdIndex.set(traceId, eventSet);
+      }
+      eventSet.add(pipelineEvent);
+    }
+
+    /* Link parent-child pipelines via parentTraceId */
+    if (event.parentTraceId) {
+      const parentSet = this.traceIdIndex.get(event.parentTraceId);
+      if (parentSet) {
+        for (const pe of parentSet) {
+          if (pe.pipelineId !== execution.id) {
+            let deps = this.pipelineDependencies.get(execution.id);
+            if (!deps) {
+              deps = new Set();
+              this.pipelineDependencies.set(execution.id, deps);
+            }
+            deps.add(pe.pipelineId);
+            this.emitCorrelation(execution.id, pe.pipelineId, 'parent-child', [traceId, event.parentTraceId]);
+            break;
+          }
+        }
+      }
+    }
 
     /* Enforce event cap per execution */
     if (execution.events.length > MAX_EVENTS_PER_EXECUTION) {
@@ -587,6 +661,19 @@ export class EventPipelineMonitor {
     } as any);
   }
 
+  private emitCorrelation(pipelineId: PipelineId, relatedPipelineId: PipelineId, relation: 'parent-child' | 'traceId' | 'causal', traceIds: string[]): void {
+    this.reporter.report({
+      type: 'pipeline.correlation',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'EventPipelineMonitor',
+      pipelineId,
+      relatedPipelineId,
+      relation,
+      traceIds,
+    } as any);
+  }
+
   private emitStageEvent(execution: PipelineExecution, stage: string, status: StageStatus, durationMs?: number, error?: string): void {
     this.reporter.report({
       type: 'pipeline.stage',
@@ -657,6 +744,70 @@ export class EventPipelineMonitor {
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Correlation API                                                    */
+  /* ------------------------------------------------------------------ */
+
+  getEventsByTraceId(traceId: string): PipelineEvent[] {
+    const set = this.traceIdIndex.get(traceId);
+    return set ? [...set] : [];
+  }
+
+  getExecutionsByTraceId(traceId: string): PipelineExecution[] {
+    const set = this.traceIdIndex.get(traceId);
+    if (!set || set.size === 0) return [];
+    const seen = new Set<PipelineId>();
+    const result: PipelineExecution[] = [];
+    for (const pe of set) {
+      if (!seen.has(pe.pipelineId)) {
+        seen.add(pe.pipelineId);
+        const ex = this.executions.get(pe.pipelineId);
+        if (ex) result.push(ex);
+      }
+    }
+    return result;
+  }
+
+  getCausalChain(traceId: string): CausalChain {
+    const links: CausalChainLink[] = [];
+    let currentTraceId: string | undefined = traceId;
+    let depth = 0;
+
+    while (currentTraceId) {
+      const eventSet = this.traceIdIndex.get(currentTraceId);
+      if (!eventSet || eventSet.size === 0) break;
+
+      const pe = eventSet.values().next().value as PipelineEvent;
+      const parentTraceId = pe.event.parentTraceId;
+
+      links.push({
+        pipelineId: pe.pipelineId,
+        pipelineEvent: pe,
+        traceId: currentTraceId,
+        parentTraceId,
+        depth,
+      });
+
+      currentTraceId = parentTraceId;
+      depth++;
+    }
+
+    return { rootTraceId: traceId, links, depth };
+  }
+
+  getDependencyGraph(): Map<PipelineId, PipelineId[]> {
+    const result = new Map<PipelineId, PipelineId[]>();
+    for (const [child, parents] of this.pipelineDependencies) {
+      result.set(child, [...parents]);
+    }
+    return result;
+  }
+
+  getParentPipelines(pipelineId: PipelineId): PipelineId[] {
+    const deps = this.pipelineDependencies.get(pipelineId);
+    return deps ? [...deps] : [];
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Lifecycle                                                          */
   /* ------------------------------------------------------------------ */
 
@@ -669,6 +820,8 @@ export class EventPipelineMonitor {
     this.executionsByUri.clear();
     this.seenKeys.clear();
     this.allEvents.length = 0;
+    this.traceIdIndex.clear();
+    this.pipelineDependencies.clear();
   }
 }
 
