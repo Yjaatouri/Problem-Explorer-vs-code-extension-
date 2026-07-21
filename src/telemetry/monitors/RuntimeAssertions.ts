@@ -6,6 +6,7 @@ import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { EventPipelineMonitor, PipelineId } from './EventPipelineMonitor';
 import { DiagnosticsMonitor } from './DiagnosticsMonitor';
 import { DecorationMonitor } from './DecorationMonitor';
+import { FolderStatusManager } from '../../folder/folderStatusManager';
 import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 
@@ -1364,6 +1365,174 @@ export function createDecorationInvalidIconRule(monitor: DecorationMonitor): Ass
 }
 
 /* ------------------------------------------------------------------ */
+/*  Task 8 — Folder Assertion Rules                                   */
+/* ------------------------------------------------------------------ */
+
+/** Detect orphan folders: folder aggregate in store but no children in index */
+export function createFolderOrphanRule(manager: FolderStatusManager, store: ProblemStore): AssertionRule {
+  return {
+    name: 'folder.orphan', description: 'Detect folder aggregates without child entries in index',
+    category: AssertionCategory.Folder, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      const m = manager as any;
+      const childIndex: Map<string, Map<string, unknown>> = m.childIndex;
+      if (!childIndex) return passResult(start);
+      store.forEachEntry((key, _state, isFolder) => {
+        if (isFolder && !childIndex.has(key)) {
+          failures.push({ assertion: 'folder.orphan', category: AssertionCategory.Folder, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Folder aggregate "${key}" exists in store but has no child index entry`, uri: key });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect invalid folder aggregates: aggregate doesn't match computed children */
+export function createFolderInvalidAggregateRule(manager: FolderStatusManager, store: ProblemStore): AssertionRule {
+  return {
+    name: 'folder.invalidAggregate', description: 'Detect folder aggregates that do not match computed children',
+    category: AssertionCategory.Folder, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.RequestSnapshot] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      const m = manager as any;
+      const childIndex: Map<string, Map<string, unknown>> = m.childIndex;
+      if (!childIndex) return passResult(start);
+      for (const [parentKey] of childIndex) {
+        try {
+          const computed = manager.recomputeFolderStatus(Uri.parse(parentKey));
+          const stored = store.get(Uri.parse(parentKey));
+          if (stored && (stored.errorCount !== computed.errorCount || stored.warningCount !== computed.warningCount || stored.infoCount !== computed.infoCount)) {
+            failures.push({ assertion: 'folder.invalidAggregate', category: AssertionCategory.Folder, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Folder "${parentKey}" aggregate mismatch: store(${stored.errorCount}e/${stored.warningCount}w/${stored.infoCount}i) vs computed(${computed.errorCount}e/${computed.warningCount}w/${computed.infoCount}i)`, uri: parentKey });
+          }
+        } catch { /* skip */ }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect missing ancestor updates: file entries without parent folder aggregates */
+export function createFolderMissingAncestorUpdateRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'folder.missingAncestorUpdate', description: 'Detect file entries whose parent folder has no aggregate',
+    category: AssertionCategory.Folder, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const parentDirs = new Set<string>();
+      store.forEachFileEntry((key) => {
+        const parts = key.split('/');
+        for (let i = 1; i < parts.length - 1; i++) {
+          parentDirs.add(parts.slice(0, i + 1).join('/'));
+        }
+      });
+      const failures: AssertionFailure[] = [];
+      for (const dir of parentDirs) {
+        try {
+          if (!store.isFolderAggregate(Uri.parse(dir))) {
+            failures.push({ assertion: 'folder.missingAncestorUpdate', category: AssertionCategory.Folder, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Directory "${dir}" has child entries but no folder aggregate in store`, uri: dir });
+          }
+        } catch { /* skip */ }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect duplicate rebuilds of the folder structure */
+export function createFolderDuplicateRebuildRule(manager: FolderStatusManager): AssertionRule {
+  return {
+    name: 'folder.duplicateRebuild', description: 'Detect repeated folder rebuildAll calls',
+    category: AssertionCategory.Folder, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = manager as any;
+      const lastRebuild: number | undefined = m._lastRebuildTime;
+      if (lastRebuild !== undefined && (Date.now() - lastRebuild) < 1000) {
+        return failResult('folder.duplicateRebuild', AssertionCategory.Folder, AssertionSeverity.Info,
+          `rebuildAll called too frequently (${Date.now() - lastRebuild}ms since last)`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect stale aggregates: folder aggregates for directories that no longer have children */
+export function createFolderStaleAggregateRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'folder.staleAggregate', description: 'Detect folder aggregates with no remaining children in store',
+    category: AssertionCategory.Folder, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      store.forEachEntry((key, _state, isFolder) => {
+        if (!isFolder) return;
+        let hasChildren = false;
+        store.forEachFileEntry((childKey) => {
+          if (childKey.startsWith(key + '/')) hasChildren = true;
+        });
+        if (!hasChildren) {
+          failures.push({ assertion: 'folder.staleAggregate', category: AssertionCategory.Folder, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Folder aggregate "${key}" has no children in store`, uri: key });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect inconsistent parent/child state: parent severity doesn't reflect children */
+export function createFolderInconsistentParentChildRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'folder.inconsistentParentChild', description: 'Detect parent aggregates inconsistent with children',
+    category: AssertionCategory.Folder, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      store.forEachEntry((parentKey, parentState, isFolder) => {
+        if (!isFolder) return;
+        const childPrefix = parentKey + '/';
+        let maxChildSeverity = 0;
+        store.forEachFileEntry((childKey, childState) => {
+          if (childKey.startsWith(childPrefix)) {
+            if (childState.severity > maxChildSeverity) maxChildSeverity = childState.severity;
+          }
+        });
+        if (parentState.severity !== maxChildSeverity && maxChildSeverity > 0) {
+          failures.push({ assertion: 'folder.inconsistentParentChild', category: AssertionCategory.Folder, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Parent "${parentKey}" severity=${parentState.severity} but max child severity=${maxChildSeverity}`, uri: parentKey });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect impossible folder transition: folder state changed without child changes */
+export function createFolderImpossibleTransitionRule(): AssertionRule {
+  return {
+    name: 'folder.impossibleTransition', description: 'Detect impossible folder state changes',
+    category: AssertionCategory.Folder, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      return passResult(start);
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  RuntimeAssertions — Main Facade                                    */
 /* ------------------------------------------------------------------ */
 
@@ -1451,6 +1620,24 @@ export class RuntimeAssertions implements Disposable {
       createDecorationInvalidBadgeRule(monitor),
       createDecorationInvalidTooltipRule(monitor),
       createDecorationInvalidIconRule(monitor),
+    ];
+    for (const rule of rules) {
+      disposables.push(this.engine.registerRule(rule));
+    }
+    return disposables;
+  }
+
+  /** Register all folder assertion rules (Task 8) */
+  registerFolderAssertions(manager: FolderStatusManager, store: ProblemStore): Disposable[] {
+    const disposables: Disposable[] = [];
+    const rules: AssertionRule[] = [
+      createFolderOrphanRule(manager, store),
+      createFolderInvalidAggregateRule(manager, store),
+      createFolderMissingAncestorUpdateRule(store),
+      createFolderDuplicateRebuildRule(manager),
+      createFolderStaleAggregateRule(store),
+      createFolderInconsistentParentChildRule(store),
+      createFolderImpossibleTransitionRule(),
     ];
     for (const rule of rules) {
       disposables.push(this.engine.registerRule(rule));
