@@ -1,6 +1,6 @@
 import { Disposable } from 'vscode';
 import { ProblemStore } from '../../store/ProblemStore';
-import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
+import { DiagnosticProviderManager, ProviderState } from '../../providers/DiagnosticProviderManager';
 import { ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
@@ -663,6 +663,158 @@ export function createStoreMissingProviderRule(store: ProblemStore, manager: Dia
 }
 
 /* ------------------------------------------------------------------ */
+/*  Task 4 — Provider Assertion Rules                                  */
+/* ------------------------------------------------------------------ */
+
+/** Detect providers in invalid or unexpected states */
+export function createProviderInvalidStateRule(manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'provider.invalidState', description: 'Detect providers in error or disposed states',
+    category: AssertionCategory.Provider, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      for (const info of manager.all()) {
+        if (info.state === ProviderState.error) {
+          failures.push({ assertion: 'provider.invalidState', category: AssertionCategory.Provider, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Provider "${info.name}" is in error state`, provider: info.name });
+        }
+        if (info.state === ProviderState.disposed) {
+          failures.push({ assertion: 'provider.invalidState', category: AssertionCategory.Provider, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Provider "${info.name}" is disposed`, provider: info.name });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect provider running twice (duplicate entries) */
+export function createProviderDuplicateRunningRule(manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'provider.duplicateRunning', description: 'Detect multiple providers with same name',
+    category: AssertionCategory.Provider, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const seen = new Set<string>();
+      const failures: AssertionFailure[] = [];
+      for (const info of manager.all()) {
+        if (seen.has(info.name)) {
+          failures.push({ assertion: 'provider.duplicateRunning', category: AssertionCategory.Provider, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Duplicate provider name "${info.name}"`, provider: info.name });
+        }
+        seen.add(info.name);
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect disposed providers that still have scanning flag true */
+export function createProviderDisposedWhileScanningRule(manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'provider.disposedWhileScanning', description: 'Detect disposed providers still marked as scanning',
+    category: AssertionCategory.Provider, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      for (const info of manager.all()) {
+        if (info.state === ProviderState.disposed && info.provider.scanning) {
+          failures.push({ assertion: 'provider.disposedWhileScanning', category: AssertionCategory.Provider, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Provider "${info.name}" is disposed but scanning=${info.provider.scanning}`, provider: info.name });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect providers that never completed scanning (stuck in scanning state) */
+export function createProviderNeverCompletedRule(manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'provider.neverCompleted', description: 'Detect providers scanning for too long (possible stuck)',
+    category: AssertionCategory.Provider, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      for (const info of manager.all()) {
+        if (info.provider.scanning && info.state === ProviderState.running) {
+          failures.push({ assertion: 'provider.neverCompleted', category: AssertionCategory.Provider, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Provider "${info.name}" has been scanning for an extended period`, provider: info.name });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect ownership mismatch: store key owned by provider that shouldn't own it */
+export function createProviderOwnershipMismatchRule(manager: DiagnosticProviderManager, store: ProblemStore): AssertionRule {
+  return {
+    name: 'provider.ownershipMismatch', description: 'Detect ownership mismatches between store and provider capabilities',
+    category: AssertionCategory.Provider, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      const providerNames = new Set(manager.all().map((p) => p.name));
+      store.forEachFileEntry((key) => {
+        const owner = store.getOwnerForKey(key);
+        if (owner && !providerNames.has(owner)) {
+          failures.push({ assertion: 'provider.ownershipMismatch', category: AssertionCategory.Provider, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Key ${key} owned by "${owner}" which is not registered`, uri: key, provider: owner });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect duplicate scans: same provider scanned multiple times concurrently */
+export function createProviderDuplicateScanRule(manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'provider.duplicateScan', description: 'Detect providers scanning multiple times concurrently',
+    category: AssertionCategory.Provider, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const scanning: string[] = [];
+      for (const info of manager.all()) {
+        if (info.provider.scanning) {
+          scanning.push(info.name);
+        }
+      }
+      if (scanning.length <= 1) return passResult(start);
+      return failResult('provider.duplicateScan', AssertionCategory.Provider, AssertionSeverity.Warning,
+        `${scanning.length} providers scanning concurrently: ${scanning.join(', ')}`, start);
+    },
+  };
+}
+
+/** Detect invalid refresh lifecycle: refresh called in wrong state */
+export function createProviderInvalidRefreshRule(manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'provider.invalidRefresh', description: 'Detect provider refresh in invalid state',
+    category: AssertionCategory.Provider, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      for (const info of manager.all()) {
+        if (info.state === ProviderState.disposed || info.state === ProviderState.error) {
+          failures.push({ assertion: 'provider.invalidRefresh', category: AssertionCategory.Provider, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Provider "${info.name}" in state ${info.state} cannot be refreshed`, provider: info.name });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  RuntimeAssertions — Main Facade                                    */
 /* ------------------------------------------------------------------ */
 
@@ -713,6 +865,24 @@ export class RuntimeAssertions implements Disposable {
       createStoreDuplicateOwnershipRule(store),
       createStoreInvalidFolderAggregateRule(store),
       createStoreMissingProviderRule(store, manager),
+    ];
+    for (const rule of rules) {
+      disposables.push(this.engine.registerRule(rule));
+    }
+    return disposables;
+  }
+
+  /** Register all provider assertion rules (Task 4) */
+  registerProviderAssertions(manager: DiagnosticProviderManager, store: ProblemStore): Disposable[] {
+    const disposables: Disposable[] = [];
+    const rules: AssertionRule[] = [
+      createProviderInvalidStateRule(manager),
+      createProviderDuplicateRunningRule(manager),
+      createProviderDisposedWhileScanningRule(manager),
+      createProviderNeverCompletedRule(manager),
+      createProviderOwnershipMismatchRule(manager, store),
+      createProviderDuplicateScanRule(manager),
+      createProviderInvalidRefreshRule(manager),
     ];
     for (const rule of rules) {
       disposables.push(this.engine.registerRule(rule));
