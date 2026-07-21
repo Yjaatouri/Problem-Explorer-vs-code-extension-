@@ -5,6 +5,14 @@ import { generateTraceId, now } from '../../telemetry/TelemetryConfig';
 import { ProblemStore } from '../../store/ProblemStore';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
 import { TelemetryConfigManager } from '../../telemetry/TelemetryConfig';
+import { StoreMonitor } from './StoreMonitor';
+import { ProviderMonitor } from './ProviderMonitor';
+import { AutoScannerMonitor } from './AutoScannerMonitor';
+import { DiagnosticsMonitor } from './DiagnosticsMonitor';
+import { FolderMonitor } from './FolderMonitor';
+import { DecorationMonitor } from './DecorationMonitor';
+import { EventPipelineMonitor } from './EventPipelineMonitor';
+import { RuntimeAssertions } from './RuntimeAssertions';
 
 /* ------------------------------------------------------------------ */
 /*  Snapshot ID                                                        */
@@ -106,14 +114,14 @@ export interface ConfigSnapshot {
 /* ------------------------------------------------------------------ */
 
 export interface SnapshotMonitorState {
-  readonly store?: Record<string, unknown>;
-  readonly provider?: Record<string, unknown>;
-  readonly autoScanner?: Record<string, unknown>;
-  readonly diagnostics?: Record<string, unknown>;
-  readonly folder?: Record<string, unknown>;
-  readonly decoration?: Record<string, unknown>;
-  readonly pipeline?: Record<string, unknown>;
-  readonly runtimeAssertions?: Record<string, unknown>;
+  store?: Record<string, unknown>;
+  provider?: Record<string, unknown>;
+  autoScanner?: Record<string, unknown>;
+  diagnostics?: Record<string, unknown>;
+  folder?: Record<string, unknown>;
+  decoration?: Record<string, unknown>;
+  pipeline?: Record<string, unknown>;
+  runtimeAssertions?: Record<string, unknown>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -191,6 +199,14 @@ export class SnapshotSystem {
     protected readonly problemStore?: ProblemStore,
     protected readonly dpm?: DiagnosticProviderManager,
     protected readonly configManager?: TelemetryConfigManager,
+    protected readonly storeMonitor?: StoreMonitor,
+    protected readonly providerMonitor?: ProviderMonitor,
+    protected readonly autoScannerMonitor?: AutoScannerMonitor,
+    protected readonly diagnosticsMonitor?: DiagnosticsMonitor,
+    protected readonly folderMonitor?: FolderMonitor,
+    protected readonly decorationMonitor?: DecorationMonitor,
+    protected readonly pipelineMonitor?: EventPipelineMonitor,
+    protected readonly runtimeAssertions?: RuntimeAssertions,
   ) {
     this.sub = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
@@ -305,7 +321,50 @@ export class SnapshotSystem {
       scans: { active: this.activeScans, queued: this.queuedScans },
       timers: { active: this.activeTimers },
       config: this.captureConfig(),
+      monitors: this.captureMonitors(),
     };
+  }
+
+  private captureMonitors(): SnapshotMonitorState | undefined {
+    const monitors: SnapshotMonitorState = {};
+    if (this.storeMonitor) {
+      try {
+        const store = this.problemStore;
+        monitors.store = store ? {
+          version: store.getVersion(),
+          size: store.size(),
+          totals: store.computeTotals(),
+        } : {};
+      } catch { /* skip */ }
+    }
+    if (this.providerMonitor) {
+      try { monitors.provider = { snapshots: this.providerMonitor.getAllSnapshots() }; } catch { /* skip */ }
+    }
+    if (this.autoScannerMonitor) {
+      try { monitors.autoScanner = this.autoScannerMonitor.getSnapshot() as any; } catch { /* skip */ }
+    }
+    if (this.diagnosticsMonitor) {
+      try { monitors.diagnostics = this.diagnosticsMonitor.captureSnapshot() as any; } catch { /* skip */ }
+    }
+    if (this.folderMonitor) {
+      try { monitors.folder = this.folderMonitor.captureSnapshot() as any; } catch { /* skip */ }
+    }
+    if (this.decorationMonitor) {
+      try { monitors.decoration = this.decorationMonitor.captureSnapshot() as any; } catch { /* skip */ }
+    }
+    if (this.pipelineMonitor) {
+      try { monitors.pipeline = this.pipelineMonitor.captureSnapshot() as any; } catch { /* skip */ }
+    }
+    if (this.runtimeAssertions) {
+      try {
+        monitors.runtimeAssertions = {
+          statistics: this.runtimeAssertions.engine.getStatistics(),
+          failures: this.runtimeAssertions.engine.getFailures().slice(0, 50),
+        };
+      } catch { /* skip */ }
+    }
+    if (Object.keys(monitors).length === 0) return undefined;
+    return monitors;
   }
 
   private captureStore(): StoreSnapshot {
