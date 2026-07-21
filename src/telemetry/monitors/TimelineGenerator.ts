@@ -188,6 +188,7 @@ const PIPELINE_STEPS: ReadonlyArray<{
 
 const MAX_TIMELINES = 500;
 const MAX_EVENTS_PER_TIMELINE = 2000;
+const MAX_TRACE_ENTRIES = 2000;
 
 /* ------------------------------------------------------------------ */
 /*  TimelineGenerator                                                  */
@@ -227,6 +228,10 @@ export class TimelineGenerator {
       chain = [];
       this.eventsByTraceId.set(event.traceId, chain);
       this.traceOrder.push(event.traceId);
+      if (this.traceOrder.length > MAX_TRACE_ENTRIES) {
+        const oldestTrace = this.traceOrder.shift()!;
+        this.eventsByTraceId.delete(oldestTrace);
+      }
     }
     chain.push(event);
 
@@ -274,6 +279,12 @@ export class TimelineGenerator {
 
     if (this.timelineOrder.length > MAX_TIMELINES) {
       const oldest = this.timelineOrder.shift()!;
+      const evicted = this.timelines.get(oldest);
+      if (evicted) {
+        for (const tid of evicted.traceIds) {
+          this.eventsByTraceId.delete(tid);
+        }
+      }
       this.timelines.delete(oldest);
     }
 
@@ -301,8 +312,25 @@ export class TimelineGenerator {
 
     if (best) {
       this.addEventToTimeline(best, event);
+      return;
+    }
+
+    let traceInTerminatedTimeline = false;
+    for (const tl of this.timelines.values()) {
+      if (tl.status === TimelineStatus.Live) continue;
+      if (tl.traceIds.includes(event.traceId)) {
+        traceInTerminatedTimeline = true;
+        break;
+      }
+    }
+
+    if (traceInTerminatedTimeline) {
+      const newId = this.createTimelineFromEvent(event);
+      const fresh = this.timelines.get(newId);
+      if (fresh) this.addEventToTimeline(fresh, event);
     } else {
-      this.addEventToTimeline(this.timelines.get(this.timelineOrder[this.timelineOrder.length - 1])!, event);
+      const latest = this.timelines.get(this.timelineOrder[this.timelineOrder.length - 1]);
+      if (latest) this.addEventToTimeline(latest, event);
     }
   }
 
@@ -378,7 +406,22 @@ export class TimelineGenerator {
     }
 
     if (timeline.events.length > MAX_EVENTS_PER_TIMELINE) {
-      timeline.events.splice(0, timeline.events.length - MAX_EVENTS_PER_TIMELINE);
+      const removeCount = timeline.events.length - MAX_EVENTS_PER_TIMELINE;
+      const removed = timeline.events.splice(0, removeCount);
+      const removedSeqs = new Set(removed.map((e) => e.seq));
+      for (const remaining of timeline.events) {
+        if (remaining.previousEventSeq !== undefined && removedSeqs.has(remaining.previousEventSeq)) {
+          remaining.previousEventSeq = undefined;
+        }
+        if (remaining.parentEventSeq !== undefined && removedSeqs.has(remaining.parentEventSeq)) {
+          remaining.parentEventSeq = undefined;
+        }
+        for (let i = remaining.childEventSeqs.length - 1; i >= 0; i--) {
+          if (removedSeqs.has(remaining.childEventSeqs[i])) {
+            remaining.childEventSeqs.splice(i, 1);
+          }
+        }
+      }
     }
   }
 
@@ -480,6 +523,9 @@ export class TimelineGenerator {
   deleteTimeline(id: TimelineId): boolean {
     const tl = this.timelines.get(id);
     if (!tl) return false;
+    for (const tid of tl.traceIds) {
+      this.eventsByTraceId.delete(tid);
+    }
     this.timelines.delete(id);
     const idx = this.timelineOrder.indexOf(id);
     if (idx >= 0) this.timelineOrder.splice(idx, 1);
@@ -1024,6 +1070,9 @@ export class TimelineGenerator {
     this.timelineOrder.length = 0;
     this.eventsByTraceId.clear();
     this.traceOrder.length = 0;
+    this.totalCreated = 0;
+    this.totalReconstructionTimeMs = 0;
+    this.reconstructionCount = 0;
   }
 }
 
