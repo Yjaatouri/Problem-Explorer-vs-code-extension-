@@ -86,439 +86,458 @@ export class DashboardView implements DashboardViewApi {
       overflow: hidden;
       height: 100vh;
     }
-    #app {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-
-    /* Header */
-    .header {
-      display: flex;
-      align-items: center;
-      padding: 8px 16px;
-      background: var(--vscode-titleBar-activeBackground, #323233);
-      border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
-      flex-shrink: 0;
-    }
-    .header h1 {
-      font-size: 16px;
-      font-weight: 600;
-      flex: 1;
-    }
-    .header .badge {
-      font-size: 11px;
-      background: var(--vscode-badge-background, #4d4d4d);
-      color: var(--vscode-badge-foreground, #fff);
-      padding: 2px 8px;
-      border-radius: 10px;
-      margin-left: 8px;
-    }
-
-    /* Navigation sidebar */
-    .layout {
-      display: flex;
-      flex: 1;
-      overflow: hidden;
-    }
-    .sidebar {
-      width: 180px;
-      background: var(--vscode-sideBar-background, #252526);
-      border-right: 1px solid var(--vscode-panel-border, #3c3c3c);
-      overflow-y: auto;
-      flex-shrink: 0;
-    }
-    .nav-item {
-      display: flex;
-      align-items: center;
-      padding: 8px 12px;
-      cursor: pointer;
-      border-left: 3px solid transparent;
-      transition: background 0.15s;
-    }
-    .nav-item:hover {
-      background: var(--vscode-list-hoverBackground, #2a2d2e);
-    }
-    .nav-item.active {
-      background: var(--vscode-list-activeSelectionBackground, #094771);
-      color: var(--vscode-list-activeSelectionForeground, #fff);
-      border-left-color: var(--vscode-focusBorder, #007fd4);
-    }
-    .nav-item .icon {
-      width: 20px;
-      text-align: center;
-      margin-right: 8px;
-    }
-
-    /* Content area */
-    .content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px;
-    }
-    .panel {
-      display: none;
-    }
-    .panel.active {
-      display: block;
-    }
-
-    /* Status indicators */
-    .status-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      margin-right: 6px;
-    }
-    .status-dot.green { background: #4ec9b0; }
-    .status-dot.yellow { background: #dcdcaa; }
-    .status-dot.red { background: #f44747; }
-    .status-dot.gray { background: #6a6a6a; }
-
-    /* Stat cards */
-    .stat-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-    .stat-card {
-      background: var(--vscode-editorWidget-background, #252526);
-      border: 1px solid var(--vscode-widget-border, #3c3c3c);
-      border-radius: 6px;
-      padding: 12px;
-    }
-    .stat-card .label {
-      font-size: 11px;
-      text-transform: uppercase;
-      color: var(--vscode-descriptionForeground, #8c8c8c);
-      margin-bottom: 4px;
-    }
-    .stat-card .value {
-      font-size: 22px;
-      font-weight: 600;
-    }
-    .stat-card .sub {
-      font-size: 11px;
-      color: var(--vscode-descriptionForeground, #8c8c8c);
-      margin-top: 2px;
-    }
-
-    /* Tables */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 16px;
-    }
-    th, td {
-      text-align: left;
-      padding: 6px 10px;
-      border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
-    }
-    th {
-      font-size: 11px;
-      text-transform: uppercase;
-      color: var(--vscode-descriptionForeground, #8c8c8c);
-      position: sticky;
-      top: 0;
-      background: var(--vscode-editor-background, #1e1e1e);
-    }
-    tr:hover {
-      background: var(--vscode-list-hoverBackground, #2a2d2e);
-    }
-
-    /* Loading spinner */
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid var(--vscode-editor-foreground, #ccc);
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .loading-overlay {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 40px;
-      gap: 8px;
-    }
-
-    .error-banner {
-      background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
-      color: var(--vscode-inputValidation-errorForeground, #f48771);
-      border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
-      border-radius: 4px;
-      padding: 8px 12px;
-      margin-bottom: 12px;
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 32px;
-      color: var(--vscode-descriptionForeground, #8c8c8c);
-    }
-
-    /* Search bar */
-    .search-bar {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-    .search-bar input, .search-bar select {
-      background: var(--vscode-input-background, #3c3c3c);
-      color: var(--vscode-input-foreground, #ccc);
-      border: 1px solid var(--vscode-input-border, #3c3c3c);
-      padding: 4px 8px;
-      border-radius: 3px;
-      font-size: 12px;
-    }
-    .search-bar input { flex: 1; min-width: 150px; }
-    .search-bar input:focus, .search-bar select:focus {
-      outline: none;
-      border-color: var(--vscode-focusBorder, #007fd4);
-    }
-
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, #424242); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground, #555); }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    .header { display:flex; align-items:center; padding:8px 16px; background:var(--vscode-titleBar-activeBackground,#323233); border-bottom:1px solid var(--vscode-panel-border,#3c3c3c); flex-shrink:0; }
+    .header h1 { font-size:16px; font-weight:600; flex:1; }
+    .header .badge { font-size:11px; background:var(--vscode-badge-background,#4d4d4d); color:var(--vscode-badge-foreground,#fff); padding:2px 8px; border-radius:10px; margin-left:8px; }
+    .layout { display:flex; flex:1; overflow:hidden; }
+    .sidebar { width:180px; background:var(--vscode-sideBar-background,#252526); border-right:1px solid var(--vscode-panel-border,#3c3c3c); overflow-y:auto; flex-shrink:0; }
+    .nav-item { display:flex; align-items:center; padding:8px 12px; cursor:pointer; border-left:3px solid transparent; transition:background 0.15s; }
+    .nav-item:hover { background:var(--vscode-list-hoverBackground,#2a2d2e); }
+    .nav-item.active { background:var(--vscode-list-activeSelectionBackground,#094771); color:var(--vscode-list-activeSelectionForeground,#fff); border-left-color:var(--vscode-focusBorder,#007fd4); }
+    .nav-item .icon { width:20px; text-align:center; margin-right:8px; }
+    .content { flex:1; overflow-y:auto; padding:16px; }
+    .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+    .status-dot.green { background:#4ec9b0; }
+    .status-dot.yellow { background:#dcdcaa; }
+    .status-dot.red { background:#f44747; }
+    .status-dot.gray { background:#6a6a6a; }
+    .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-bottom:16px; }
+    .stat-card { background:var(--vscode-editorWidget-background,#252526); border:1px solid var(--vscode-widget-border,#3c3c3c); border-radius:6px; padding:12px; }
+    .stat-card .label { font-size:11px; text-transform:uppercase; color:var(--vscode-descriptionForeground,#8c8c8c); margin-bottom:4px; }
+    .stat-card .value { font-size:22px; font-weight:600; }
+    .stat-card .sub { font-size:11px; color:var(--vscode-descriptionForeground,#8c8c8c); margin-top:2px; }
+    .section { margin-bottom:20px; }
+    .section h3 { font-size:14px; font-weight:600; margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid var(--vscode-panel-border,#3c3c3c); }
+    table { width:100%; border-collapse:collapse; margin-bottom:16px; }
+    th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--vscode-panel-border,#3c3c3c); }
+    th { font-size:11px; text-transform:uppercase; color:var(--vscode-descriptionForeground,#8c8c8c); position:sticky; top:0; background:var(--vscode-editor-background,#1e1e1e); }
+    tr:hover { background:var(--vscode-list-hoverBackground,#2a2d2e); }
+    .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--vscode-editor-foreground,#ccc); border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .loading-overlay { display:flex; align-items:center; justify-content:center; padding:40px; gap:8px; }
+    .error-banner { background:var(--vscode-inputValidation-errorBackground,#5a1d1d); color:var(--vscode-inputValidation-errorForeground,#f48771); border:1px solid var(--vscode-inputValidation-errorBorder,#be1100); border-radius:4px; padding:8px 12px; margin-bottom:12px; }
+    .empty-state { text-align:center; padding:32px; color:var(--vscode-descriptionForeground,#8c8c8c); }
+    .search-bar { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+    .search-bar input,.search-bar select { background:var(--vscode-input-background,#3c3c3c); color:var(--vscode-input-foreground,#ccc); border:1px solid var(--vscode-input-border,#3c3c3c); padding:4px 8px; border-radius:3px; font-size:12px; }
+    .search-bar input { flex:1; min-width:150px; }
+    .search-bar input:focus,.search-bar select:focus { outline:none; border-color:var(--vscode-focusBorder,#007fd4); }
+    .detail-row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--vscode-panel-border,#3c3c3c); }
+    .detail-label { color:var(--vscode-descriptionForeground,#8c8c8c); }
+    .detail-value { font-weight:500; }
+    ::-webkit-scrollbar { width:8px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--vscode-scrollbarSlider-background,#424242); border-radius:4px; }
+    ::-webkit-scrollbar-thumb:hover { background:var(--vscode-scrollbarSlider-hoverBackground,#555); }
   </style>
 </head>
 <body>
-  <div id="app">
-    <div class="header">
-      <h1>Problem Explorer Dashboard</h1>
-      <span class="badge" id="healthBadge">--</span>
-      <span style="margin-left:8px;font-size:11px;color:var(--vscode-descriptionForeground)" id="refreshStatus"></span>
-    </div>
-    <div class="layout">
-      <nav class="sidebar" id="sidebar"></nav>
-      <main class="content" id="content">
-        <div class="loading-overlay"><span class="spinner"></span> Loading dashboard...</div>
-      </main>
-    </div>
+<div id="app">
+  <div class="header">
+    <h1>Problem Explorer Dashboard</h1>
+    <span class="badge" id="healthBadge">--</span>
+    <span style="margin-left:8px;font-size:11px;color:var(--vscode-descriptionForeground)" id="refreshStatus"></span>
   </div>
+  <div class="layout">
+    <nav class="sidebar" id="sidebar"></nav>
+    <main class="content" id="content">
+      <div class="loading-overlay"><span class="spinner"></span> Loading dashboard...</div>
+    </main>
+  </div>
+</div>
 
-  <script>
-    (function() {
-      const vscode = acquireVsCodeApi();
-      let state = { currentPanel: 'overview', data: {}, loading: {}, error: undefined, filter: {} };
+<script>
+(function() {
+  const vscode = acquireVsCodeApi();
+  let state = { currentPanel: 'overview', data: {}, loading: {}, error: undefined, filter: {} };
 
-      /* ---- Navigation ---- */
-      const panels = [
-        { id:'overview', label:'Overview', icon:'\\u25A3' },
-        { id:'store', label:'Store', icon:'\\u2261' },
-        { id:'provider', label:'Providers', icon:'\\u2699' },
-        { id:'autoscanner', label:'AutoScanner', icon:'\\u25B6' },
-        { id:'diagnostics', label:'Diagnostics', icon:'\\u2697' },
-        { id:'folder', label:'Folder', icon:'\\u25A1' },
-        { id:'decoration', label:'Decoration', icon:'\\u270E' },
-        { id:'pipeline', label:'Pipeline', icon:'\\u2388' },
-        { id:'assertions', label:'Assertions', icon:'\\u2713' },
-        { id:'snapshots', label:'Snapshots', icon:'\\u231A' },
-        { id:'timeline', label:'Timeline', icon:'\\u29D6' },
-        { id:'filelogger', label:'File Logger', icon:'\\u266B' },
-        { id:'performance', label:'Performance', icon:'\\u26A1' },
-        { id:'export', label:'Export', icon:'\\u2B07' },
-      ];
+  const panels = [
+    { id:'overview', label:'Overview', icon:'\\u25A3' },
+    { id:'store', label:'Store', icon:'\\u2261' },
+    { id:'provider', label:'Providers', icon:'\\u2699' },
+    { id:'autoscanner', label:'AutoScanner', icon:'\\u25B6' },
+    { id:'diagnostics', label:'Diagnostics', icon:'\\u2697' },
+    { id:'folder', label:'Folder', icon:'\\u25A1' },
+    { id:'decoration', label:'Decoration', icon:'\\u270E' },
+    { id:'pipeline', label:'Pipeline', icon:'\\u2388' },
+    { id:'assertions', label:'Assertions', icon:'\\u2713' },
+    { id:'snapshots', label:'Snapshots', icon:'\\u231A' },
+    { id:'timeline', label:'Timeline', icon:'\\u29D6' },
+    { id:'filelogger', label:'File Logger', icon:'\\u266B' },
+    { id:'performance', label:'Performance', icon:'\\u26A1' },
+    { id:'export', label:'Export', icon:'\\u2B07' },
+  ];
 
-      const sidebar = document.getElementById('sidebar');
-      const content = document.getElementById('content');
-      const healthBadge = document.getElementById('healthBadge');
+  const sidebar = document.getElementById('sidebar');
+  const content = document.getElementById('content');
+  const healthBadge = document.getElementById('healthBadge');
 
-      function renderNav() {
-        sidebar.innerHTML = panels.map(p => \`
-          <div class="nav-item \${state.currentPanel === p.id ? 'active' : ''}" data-panel="\${p.id}">
-            <span class="icon">\${p.icon}</span>
-            <span>\${p.label}</span>
-          </div>
-        \`).join('');
-
-        sidebar.querySelectorAll('.nav-item').forEach(el => {
-          el.addEventListener('click', () => {
-            const panel = el.dataset.panel;
-            state.currentPanel = panel;
-            renderNav();
-            vscode.postMessage({ type: 'navigate', panel });
-          });
-        });
-      }
-
-      /* ---- Panel Renderers ---- */
-      function renderPanel(panelId, data) {
-        switch (panelId) {
-          case 'overview': return renderOverview(data);
-          case 'store': return renderPlaceholder('Store Monitor', data);
-          case 'provider': return renderPlaceholder('Provider Monitor', data);
-          case 'autoscanner': return renderPlaceholder('AutoScanner Monitor', data);
-          case 'diagnostics': return renderPlaceholder('Diagnostics Monitor', data);
-          case 'folder': return renderPlaceholder('Folder Monitor', data);
-          case 'decoration': return renderPlaceholder('Decoration Monitor', data);
-          case 'pipeline': return renderPlaceholder('EventPipeline Monitor', data);
-          case 'assertions': return renderPlaceholder('Runtime Assertions', data);
-          case 'snapshots': return renderPlaceholder('Snapshot Viewer', data);
-          case 'timeline': return renderPlaceholder('Timeline Viewer', data);
-          case 'filelogger': return renderPlaceholder('File Logger', data);
-          case 'performance': return renderPlaceholder('Performance Monitor', data);
-          case 'export': return renderExportPanel();
-          default: return '<div class="empty-state">Unknown panel</div>';
-        }
-      }
-
-      function renderOverview(data) {
-        if (!data) return '<div class="loading-overlay"><span class="spinner"></span> Loading...</div>';
-        const d = data;
-        return \`
-          <div class="stat-grid">
-            <div class="stat-card">
-              <div class="label">Health Score</div>
-              <div class="value" style="color:\${getHealthColor(d.healthScore)}">\${d.healthScore ?? '--'}</div>
-              <div class="sub">Level: \${d.healthLevel ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Memory</div>
-              <div class="value">\${d.memoryMb ?? '--'} MB</div>
-              <div class="sub">heap usage</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Active Providers</div>
-              <div class="value">\${d.activeProviders ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Active Scans</div>
-              <div class="value">\${d.activeScans ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Active Pipelines</div>
-              <div class="value">\${d.activePipelines ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Snapshots</div>
-              <div class="value">\${d.snapshotCount ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Assertion Failures</div>
-              <div class="value">\${d.assertionFailures ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Events Processed</div>
-              <div class="value">\${d.totalEventsProcessed ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Errors</div>
-              <div class="value">\${d.totalErrors ?? '--'}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">Uptime</div>
-              <div class="value">\${formatUptime(d.uptimeSec)}</div>
-            </div>
-          </div>
-          <table>
-            <tr><th>Property</th><th>Value</th></tr>
-            <tr><td>Extension Version</td><td>\${d.extensionVersion ?? '--'}</td></tr>
-            <tr><td>VS Code Version</td><td>\${d.vscodeVersion ?? '--'}</td></tr>
-          </table>
-        \`;
-      }
-
-      function renderPlaceholder(title, data) {
-        return \`
-          <h2>\${title}</h2>
-          <div class="empty-state">
-            <p style="font-size:16px;margin-bottom:8px">\\u{1F6A7} Panel data incoming</p>
-            <p>Data provider will populate this panel with live statistics.</p>
-            <pre style="margin-top:12px;font-size:11px;text-align:left;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto">\${data ? JSON.stringify(data, null, 2) : 'No data yet'}</pre>
-          </div>
-        \`;
-      }
-
-      function renderExportPanel() {
-        return \`
-          <h2>Export</h2>
-          <div class="stat-grid">
-            <div class="stat-card" style="cursor:pointer" onclick="vscode.postMessage({type:'requestExport',format:'json',scope:'overview'})">
-              <div class="label">Export Overview</div>
-              <div class="value" style="font-size:14px">JSON</div>
-              <div class="sub">Download system overview snapshot</div>
-            </div>
-            <div class="stat-card" style="cursor:pointer" onclick="vscode.postMessage({type:'requestExport',format:'json',scope:'performance'})">
-              <div class="label">Export Performance</div>
-              <div class="value" style="font-size:14px">JSON</div>
-              <div class="sub">Download performance report</div>
-            </div>
-            <div class="stat-card" style="cursor:pointer" onclick="vscode.postMessage({type:'requestExport',format:'json',scope:'assertions'})">
-              <div class="label">Export Assertions</div>
-              <div class="value" style="font-size:14px">JSON</div>
-              <div class="sub">Download assertion report</div>
-            </div>
-            <div class="stat-card" style="cursor:pointer" onclick="vscode.postMessage({type:'requestExport',format:'json',scope:'snapshots'})">
-              <div class="label">Export Snapshots</div>
-              <div class="value" style="font-size:14px">JSON</div>
-              <div class="sub">Download all snapshots</div>
-            </div>
-            <div class="stat-card" style="cursor:pointer" onclick="vscode.postMessage({type:'requestExport',format:'json',scope:'timeline'})">
-              <div class="label">Export Timelines</div>
-              <div class="value" style="font-size:14px">JSON</div>
-              <div class="sub">Download timeline data</div>
-            </div>
-          </div>
-        \`;
-      }
-
-      /* ---- Helpers ---- */
-      function getHealthColor(score) {
-        if (score == null) return 'var(--vscode-descriptionForeground)';
-        if (score >= 80) return '#4ec9b0';
-        if (score >= 60) return '#dcdcaa';
-        if (score >= 30) return '#d7ba7d';
-        return '#f44747';
-      }
-
-      function formatUptime(sec) {
-        if (sec == null) return '--';
-        const h = Math.floor(sec / 3600);
-        const m = Math.floor((sec % 3600) / 60);
-        const s = Math.floor(sec % 60);
-        if (h > 0) return \`\${h}h \${m}m \${s}s\`;
-        if (m > 0) return \`\${m}m \${s}s\`;
-        return \`\${s}s\`;
-      }
-
-      /* ---- Message Handling ---- */
-      window.addEventListener('message', event => {
-        const msg = event.data;
-        switch (msg.type) {
-          case 'dataUpdate': {
-            state.data[msg.panel] = msg.data;
-            state.loading[msg.panel] = false;
-            if (msg.panel === state.currentPanel) {
-              content.innerHTML = renderPanel(msg.panel, msg.data);
-            }
-            if (msg.panel === 'overview' && msg.data) {
-              healthBadge.textContent = msg.data.healthLevel ?? '--';
-              healthBadge.style.background = getHealthColor(msg.data.healthScore);
-            }
-            break;
-          }
-          case 'error': {
-            content.innerHTML = \`<div class="error-banner">\\u26A0 \${msg.message}</div>\`;
-            break;
-          }
-        }
+  /* ---- Navigation ---- */
+  function renderNav() {
+    sidebar.innerHTML = panels.map(p => \`<div class="nav-item \${state.currentPanel === p.id ? 'active' : ''}" data-panel="\${p.id}"><span class="icon">\${p.icon}</span><span>\${p.label}</span></div>\`).join('');
+    sidebar.querySelectorAll('.nav-item').forEach(el => {
+      el.addEventListener('click', () => {
+        state.currentPanel = el.dataset.panel;
+        renderNav();
+        vscode.postMessage({ type: 'navigate', panel: el.dataset.panel });
       });
+    });
+  }
 
-      /* ---- Init ---- */
-      renderNav();
-      vscode.postMessage({ type: 'viewReady' });
-    })();
-  </script>
+  /* ---- Panel Renderers ---- */
+  function renderPanel(panelId, data) {
+    if (!data) return '<div class=\"loading-overlay\"><span class=\"spinner\"></span> Loading...</div>';
+    if (data.error) return \`<div class="error-banner">\\u26A0 \${data.error}</div>\`;
+    var fns = {
+      overview: renderOverview, store: renderStore, provider: renderProvider,
+      autoscanner: renderAutoScanner, diagnostics: renderDiagnostics, folder: renderFolder,
+      decoration: renderDecoration, pipeline: renderPipeline, assertions: renderAssertions,
+      snapshots: renderSnapshots, timeline: renderTimeline, filelogger: renderFileLogger,
+      performance: renderPerformance, export: renderExport,
+    };
+    return (fns[panelId] || function(){ return '<div class=\"empty-state\">Unknown panel</div>'; })(data);
+  }
+
+  /* ---- Overview ---- */
+  function renderOverview(d) {
+    return '<div class=\"stat-grid\">' +
+      statCard('Health Score', d.healthScore ?? '--', 'Level: ' + (d.healthLevel ?? '--'), getHealthColor(d.healthScore)) +
+      statCard('Memory', (d.memoryMb ?? 0) + ' MB', 'heap usage') +
+      statCard('Active Providers', d.activeProviders ?? 0) +
+      statCard('Active Scans', d.activeScans ?? 0) +
+      statCard('Active Pipelines', d.activePipelines ?? 0) +
+      statCard('Snapshots', d.snapshotCount ?? 0) +
+      statCard('Assertion Failures', d.assertionFailures ?? 0) +
+      statCard('Events Processed', (d.totalEventsProcessed ?? 0).toLocaleString()) +
+      statCard('Uptime', formatUptime(d.uptimeSec)) +
+    '</div>' +
+    '<div class=\"section\"><h3>Environment</h3>' +
+    detail('Extension', d.extensionVersion || '--') +
+    detail('VS Code', d.vscodeVersion || '--') +
+    '</div>';
+  }
+
+  /* ---- Store ---- */
+  function renderStore(d) {
+    return '<div class=\"section\"><h3>ProblemStore Snapshot</h3>' +
+      detail('Provider Configurations', (d.providers && d.providers.length) || 0) +
+      detail('Owner Configurations', (d.ownerConfig && d.ownerConfig.size) || 0) +
+      '</div><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:400px\">' +
+      safeJson(d) + '</pre>';
+  }
+
+  /* ---- Provider ---- */
+  function renderProvider(d) {
+    var stats = d.statistics || [];
+    var snaps = d.snapshots || [];
+    var html = '<div class=\"section\"><h3>Provider Statistics (' + stats.length + ')</h3>';
+    if (stats.length === 0) html += '<div class=\"empty-state\">No provider statistics</div>';
+    else {
+      html += '<table><tr><th>Provider</th><th>Scans</th><th>Failures</th><th>Timeouts</th><th>Scan Avg</th><th>Refresh Avg</th></tr>';
+      for (var i = 0; i < stats.length; i++) {
+        var s = stats[i];
+        html += '<tr><td>' + esc(s.name) + '</td><td>' + (s.scanCount || 0) + '</td><td>' + (s.failures || 0) + '</td><td>' + (s.timeouts || 0) + '</td><td>' + (s.scanAverageMs || 0) + 'ms</td><td>' + (s.refreshAverageMs || 0) + 'ms</td></tr>';
+      }
+      html += '</table>';
+    }
+    if (snaps.length > 0) {
+      html += '<div class=\"section\"><h3>Provider Snapshots (' + snaps.length + ')</h3><pre style=\"font-size:11px;max-height:200px;overflow:auto\">' + safeJson(snaps.slice(0, 5)) + '</pre></div>';
+    }
+    return html;
+  }
+
+  /* ---- AutoScanner ---- */
+  function renderAutoScanner(d) {
+    return '<div class=\"stat-grid\">' +
+      statCard('File Events', d.totalFileEvents ?? 0) +
+      statCard('Saves', d.totalSaves ?? 0) +
+      statCard('Queued', d.totalQueued ?? 0) +
+      statCard('Flushes', d.totalFlushes ?? 0) +
+      statCard('Providers Executed', d.totalProvidersExecuted ?? 0) +
+      statCard('Refreshes', d.totalRefreshesCompleted ?? 0) +
+      statCard('Debounce Avg', (d.averageDebounceDelayMs || 0) + 'ms') +
+      statCard('Flush Avg', (d.averageFlushDurationMs || 0) + 'ms') +
+    '</div>' +
+    '<div class=\"section\"><h3>Details</h3>' +
+    detail('Creates', d.totalCreates ?? 0) +
+    detail('Deletes', d.totalDeletes ?? 0) +
+    detail('Renames', d.totalRenames ?? 0) +
+    detail('Duplicates', d.totalDuplicateQueueAttempts ?? 0) +
+    detail('Refreshes Failed', d.totalRefreshesFailed ?? 0) +
+    detail('Reschedules', d.totalReschedules ?? 0) +
+    '</div>';
+  }
+
+  /* ---- Diagnostics ---- */
+  function renderDiagnostics(d) {
+    var html = '<div class=\"stat-grid\">' +
+      statCard('Changes', d.totalChanges ?? 0) +
+      statCard('Mapped', d.totalMapped ?? 0) +
+      statCard('Store Writes', d.totalStoreWrites ?? 0) +
+      statCard('Errors', d.totalErrors ?? 0) +
+    '</div>';
+    if (d.byProvider) {
+      html += '<div class=\"section\"><h3>By Provider</h3><table><tr><th>Provider</th><th>Changes</th><th>Mapped</th></tr>';
+      for (var k in d.byProvider) {
+        var p = d.byProvider[k];
+        html += '<tr><td>' + esc(k) + '</td><td>' + (p.changes || 0) + '</td><td>' + (p.mapped || 0) + '</td></tr>';
+      }
+      html += '</table>';
+    }
+    return html;
+  }
+
+  /* ---- Folder ---- */
+  function renderFolder(d) {
+    return '<div class=\"stat-grid\">' +
+      statCard('Rebuilds', d.totalRebuilds ?? 0) +
+      statCard('Ancestor Updates', d.totalAncestorUpdates ?? 0) +
+      statCard('Recomputes', d.totalRecomputes ?? 0) +
+      statCard('Store Writes', d.totalStoreWrites ?? 0) +
+      statCard('Propagations', d.totalPropagations ?? 0) +
+      statCard('Aggregates', d.totalAggregates ?? 0) +
+    '</div>' +
+    '<div class=\"section\"><h3>Details</h3>' +
+    detail('Rebuild Avg', (d.averageRebuildDurationMs || 0) + 'ms') +
+    detail('Ancestor Update Avg', (d.averageAncestorUpdateDurationMs || 0) + 'ms') +
+    detail('Active Folders', d.activeFolders ?? 0) +
+    '</div>';
+  }
+
+  /* ---- Decoration ---- */
+  function renderDecoration(d) {
+    return '<div class=\"stat-grid\">' +
+      statCard('Fire Events', d.totalFireEvents ?? 0) +
+      statCard('Provide Events', d.totalProvideEvents ?? 0) +
+      statCard('Decisions', d.totalDecisions ?? 0) +
+      statCard('Errors', d.totalErrors ?? 0) +
+    '</div>' +
+    '<div class=\"section\"><h3>Details</h3>' +
+    detail('Provide Avg Duration', (d.averageProvideDurationMs || 0) + 'ms') +
+    detail('Refresh Count', d.totalRefreshStarts ?? 0) +
+    detail('Cache Hit Rate', d.cacheHitRate != null ? (d.cacheHitRate * 100).toFixed(1) + '%' : '--') +
+    '</div>';
+  }
+
+  /* ---- Pipeline ---- */
+  function renderPipeline(d) {
+    return '<div class=\"stat-grid\">' +
+      statCard('Total Executions', d.totalExecutions ?? 0) +
+      statCard('Active', d.activeExecutions ?? 0) +
+      statCard('Completed', d.completedExecutions ?? 0) +
+      statCard('Failed', d.failedExecutions ?? 0) +
+      statCard('Cancelled', d.cancelledExecutions ?? 0) +
+      statCard('Timed Out', d.timedOutExecutions ?? 0) +
+      statCard('Throughput', (d.pipelineThroughput || 0) + '/s') +
+      statCard('Peak Concurrent', d.concurrentPipelinePeak ?? 0) +
+    '</div>' +
+    '<div class=\"section\"><h3>Durations</h3>' +
+    detail('Average', (d.averagePipelineDurationMs || 0) + 'ms') +
+    detail('Peak', (d.peakPipelineDurationMs || 0) + 'ms') +
+    '</div>';
+  }
+
+  /* ---- Assertions ---- */
+  function renderAssertions(d) {
+    var stats = d.statistics || {};
+    var failures = d.failures || [];
+    var rules = d.rules || [];
+    return '<div class=\"stat-grid\">' +
+      statCard('Total Rules', rules.length) +
+      statCard('Active Failures', failures.length) +
+      statCard('Total Executed', stats.totalExecuted ?? 0) +
+      statCard('Total Failed', stats.totalFailed ?? 0) +
+      statCard('Pass Rate', stats.totalExecuted > 0 ? ((1 - (stats.totalFailed || 0) / stats.totalExecuted) * 100).toFixed(1) + '%' : '--') +
+    '</div>' +
+    '<div class=\"section\"><h3>Active Failures (' + failures.length + ')</h3>' + (failures.length === 0 ? '<div class=\"empty-state\">No active failures</div>' : makeTable(['Rule','Category','Severity','Count'], failures, function(f) {
+      return [esc(f.ruleName || f.name || '?'), esc(f.category || ''), esc(f.severity || ''), f.count ?? 1];
+    })) + '</div>' +
+    '<div class=\"section\"><h3>Rules (' + rules.length + ')</h3>' + makeTable(['Name','Category','Severity','Enabled'], rules, function(r) {
+      return [esc(r.name), esc(r.category || ''), esc(r.severity || ''), r.enabled ? '\\u2713' : '\\u2717'];
+    }) + '</div>';
+  }
+
+  /* ---- Snapshots ---- */
+  function renderSnapshots(d) {
+    var snaps = d.snapshots || [];
+    var stats = d.statistics || {};
+    return '<div class=\"stat-grid\">' +
+      statCard('Total Snapshots', snaps.length) +
+      statCard('Total Triggers', stats.totalTriggers ?? 0) +
+      statCard('Auto Captures', stats.autoCaptures ?? 0) +
+      statCard('Manual Captures', stats.manualCaptures ?? 0) +
+    '</div>' +
+    '<div class=\"section\"><h3>Snapshots (' + snaps.length + ')</h3>' +
+    (snaps.length === 0 ? '<div class=\"empty-state\">No snapshots</div>' :
+    makeTable(['ID','Trigger','Timestamp','Sections'], snaps, function(s) {
+      return [esc(s.metadata ? s.metadata.id : (s.id || '?')), esc(s.metadata ? s.metadata.trigger : (s.trigger || '?')), formatTime(s.metadata ? s.metadata.timestamp : s.timestamp), s.data ? Object.keys(s.data).length : (s.sections || 0)];
+    })) + '</div>';
+  }
+
+  /* ---- Timeline ---- */
+  function renderTimeline(d) {
+    var stats = d.statistics || {};
+    var live = d.live || [];
+    var historical = d.historical || [];
+    var failed = d.failed || [];
+    return '<div class=\"stat-grid\">' +
+      statCard('Live', live.length) +
+      statCard('Historical', historical.length) +
+      statCard('Failed', failed.length) +
+      statCard('Total Events', stats.totalEvents ?? 0) +
+    '</div>' +
+    '<div class=\"section\"><h3>Live Timelines (' + live.length + ')</h3>' +
+    (live.length === 0 ? '<div class=\"empty-state\">No live timelines</div>' : makeTable(['ID','Status','Events'], live, function(t) { return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0]; })) +
+    '</div>' +
+    '<div class=\"section\"><h3>Failed Timelines (' + failed.length + ')</h3>' +
+    (failed.length === 0 ? '<div class=\"empty-state\">No failed timelines</div>' : makeTable(['ID','Error','Events'], failed, function(t) { return [esc(t.id || '?'), esc(t.error || t.status || '?'), t.eventCount ?? 0]; })) +
+    '</div>';
+  }
+
+  /* ---- File Logger ---- */
+  function renderFileLogger(d) {
+    var stats = d.statistics || {};
+    var session = d.currentSession;
+    var sessions = d.sessions || [];
+    return '<div class=\"stat-grid\">' +
+      statCard('Sessions', stats.totalSessions ?? sessions.length) +
+      statCard('Total Entries', stats.totalEntries ?? 0) +
+      statCard('Current Size', formatBytes(stats.totalBytes ?? 0)) +
+      statCard('Writes Failed', stats.writeFailures ?? 0) +
+    '</div>' +
+    '<div class=\"section\"><h3>Current Session</h3>' +
+    (session ? detail('Session ID', session.id || '?') + detail('Started', formatTime(session.startedAt)) + detail('Entries', session.entryCount ?? 0) : '<div class=\"empty-state\">No active session</div>') +
+    '</div>' +
+    '<div class=\"section\"><h3>Sessions (' + sessions.length + ')</h3>' +
+    (sessions.length === 0 ? '<div class=\"empty-state\">No sessions</div>' : makeTable(['ID','Started','Entries'], sessions, function(s) { return [esc(s.id || '?'), formatTime(s.startedAt), s.entryCount ?? 0]; })) +
+    '</div>';
+  }
+
+  /* ---- Performance ---- */
+  function renderPerformance(d) {
+    var html = '<div class=\"stat-grid\">' +
+      statCard('Health Score', d.health ? d.health.score : '--', 'Level: ' + (d.health ? d.health.level : '--'), d.health ? getHealthColor(d.health.score) : undefined) +
+      statCard('Throughput', (d.throughput || 0) + '/s') +
+      statCard('Total Samples', (d.totalSamples || 0).toLocaleString()) +
+      statCard('Bottlenecks', (d.bottlenecks || []).length) +
+    '</div>';
+    if (d.resources) {
+      html += '<div class=\"section\"><h3>Resources</h3>' +
+        detail('Memory', (d.resources.memoryMb || 0) + ' MB') +
+        detail('Heap Used', (d.resources.heapUsedMb || 0) + ' MB') +
+        detail('Active Pipelines', d.resources.activePipelines ?? 0) +
+        detail('Active Scans', d.resources.activeScans ?? 0) +
+        detail('Queued Writes', d.resources.queuedWrites ?? 0) +
+        '</div>';
+    }
+    if (d.latency) {
+      html += '<div class=\"section\"><h3>Latency (p95)</h3><table><tr><th>Metric</th><th>Avg</th><th>p50</th><th>p95</th><th>p99</th><th>Samples</th></tr>';
+      for (var k in d.latency) {
+        var l = d.latency[k];
+        html += '<tr><td>' + esc(k) + '</td><td>' + (l.averageMs || 0) + 'ms</td><td>' + (l.p50Ms || 0) + 'ms</td><td>' + (l.p95Ms || 0) + 'ms</td><td>' + (l.p99Ms || 0) + 'ms</td><td>' + (l.sampleCount || 0) + '</td></tr>';
+      }
+      html += '</table>';
+    }
+    if (d.health && d.health.reasons && d.health.reasons.length > 0) {
+      html += '<div class=\"section\"><h3>Health Reasons</h3><ul>';
+      for (var r = 0; r < d.health.reasons.length; r++) {
+        html += '<li>' + esc(d.health.reasons[r]) + '</li>';
+      }
+      html += '</ul></div>';
+    }
+    if (d.bottlenecks && d.bottlenecks.length > 0) {
+      html += '<div class=\"section\"><h3>Bottlenecks</h3><ul>';
+      for (var b = 0; b < d.bottlenecks.length; b++) {
+        html += '<li>' + esc(d.bottlenecks[b]) + '</li>';
+      }
+      html += '</ul></div>';
+    }
+    if (d.provider && d.provider.length > 0) {
+      html += '<div class=\"section\"><h3>Provider Latency</h3>' + makeTable(['Provider','Scans','Avg Scan','Refreshes','Avg Refresh','Failures'], d.provider, function(p) {
+        return [esc(p.provider), p.scanCount || 0, (p.scanAverageMs || 0) + 'ms', p.refreshCount || 0, (p.refreshAverageMs || 0) + 'ms', p.failures || 0];
+      }) + '</div>';
+    }
+    return html;
+  }
+
+  /* ---- Export ---- */
+  function renderExport() {
+    return '<h2>Export</h2><div class=\"stat-grid\">' +
+      clickCard('Export Overview', 'JSON', 'Download system overview', 'overview') +
+      clickCard('Export Performance', 'JSON', 'Download performance report', 'performance') +
+      clickCard('Export Assertions', 'JSON', 'Download assertion report', 'assertions') +
+      clickCard('Export Snapshots', 'JSON', 'Download all snapshots', 'snapshots') +
+      clickCard('Export Timelines', 'JSON', 'Download timeline data', 'timeline') +
+    '</div>';
+  }
+
+  /* ---- Helpers ---- */
+  function statCard(label, value, sub, color) {
+    return '<div class=\"stat-card\"><div class=\"label\">' + esc(label) + '</div><div class=\"value\"' + (color ? ' style=\"color:' + color + '\"' : '') + '>' + esc(value) + '</div>' + (sub ? '<div class=\"sub\">' + esc(sub) + '</div>' : '') + '</div>';
+  }
+  function clickCard(label, value, sub, scope) {
+    return '<div class=\"stat-card\" style=\"cursor:pointer\" onclick=\"vscode.postMessage({type:\'requestExport\',format:\'json\',scope:\'' + scope + '\'})\"><div class=\"label\">' + label + '</div><div class=\"value\" style=\"font-size:14px\">' + value + '</div><div class=\"sub\">' + sub + '</div></div>';
+  }
+  function detail(label, value) {
+    return '<div class=\"detail-row\"><span class=\"detail-label\">' + esc(label) + '</span><span class=\"detail-value\">' + esc(value) + '</span></div>';
+  }
+  function makeTable(headers, rows, fn) {
+    var h = '<table><tr>' + headers.map(function(hdr) { return '<th>' + hdr + '</th>'; }).join('') + '</tr>';
+    for (var i = 0; i < rows.length; i++) {
+      var cells = fn(rows[i]);
+      h += '<tr>' + cells.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>';
+    }
+    return h + '</table>';
+  }
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\'/g,'&#39;').replace(/\x60/g,'&#96;'); }
+  function formatUptime(sec) {
+    if (sec == null) return '--';
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
+    return h > 0 ? h + 'h ' + m + 'm ' + s + 's' : m > 0 ? m + 'm ' + s + 's' : s + 's';
+  }
+  function formatTime(ts) {
+    if (!ts) return '--';
+    try { return new Date(ts).toLocaleTimeString(); } catch(e) { return String(ts); }
+  }
+  function formatBytes(b) {
+    if (!b) return '0 B';
+    var u = ['B','KB','MB','GB'], i = 0;
+    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+    return b.toFixed(1) + ' ' + u[i];
+  }
+  function safeJson(obj) { try { return JSON.stringify(obj, null, 2); } catch(e) { return String(obj); } }
+  function getHealthColor(score) {
+    if (score == null) return 'var(--vscode-descriptionForeground)';
+    if (score >= 80) return '#4ec9b0';
+    if (score >= 60) return '#dcdcaa';
+    if (score >= 30) return '#d7ba7d';
+    return '#f44747';
+  }
+
+  /* ---- Message Handling ---- */
+  window.addEventListener('message', function(event) {
+    var msg = event.data;
+    switch (msg.type) {
+      case 'dataUpdate':
+        state.data[msg.panel] = msg.data;
+        state.loading[msg.panel] = false;
+        if (msg.panel === state.currentPanel) content.innerHTML = renderPanel(msg.panel, msg.data);
+        if (msg.panel === 'overview' && msg.data) {
+          healthBadge.textContent = msg.data.healthLevel || '--';
+          healthBadge.style.background = getHealthColor(msg.data.healthScore);
+        }
+        break;
+      case 'error':
+        content.innerHTML = '<div class=\"error-banner\">\\u26A0 ' + esc(msg.message) + '</div>';
+        break;
+    }
+  });
+
+  /* ---- Init ---- */
+  renderNav();
+  vscode.postMessage({ type: 'viewReady' });
+})();
+</script>
 </body>
 </html>`;
   }
