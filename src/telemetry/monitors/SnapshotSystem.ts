@@ -281,6 +281,7 @@ export class SnapshotSystem {
     this.autoCaptureIntervalMs = intervalMs;
     if (intervalMs > 0) {
       this.autoCaptureTimer = setInterval(() => {
+        if (this.disposed) return;
         this.captureAndReport(SnapshotTrigger.Periodic);
       }, intervalMs);
     }
@@ -320,10 +321,8 @@ export class SnapshotSystem {
 
       const elapsed = now() - start;
       this.totalSnapshots++;
-      if (trigger === SnapshotTrigger.Manual || trigger === SnapshotTrigger.Automatic) {
-        if (trigger === SnapshotTrigger.Manual) this.totalManual++;
-        else this.totalAutomatic++;
-      }
+      if (trigger === SnapshotTrigger.Manual) this.totalManual++;
+      else this.totalAutomatic++;
       this.totalCreationTimeMs += elapsed;
       if (elapsed > this.peakCreationTimeMs) this.peakCreationTimeMs = elapsed;
       this.totalSnapshotSizeBytes += sizeBytes;
@@ -627,6 +626,7 @@ export class SnapshotSystem {
       scans: snapshot.data.scans,
       timers: snapshot.data.timers,
       config: snapshot.data.config,
+      monitors: snapshot.data.monitors,
     } as any);
     return snapshot;
   }
