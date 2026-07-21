@@ -250,6 +250,7 @@ const STALE_CHECK_INTERVAL_MS = 30000;
 const MAX_EXECUTIONS = 500;
 const MAX_EVENTS_PER_EXECUTION = 1000;
 const MAX_EVENTS_TOTAL = 10000;
+const MAX_PAUSE_DURATION_MS = 300000;
 
 /** Map event type prefixes to stage names */
 function eventTypeToStage(eventType: string): string {
@@ -368,10 +369,10 @@ export class EventPipelineMonitor {
   /** Route an event to the correct pipeline execution, creating one if needed */
   private routeToExecution(event: TelemetryEvent): PipelineExecution | undefined {
     const uri = extractUri(event);
-    const key = uri ?? `__${event.source ?? 'unknown'}__`;
+    if (!uri) return undefined;
 
     /* Look for an active execution for this URI */
-    const existingIds = this.executionsByUri.get(key);
+    const existingIds = this.executionsByUri.get(uri);
     if (existingIds && existingIds.size > 0) {
       /* Find the most recent active (not paused) execution */
       let best: PipelineExecution | undefined;
@@ -418,13 +419,12 @@ export class EventPipelineMonitor {
       }
     }
 
-    /* Create a new execution */
-    return this.createExecution(event, key);
+    return this.createExecution(event);
   }
 
-  private createExecution(event: TelemetryEvent, key: string): PipelineExecution {
+  private createExecution(event: TelemetryEvent): PipelineExecution {
     const id = generatePipelineId();
-    const uri = extractUri(event) ?? key;
+    const uri = extractUri(event)!;
     const provider = extractProvider(event);
     const trigger = event.type;
 
@@ -447,19 +447,19 @@ export class EventPipelineMonitor {
 
     this.executions.set(id, execution);
 
-    let uriSet = this.executionsByUri.get(key);
+    let uriSet = this.executionsByUri.get(uri);
     if (!uriSet) {
       uriSet = new Set();
-      this.executionsByUri.set(key, uriSet);
+      this.executionsByUri.set(uri, uriSet);
     }
     uriSet.add(id);
 
-    /* Enforce execution cap */
-    if (this.executions.size > MAX_EXECUTIONS) {
-      const oldest = [...this.executions.entries()]
-        .sort(([, a], [, b]) => a.createdAt - b.createdAt)[0];
-      if (oldest) {
-        this.finalizeExecution(oldest[1], 'timedOut', 'Execution cap reached');
+    /* Enforce active execution cap */
+    if (this.getActiveCount() > MAX_EXECUTIONS) {
+      const active = [...this.executions.entries()].filter(([, e]) => e.status === 'running');
+      if (active.length > 0) {
+        active.sort(([, a], [, b]) => a.createdAt - b.createdAt);
+        this.finalizeExecution(active[0][1], 'timedOut', 'Active execution cap reached');
       }
     }
 
@@ -531,19 +531,44 @@ export class EventPipelineMonitor {
       }
     }
 
-    /* Enforce event cap per execution */
+    /* Enforce event cap per execution — clean up seq pointers */
     if (execution.events.length > MAX_EVENTS_PER_EXECUTION) {
-      execution.events.splice(0, execution.events.length - MAX_EVENTS_PER_EXECUTION);
+      const removed = execution.events.splice(0, execution.events.length - MAX_EVENTS_PER_EXECUTION);
+      const removedSeqs = new Set(removed.map((e) => e.seq));
+      for (const re of removed) {
+        const tid = re.event.traceId;
+        if (tid) this.traceIdIndex.get(tid)?.delete(re);
+      }
+      for (const remaining of execution.events) {
+        if (remaining.previousEventSeq !== undefined && removedSeqs.has(remaining.previousEventSeq)) {
+          remaining.previousEventSeq = undefined;
+        }
+        if (remaining.nextEventSeq !== undefined && removedSeqs.has(remaining.nextEventSeq)) {
+          remaining.nextEventSeq = undefined;
+        }
+        if (remaining.parentEventSeq !== undefined && removedSeqs.has(remaining.parentEventSeq)) {
+          remaining.parentEventSeq = undefined;
+        }
+        for (let i = remaining.childEventSeqs.length - 1; i >= 0; i--) {
+          if (removedSeqs.has(remaining.childEventSeqs[i])) {
+            remaining.childEventSeqs.splice(i, 1);
+          }
+        }
+      }
     }
 
-    /* Enforce total event cap */
+    /* Enforce total event cap — clean up traceIdIndex */
     if (this.allEvents.length > MAX_EVENTS_TOTAL) {
       const removed = this.allEvents.splice(0, this.allEvents.length - MAX_EVENTS_TOTAL);
       for (const re of removed) {
+        const tid = re.event.traceId;
+        if (tid) this.traceIdIndex.get(tid)?.delete(re);
         const ex = this.executions.get(re.pipelineId);
         if (ex) {
           const idx = ex.events.indexOf(re);
-          if (idx >= 0) ex.events.splice(idx, 1);
+          if (idx >= 0) {
+            ex.events.splice(idx, 1);
+          }
         }
       }
     }
@@ -618,7 +643,7 @@ export class EventPipelineMonitor {
     if (stage === 'autoScan' && (eventType === 'autoscan.flush' || eventType === 'autoscan.cancel')) return true;
     if (stage === 'provider' && eventType === 'provider.scan') return true;
     if (stage === 'diagnostics' && eventType === 'diagnostics.storeWrite') return true;
-    if (stage === 'store' && (eventType === 'store.endBatch' || eventType === 'store.set')) return true;
+    if (stage === 'store' && eventType === 'store.endBatch') return true;
     if (stage === 'folder' && eventType === 'folder.updateAncestors') return true;
     if (stage === 'decoration' && eventType === 'decoration.fire') return true;
     return false;
@@ -636,7 +661,7 @@ export class EventPipelineMonitor {
   /* ------------------------------------------------------------------ */
 
   private finalizeExecution(execution: PipelineExecution, status: PipelineStatus, error?: string): void {
-    if (execution.status !== 'running') return;
+    if (execution.status !== 'running' && execution.status !== 'paused') return;
     execution.status = status;
     execution.endTime = Date.now();
     execution.durationMs = execution.endTime - execution.startTime;
@@ -707,8 +732,13 @@ export class EventPipelineMonitor {
   private cleanupStaleExecutions(): void {
     const now = Date.now();
     for (const [, execution] of this.executions) {
-      if (execution.status !== 'running' && execution.status !== 'paused') continue;
-      if (execution.status === 'paused') continue;
+      if (execution.status === 'paused') {
+        if (execution.pausedAt !== undefined && now - execution.pausedAt > MAX_PAUSE_DURATION_MS) {
+          this.finalizeExecution(execution, 'timedOut', 'Paused for ' + MAX_PAUSE_DURATION_MS + 'ms');
+        }
+        continue;
+      }
+      if (execution.status !== 'running') continue;
       if (now - execution.lastActivityAt > EXECUTION_TIMEOUT_MS) {
         this.finalizeExecution(execution, 'timedOut', 'No activity for ' + EXECUTION_TIMEOUT_MS + 'ms');
       }
@@ -885,16 +915,20 @@ export class EventPipelineMonitor {
     return result;
   }
 
-  getCausalChain(traceId: string): CausalChain {
+  getCausalChain(traceId: string, maxDepth = 100): CausalChain {
     const links: CausalChainLink[] = [];
     let currentTraceId: string | undefined = traceId;
     let depth = 0;
+    const visited = new Set<string>();
 
-    while (currentTraceId) {
+    while (currentTraceId && depth < maxDepth) {
+      if (visited.has(currentTraceId)) break;
+      visited.add(currentTraceId);
+
       const eventSet = this.traceIdIndex.get(currentTraceId);
       if (!eventSet || eventSet.size === 0) break;
 
-      const pe = eventSet.values().next().value as PipelineEvent;
+      const pe = [...eventSet].sort((a, b) => a.seq - b.seq)[0];
       const parentTraceId = pe.event.parentTraceId;
 
       links.push({
@@ -1043,17 +1077,6 @@ export class EventPipelineMonitor {
     const ex = this.executions.get(pipelineId);
     if (!ex || (ex.status !== 'running' && ex.status !== 'paused')) return false;
     this.finalizeExecution(ex, 'cancelled', reason);
-
-    this.reporter.report({
-      type: 'pipeline.execution.cancelled',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'EventPipelineMonitor',
-      pipelineId: ex.id,
-      uri: ex.uri,
-      durationMs: ex.durationMs ?? 0,
-      reason,
-    } as any);
     return true;
   }
 
