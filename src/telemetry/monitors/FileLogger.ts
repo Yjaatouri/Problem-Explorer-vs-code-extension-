@@ -237,10 +237,15 @@ export class FileLogger {
 
     if (this.writer) {
       this.writeQueue.push(logEntry);
+      this.checkRotation();
       if (this.writeQueue.length >= MAX_BATCH_WRITE_SIZE) {
         await this.flush();
       }
     }
+  }
+
+  async close(): Promise<void> {
+    await this.dispose();
   }
 
   async flush(): Promise<void> {
