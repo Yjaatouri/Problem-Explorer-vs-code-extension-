@@ -19,6 +19,7 @@ import { RuntimeAssertions } from './RuntimeAssertions';
 /*  Snapshot ID                                                        */
 /* ------------------------------------------------------------------ */
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare const SnapshotIdBrand: unique symbol;
 export type SnapshotId = string & { readonly __brand: typeof SnapshotIdBrand };
 
@@ -184,6 +185,7 @@ export interface SnapshotStatistics {
 
 export class SnapshotSystem {
   protected readonly snapshots = new Map<SnapshotId, Snapshot>();
+  protected readonly maxSnapshots = 1000;
   protected readonly sub: TelemetrySubscription;
   protected readonly assertionSub: TelemetrySubscription;
   protected readonly pipelineFailureSub: TelemetrySubscription;
@@ -245,15 +247,15 @@ export class SnapshotSystem {
     });
 
     this.assertionSub = reporter.subscribe('assertion.failure', () => {
-      this.captureAndReport(SnapshotTrigger.AssertionFailure);
+      setTimeout(() => { if (!this.disposed) this.captureAndReport(SnapshotTrigger.AssertionFailure); }, 0);
     });
 
     this.pipelineFailureSub = reporter.subscribe('pipeline.execution.failed', () => {
-      this.captureAndReport(SnapshotTrigger.PipelineFailure);
+      setTimeout(() => { if (!this.disposed) this.captureAndReport(SnapshotTrigger.PipelineFailure); }, 0);
     });
 
     this.providerFailureSub = reporter.subscribe('provider.error', () => {
-      this.captureAndReport(SnapshotTrigger.ProviderFailure);
+      setTimeout(() => { if (!this.disposed) this.captureAndReport(SnapshotTrigger.ProviderFailure); }, 0);
     });
   }
 
@@ -313,6 +315,7 @@ export class SnapshotSystem {
       const snapshot: Snapshot = { metadata, data };
 
       this.snapshots.set(id, snapshot);
+      this.evictSnapshots();
 
       const elapsed = now() - start;
       this.totalSnapshots++;
@@ -330,6 +333,18 @@ export class SnapshotSystem {
     } catch (e) {
       this.totalFailed++;
       throw e;
+    }
+  }
+
+  private evictSnapshots(): void {
+    while (this.snapshots.size > this.maxSnapshots) {
+      const oldest = this.snapshots.keys().next().value;
+      if (oldest === undefined) break;
+      const removed = this.snapshots.get(oldest);
+      this.snapshots.delete(oldest);
+      if (removed) {
+        this.totalSnapshotSizeBytes -= new TextEncoder().encode(JSON.stringify(removed.data)).length;
+      }
     }
   }
 
@@ -402,6 +417,7 @@ export class SnapshotSystem {
         imported++;
       }
     }
+    if (imported > 0) this.evictSnapshots();
     return imported;
   }
 
