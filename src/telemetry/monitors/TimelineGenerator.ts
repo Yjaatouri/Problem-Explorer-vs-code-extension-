@@ -189,6 +189,8 @@ const PIPELINE_STEPS: ReadonlyArray<{
 const MAX_TIMELINES = 500;
 const MAX_EVENTS_PER_TIMELINE = 2000;
 const MAX_TRACE_ENTRIES = 2000;
+const STALE_TIMELINE_TIMEOUT_MS = 120000;
+const STALE_CHECK_INTERVAL_MS = 30000;
 
 /* ------------------------------------------------------------------ */
 /*  TimelineGenerator                                                  */
@@ -200,6 +202,7 @@ export class TimelineGenerator {
   protected readonly eventsByTraceId = new Map<string, TelemetryEvent[]>();
   protected readonly traceOrder: string[] = [];
   protected readonly subscription: TelemetrySubscription;
+  protected readonly staleTimer: ReturnType<typeof setInterval>;
   protected disposed = false;
   protected seq = 0;
 
@@ -214,6 +217,9 @@ export class TimelineGenerator {
       if (this.disposed) return;
       this.processGlobalEvent(event);
     });
+    this.staleTimer = setInterval(() => {
+      this.cleanupStaleTimelines();
+    }, STALE_CHECK_INTERVAL_MS);
   }
 
   /* ------------------------------------------------------------------ */
@@ -629,7 +635,8 @@ export class TimelineGenerator {
       }
 
       if (other.uris.some((u) => tl.uris.includes(u)) && !parents.includes(otherId) && !children.includes(otherId)) {
-        if (!siblings.includes(otherId)) siblings.push(otherId);
+        const timeDelta = Math.abs(tl.startTime - other.startTime);
+        if (timeDelta < 30000 && !siblings.includes(otherId)) siblings.push(otherId);
       }
     }
 
@@ -723,12 +730,20 @@ export class TimelineGenerator {
       { name: 'provider-refresh', path: this.PROVIDER_REFRESH_PATH },
     ];
 
+    const eventSet = new Set(eventTypes);
     for (const candidate of candidates) {
-      let matchedCount = 0;
+      let longestRun = 0;
+      let currentRun = 0;
       for (const step of candidate.path) {
-        if (eventTypes.includes(step)) matchedCount++;
+        if (eventSet.has(step)) {
+          currentRun++;
+          if (currentRun > longestRun) longestRun = currentRun;
+        } else {
+          currentRun = 0;
+        }
       }
-      if (matchedCount >= Math.ceil(candidate.path.length * 0.5)) {
+      const minRequired = Math.min(2, Math.ceil(candidate.path.length * 0.75));
+      if (longestRun >= minRequired) {
         return candidate;
       }
     }
@@ -751,18 +766,17 @@ export class TimelineGenerator {
       if (eventTypes.includes(t)) return false;
     }
     const nonMeta = eventTypes.filter((t) => !t.startsWith('timeline.') && !t.startsWith('pipeline.'));
-    if (nonMeta.length >= 3) return true;
-    return false;
+    return nonMeta.length > 0;
   }
 
   protected detectConcurrency(timeline: Timeline): boolean {
     const timestamps = timeline.events.map((e) => e.event.timestamp).sort();
-    if (timestamps.length < 4) return false;
+    if (timestamps.length < 6) return false;
     let clusters = 0;
     for (let i = 1; i < timestamps.length; i++) {
-      if (timestamps[i] - timestamps[i - 1] > 100) clusters++;
+      if (timestamps[i] - timestamps[i - 1] > 500) clusters++;
     }
-    return clusters >= 3;
+    return clusters >= 4;
   }
 
   /* ------------------------------------------------------------------ */
@@ -822,6 +836,8 @@ export class TimelineGenerator {
       if (tl.hasPipelineFailure) pipelineFailures++;
     }
 
+    const terminatedCount = completedCount + failedCount + cancelledCount + timedOutCount;
+
     return {
       totalTimelines: this.totalCreated,
       liveTimelines: liveCount,
@@ -831,7 +847,7 @@ export class TimelineGenerator {
       timedOutTimelines: timedOutCount,
       totalEvents,
       averageEventsPerTimeline: all.length > 0 ? Math.round(totalEvents / all.length) : 0,
-      averageDurationMs: completedCount > 0 ? Math.round(totalDurationMs / completedCount) : 0,
+      averageDurationMs: terminatedCount > 0 ? Math.round(totalDurationMs / terminatedCount) : 0,
       longestTimelineMs: longestMs,
       incompleteTimelines: incomplete,
       timelinesWithAssertionFailures: assertionFailures,
@@ -1059,12 +1075,30 @@ export class TimelineGenerator {
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Stale Timeline Cleanup                                             */
+  /* ------------------------------------------------------------------ */
+
+  protected cleanupStaleTimelines(): void {
+    const now = Date.now();
+    for (const [, tl] of this.timelines) {
+      if (tl.status !== TimelineStatus.Live) continue;
+      if (now - tl.lastActivityAt > STALE_TIMELINE_TIMEOUT_MS) {
+        tl.endTime = now;
+        tl.durationMs = now - tl.startTime;
+        tl.status = TimelineStatus.TimedOut;
+        tl.error = `No activity for ${STALE_TIMELINE_TIMEOUT_MS}ms`;
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Lifecycle                                                          */
   /* ------------------------------------------------------------------ */
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    clearInterval(this.staleTimer);
     this.subscription.dispose();
     this.timelines.clear();
     this.timelineOrder.length = 0;
