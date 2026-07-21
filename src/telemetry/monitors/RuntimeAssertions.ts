@@ -1,9 +1,10 @@
-import { Disposable } from 'vscode';
+import { Disposable, Uri } from 'vscode';
 import { ProblemStore } from '../../store/ProblemStore';
 import { DiagnosticProviderManager, ProviderState } from '../../providers/DiagnosticProviderManager';
 import { ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { EventPipelineMonitor, PipelineId } from './EventPipelineMonitor';
+import { DiagnosticsMonitor } from './DiagnosticsMonitor';
 import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 
@@ -1035,6 +1036,147 @@ export function createPipelineDuplicateIdRule(monitor: EventPipelineMonitor): As
 }
 
 /* ------------------------------------------------------------------ */
+/*  Task 6 — Diagnostics Assertion Rules                               */
+/* ------------------------------------------------------------------ */
+
+/** Detect diagnostics changes without URIs */
+export function createDiagnosticsNoUriRule(monitor: DiagnosticsMonitor): AssertionRule {
+  return {
+    name: 'diagnostics.noUri', description: 'Detect diagnostics events without any URI',
+    category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalChanges > 0 && stats.totalUris === 0) {
+        return failResult('diagnostics.noUri', AssertionCategory.Diagnostics, AssertionSeverity.Warning,
+          `${stats.totalChanges} changes with 0 URIs`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect duplicate diagnostics */
+export function createDiagnosticsDuplicateRule(monitor: DiagnosticsMonitor): AssertionRule {
+  return {
+    name: 'diagnostics.duplicate', description: 'Detect duplicate diagnostic entries',
+    category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalDuplicateDiagnostics > 0) {
+        return failResult('diagnostics.duplicate', AssertionCategory.Diagnostics, AssertionSeverity.Warning,
+          `${stats.totalDuplicateDiagnostics} duplicate diagnostic(s) detected`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect stale diagnostics: known URIs no longer in store */
+export function createDiagnosticsStaleRule(monitor: DiagnosticsMonitor, store: ProblemStore): AssertionRule {
+  return {
+    name: 'diagnostics.stale', description: 'Detect stale diagnostics (known URIs removed from store)',
+    category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const knownUris: Set<string> = m.knownUris;
+      if (!knownUris || knownUris.size === 0) return passResult(start);
+      const failures: AssertionFailure[] = [];
+      for (const uriStr of knownUris) {
+        try {
+          if (!store.get(Uri.parse(uriStr))) {
+            failures.push({ assertion: 'diagnostics.stale', category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Known URI ${uriStr} has no state in store`, uri: uriStr });
+          }
+        } catch { /* skip parse errors */ }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect mapping failures */
+export function createDiagnosticsMappingFailureRule(monitor: DiagnosticsMonitor): AssertionRule {
+  return {
+    name: 'diagnostics.mappingFailure', description: 'Detect diagnostics mapping failures',
+    category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalMappings < stats.totalChanges) {
+        return failResult('diagnostics.mappingFailure', AssertionCategory.Diagnostics, AssertionSeverity.Error,
+          `${stats.totalChanges - stats.totalMappings} changes without mapping (totalChanges=${stats.totalChanges}, totalMappings=${stats.totalMappings})`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect diagnostics not written to store */
+export function createDiagnosticsNotWrittenRule(monitor: DiagnosticsMonitor): AssertionRule {
+  return {
+    name: 'diagnostics.notWritten', description: 'Detect diagnostics mapped but not written to store',
+    category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalAcceptedWrites < stats.totalMappings) {
+        return failResult('diagnostics.notWritten', AssertionCategory.Diagnostics, AssertionSeverity.Warning,
+          `${stats.totalMappings - stats.totalAcceptedWrites} mappings without accepted store write (mappings=${stats.totalMappings}, writes=${stats.totalAcceptedWrites})`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect rejected diagnostics without a recorded reason */
+export function createDiagnosticsRejectedNoReasonRule(monitor: DiagnosticsMonitor): AssertionRule {
+  return {
+    name: 'diagnostics.rejectedNoReason', description: 'Detect rejected diagnostics without explanation',
+    category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalRejectedWrites > 0) {
+        return failResult('diagnostics.rejectedNoReason', AssertionCategory.Diagnostics, AssertionSeverity.Info,
+          `${stats.totalRejectedWrites} rejected diagnostic write(s) (check ownership and priority)`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect inconsistent diagnostic totals */
+export function createDiagnosticsInconsistentTotalsRule(monitor: DiagnosticsMonitor): AssertionRule {
+  return {
+    name: 'diagnostics.inconsistentTotals', description: 'Detect inconsistent diagnostics running totals',
+    category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.RequestSnapshot] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalChanges < 0 || stats.totalUris < 0 || stats.totalMappings < 0 || stats.totalStoreWrites < 0) {
+        return failResult('diagnostics.inconsistentTotals', AssertionCategory.Diagnostics, AssertionSeverity.Error,
+          `Negative statistics detected (changes=${stats.totalChanges} uris=${stats.totalUris} mappings=${stats.totalMappings} writes=${stats.totalStoreWrites})`, start);
+      }
+      if (stats.totalChanges > 0 && stats.totalMappings > 0 && stats.totalStoreWrites === 0 && stats.totalAcceptedWrites === 0) {
+        return failResult('diagnostics.inconsistentTotals', AssertionCategory.Diagnostics, AssertionSeverity.Error,
+          `Changes (${stats.totalChanges}) and mappings (${stats.totalMappings}) exist but no store writes`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  RuntimeAssertions — Main Facade                                    */
 /* ------------------------------------------------------------------ */
 
@@ -1122,6 +1264,24 @@ export class RuntimeAssertions implements Disposable {
       createPipelineTimeoutRule(monitor),
       createPipelineCircularExecutionRule(monitor),
       createPipelineDuplicateIdRule(monitor),
+    ];
+    for (const rule of rules) {
+      disposables.push(this.engine.registerRule(rule));
+    }
+    return disposables;
+  }
+
+  /** Register all diagnostics assertion rules (Task 6) */
+  registerDiagnosticsAssertions(monitor: DiagnosticsMonitor, store: ProblemStore): Disposable[] {
+    const disposables: Disposable[] = [];
+    const rules: AssertionRule[] = [
+      createDiagnosticsNoUriRule(monitor),
+      createDiagnosticsDuplicateRule(monitor),
+      createDiagnosticsStaleRule(monitor, store),
+      createDiagnosticsMappingFailureRule(monitor),
+      createDiagnosticsNotWrittenRule(monitor),
+      createDiagnosticsRejectedNoReasonRule(monitor),
+      createDiagnosticsInconsistentTotalsRule(monitor),
     ];
     for (const rule of rules) {
       disposables.push(this.engine.registerRule(rule));
