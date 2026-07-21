@@ -141,6 +141,7 @@ export class FileLogger {
   protected entriesByLevel = new Map<string, number>();
   protected readonly eventSub: TelemetrySubscription;
   protected readonly pipelineIndex = new Map<string, Set<string>>();
+  protected readonly assertionFailures: LogEntry[] = [];
 
   constructor(
     protected readonly reporter: TelemetryReporter,
@@ -177,6 +178,19 @@ export class FileLogger {
         pipelineId,
         durationMs: (event as any).durationMs,
       }).catch(() => {});
+
+      if (event.type === 'assertion.failure') {
+        this.assertionFailures.push({
+          seq: 0,
+          sessionId: this.currentSession?.id ?? ('' as LogSessionId),
+          timestamp: Date.now(),
+          level: LogLevel.Error,
+          source: event.source ?? 'unknown',
+          type: event.type,
+          data: event,
+          traceId: event.traceId,
+        });
+      }
     });
   }
 
@@ -481,9 +495,34 @@ export class FileLogger {
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     const filePath = path.join(targetDir, 'assertions.jsonl');
     const stream = fs.createWriteStream(filePath, { flags: 'a' });
+    for (const entry of this.assertionFailures) {
+      const data = (entry.data as any);
+      stream.write(JSON.stringify({
+        timestamp: entry.timestamp,
+        traceId: entry.traceId,
+        type: data.type,
+        source: data.source,
+        rule: data.rule,
+        assertion: data.assertion,
+        detail: data.detail,
+        error: data.error,
+        message: data.message,
+      }) + '\n');
+    }
     return new Promise((resolve) => {
       stream.end(() => resolve(filePath));
     });
+  }
+
+  async exportEverything(targetDir: string, timelineGenerator?: TimelineGenerator, snapshotSystem?: SnapshotSystem): Promise<{ telemetry: string; timelines?: string; snapshots?: string; assertions: string; performance: string }> {
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    const telemetry = await this.exportAll(path.join(targetDir, 'telemetry'));
+    const assertions = await this.exportAssertionFailures(targetDir);
+    const performance = await this.exportPerformance(targetDir);
+    const result: any = { telemetry: telemetry.path, assertions, performance };
+    if (timelineGenerator) result.timelines = await this.exportTimelines(timelineGenerator, targetDir);
+    if (snapshotSystem) result.snapshots = await this.exportSnapshots(snapshotSystem, targetDir);
+    return result;
   }
 
   async exportPerformance(targetDir: string): Promise<string> {
