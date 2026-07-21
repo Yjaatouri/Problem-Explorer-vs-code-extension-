@@ -18,7 +18,7 @@ export function generatePipelineId(): PipelineId {
 /*  Pipeline Event                                                     */
 /* ------------------------------------------------------------------ */
 
-export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed' | 'cancelled' | 'timedOut';
+export type StageStatus = 'pending' | 'running' | 'paused' | 'completed' | 'skipped' | 'failed' | 'cancelled' | 'timedOut';
 
 export interface PipelineEvent {
   readonly pipelineId: PipelineId;
@@ -47,7 +47,7 @@ export interface PipelineStage {
 /*  Pipeline Execution                                                 */
 /* ------------------------------------------------------------------ */
 
-export type PipelineStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'timedOut';
+export type PipelineStatus = 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'timedOut';
 
 export interface PipelineExecution {
   readonly id: PipelineId;
@@ -63,6 +63,9 @@ export interface PipelineExecution {
   error?: string;
   readonly createdAt: number;
   lastActivityAt: number;
+  pausedDurationMs: number;
+  pausedAt?: number;
+  pauseCount: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -134,6 +137,38 @@ export interface PipelineStageEventData {
   readonly error?: string;
 }
 
+export interface PipelineExecutionPausedEventData {
+  readonly type: 'pipeline.execution.paused';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
+  readonly pipelineId: PipelineId;
+  readonly uri: string;
+  readonly pauseCount: number;
+}
+
+export interface PipelineExecutionResumedEventData {
+  readonly type: 'pipeline.execution.resumed';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
+  readonly pipelineId: PipelineId;
+  readonly uri: string;
+  readonly totalPausedMs: number;
+  readonly pauseCount: number;
+}
+
+export interface PipelineExecutionCancelledEventData {
+  readonly type: 'pipeline.execution.cancelled';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
+  readonly pipelineId: PipelineId;
+  readonly uri: string;
+  readonly durationMs: number;
+  readonly reason?: string;
+}
+
 export interface PipelineDuplicateEventData {
   readonly type: 'pipeline.duplicateEvent';
   readonly timestamp: number;
@@ -173,6 +208,9 @@ export type CausalChain = {
 export type EventPipelineMonitorEvent =
   | PipelineExecutionStartedEventData
   | PipelineExecutionCompletedEventData
+  | PipelineExecutionPausedEventData
+  | PipelineExecutionResumedEventData
+  | PipelineExecutionCancelledEventData
   | PipelineStageEventData
   | PipelineDuplicateEventData
   | PipelineCorrelationEventData;
@@ -279,7 +317,7 @@ export class EventPipelineMonitor {
     /* Look for an active execution for this URI */
     const existingIds = this.executionsByUri.get(key);
     if (existingIds && existingIds.size > 0) {
-      /* Find the most recent active execution */
+      /* Find the most recent active (not paused) execution */
       let best: PipelineExecution | undefined;
       for (const id of existingIds) {
         const ex = this.executions.get(id);
@@ -345,6 +383,8 @@ export class EventPipelineMonitor {
       events: [],
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
+      pausedDurationMs: 0,
+      pauseCount: 0,
     };
 
     this.executions.set(id, execution);
@@ -591,7 +631,8 @@ export class EventPipelineMonitor {
   private cleanupStaleExecutions(): void {
     const now = Date.now();
     for (const [, execution] of this.executions) {
-      if (execution.status !== 'running') continue;
+      if (execution.status !== 'running' && execution.status !== 'paused') continue;
+      if (execution.status === 'paused') continue;
       if (now - execution.lastActivityAt > EXECUTION_TIMEOUT_MS) {
         this.finalizeExecution(execution, 'timedOut', 'No activity for ' + EXECUTION_TIMEOUT_MS + 'ms');
       }
@@ -805,6 +846,70 @@ export class EventPipelineMonitor {
   getParentPipelines(pipelineId: PipelineId): PipelineId[] {
     const deps = this.pipelineDependencies.get(pipelineId);
     return deps ? [...deps] : [];
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Execution Lifecycle Control                                        */
+  /* ------------------------------------------------------------------ */
+
+  pauseExecution(pipelineId: PipelineId): boolean {
+    const ex = this.executions.get(pipelineId);
+    if (!ex || ex.status !== 'running') return false;
+    ex.status = 'paused';
+    ex.pausedAt = Date.now();
+    ex.pauseCount++;
+    ex.lastActivityAt = Date.now();
+
+    this.reporter.report({
+      type: 'pipeline.execution.paused',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'EventPipelineMonitor',
+      pipelineId: ex.id,
+      uri: ex.uri,
+      pauseCount: ex.pauseCount,
+    } as any);
+    return true;
+  }
+
+  resumeExecution(pipelineId: PipelineId): boolean {
+    const ex = this.executions.get(pipelineId);
+    if (!ex || ex.status !== 'paused' || ex.pausedAt === undefined) return false;
+    const pausedMs = Date.now() - ex.pausedAt;
+    ex.pausedDurationMs += pausedMs;
+    ex.pausedAt = undefined;
+    ex.status = 'running';
+    ex.lastActivityAt = Date.now();
+
+    this.reporter.report({
+      type: 'pipeline.execution.resumed',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'EventPipelineMonitor',
+      pipelineId: ex.id,
+      uri: ex.uri,
+      totalPausedMs: ex.pausedDurationMs,
+      pauseCount: ex.pauseCount,
+    } as any);
+    return true;
+  }
+
+  cancelExecution(pipelineId: PipelineId, reason?: string): boolean {
+    const ex = this.executions.get(pipelineId);
+    if (!ex || (ex.status !== 'running' && ex.status !== 'paused')) return false;
+    this.finalizeExecution(ex, 'cancelled', reason);
+
+    this.reporter.report({
+      type: 'pipeline.execution.cancelled',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'EventPipelineMonitor',
+      pipelineId: ex.id,
+      uri: ex.uri,
+      durationMs: ex.durationMs ?? 0,
+      reason,
+    } as any);
+    return true;
   }
 
   /* ------------------------------------------------------------------ */
