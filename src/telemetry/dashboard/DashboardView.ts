@@ -361,7 +361,7 @@ export class DashboardView implements DashboardViewApi {
   function renderSnapshots(d) {
     var snaps = d.snapshots || [];
     var stats = d.statistics || {};
-    return '<div class=\"stat-grid\">' +
+    var html = '<div class=\"stat-grid\">' +
       statCard('Total Snapshots', snaps.length) +
       statCard('Total Triggers', stats.totalTriggers ?? 0) +
       statCard('Auto Captures', stats.autoCaptures ?? 0) +
@@ -369,9 +369,12 @@ export class DashboardView implements DashboardViewApi {
     '</div>' +
     '<div class=\"section\"><h3>Snapshots (' + snaps.length + ')</h3>' +
     (snaps.length === 0 ? '<div class=\"empty-state\">No snapshots</div>' :
-    makeTable(['ID','Trigger','Timestamp','Sections'], snaps, function(s) {
-      return [esc(s.metadata ? s.metadata.id : (s.id || '?')), esc(s.metadata ? s.metadata.trigger : (s.trigger || '?')), formatTime(s.metadata ? s.metadata.timestamp : s.timestamp), s.data ? Object.keys(s.data).length : (s.sections || 0)];
-    })) + '</div>';
+    makeTable(['ID','Trigger','Timestamp','Sections','Actions'], snaps, function(s) {
+      return [esc(s.metadata ? s.metadata.id : (s.id || '?')), esc(s.metadata ? s.metadata.trigger : (s.trigger || '?')), formatTime(s.metadata ? s.metadata.timestamp : s.timestamp), s.data ? Object.keys(s.data).length : (s.sections || 0), '<a href=\"#\" onclick=\"viewSnapshotDetails(\'' + esc(s.metadata ? s.metadata.id : (s.id || '')) + '\')\" style=\"color:var(--vscode-textLink-foreground)\">View</a>'];
+    })) +
+    '</div>' +
+    '<div id=\"snapshotDetail\"></div>';
+    return html;
   }
 
   /* ---- Timeline ---- */
@@ -550,6 +553,53 @@ export class DashboardView implements DashboardViewApi {
     if (d) content.innerHTML = renderTimeline(d);
   };
   window.requestTimelineDetails = function(id) {
+    var d = state.data['timeline'];
+    if (!d) return;
+    var all = (d.live || []).concat(d.historical || []).concat(d.failed || []);
+    var tl = null;
+    for (var i = 0; i < all.length; i++) { if (all[i].id === id) { tl = all[i]; break; } }
+    if (!tl) return;
+    var detailEl = document.getElementById('timelineDetail');
+    if (!detailEl) return;
+    detailEl.innerHTML = '<div class=\"section\"><h3>Timeline: ' + esc(id) + '</h3>' +
+      detail('Status', tl.status || '?') +
+      detail('Events', tl.eventCount ?? tl.events?.length ?? 0) +
+      (tl.error ? detail('Error', tl.error) : '') +
+      (tl.durationMs ? detail('Duration', tl.durationMs + 'ms') : '') +
+      (tl.startedAt ? detail('Started', formatTime(tl.startedAt)) : '') +
+      (tl.completedAt ? detail('Completed', formatTime(tl.completedAt)) : '') +
+      '</div><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:300px\">' + safeJson(tl) + '</pre>';
+  };
+  window.viewSnapshotDetails = function(id) {
+    var d = state.data['snapshots'];
+    if (!d) return;
+    var snaps = d.snapshots || [];
+    var snap = null;
+    for (var i = 0; i < snaps.length; i++) {
+      var sid = snaps[i].metadata ? snaps[i].metadata.id : (snaps[i].id || '');
+      if (sid === id) { snap = snaps[i]; break; }
+    }
+    if (!snap) return;
+    var detailEl = document.getElementById('snapshotDetail');
+    if (!detailEl) return;
+    var meta = snap.metadata || {};
+    var sectionsHtml = '';
+    if (snap.data) {
+      sectionsHtml = '<div class=\"section\"><h3>Data Sections (' + Object.keys(snap.data).length + ')</h3>';
+      for (var k in snap.data) {
+        sectionsHtml += detail(k, typeof snap.data[k] === 'object' ? Object.keys(snap.data[k]).length + ' entries' : String(snap.data[k]));
+      }
+      sectionsHtml += '</div>';
+    }
+    detailEl.innerHTML = '<div class=\"section\"><h3>Snapshot: ' + esc(id) + '</h3>' +
+      detail('Trigger', meta.trigger || snap.trigger || '?') +
+      detail('Timestamp', formatTime(meta.timestamp || snap.timestamp)) +
+      detail('Extension Version', meta.extensionVersion || '') +
+      detail('VS Code Version', meta.vscodeVersion || '') +
+      (meta.durationMs ? detail('Capture Duration', meta.durationMs + 'ms') : '') +
+      sectionsHtml +
+      '</div><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:400px\">' + safeJson(snap) + '</pre>';
+  };
     var d = state.data['timeline'];
     if (!d) return;
     var all = (d.live || []).concat(d.historical || []).concat(d.failed || []);
