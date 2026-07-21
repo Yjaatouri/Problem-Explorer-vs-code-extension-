@@ -256,7 +256,7 @@ suite('VS Code-dependent Telemetry Monitors', () => {
   /* ------------------------------------------------------------------ */
 
   suite('DecorationMonitor', () => {
-    test('wraps fireDidChange and publishes decoration.fireDidChange', () => {
+    test('wraps fireDidChange and publishes decoration.refresh.start', () => {
       const store = new ProblemStore();
       const engine = new DecorationEngine(store, { getWorkspaceFolder: () => undefined });
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
@@ -266,12 +266,11 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       const uri = Uri.parse('file:///project/a.ts');
       engine.fireDidChange(uri);
 
-      const fireEvents = collected.filter((e) => e.type === 'decoration.fireDidChange');
-      assert.strictEqual(fireEvents.length, 1, 'Expected one decoration.fireDidChange event');
+      const fireEvents = collected.filter((e) => e.type === 'decoration.refresh.start');
+      assert.strictEqual(fireEvents.length, 1, 'Expected one decoration.refresh.start event');
       const payload = fireEvents[0] as any;
       assert.strictEqual(payload.callType, 'single');
       assert.strictEqual(payload.uriCount, 1);
-      assert.ok(typeof payload.executionTimeMs === 'number');
     });
 
     test('wraps fireDidChange with array and full refresh', () => {
@@ -284,14 +283,14 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       engine.fireDidChange([Uri.parse('file:///project/a.ts'), Uri.parse('file:///project/b.ts')]);
       engine.fireDidChange(undefined);
 
-      const fireEvents = collected.filter((e) => e.type === 'decoration.fireDidChange');
+      const fireEvents = collected.filter((e) => e.type === 'decoration.refresh.start');
       assert.strictEqual(fireEvents.length, 2);
       assert.strictEqual((fireEvents[0] as any).callType, 'array');
       assert.strictEqual((fireEvents[0] as any).uriCount, 2);
       assert.strictEqual((fireEvents[1] as any).callType, 'full');
     });
 
-    test('wraps provideFileDecoration and publishes decoration.provideFileDecoration', () => {
+    test('wraps provideFileDecoration and publishes decoration.provide', () => {
       const store = new ProblemStore();
       const engine = new DecorationEngine(store, { getWorkspaceFolder: () => undefined });
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
@@ -302,15 +301,15 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       const token = new CancellationTokenSource().token;
       engine.provideFileDecoration(uri, token);
 
-      const provideEvents = collected.filter((e) => e.type === 'decoration.provideFileDecoration');
-      assert.strictEqual(provideEvents.length, 1, 'Expected one decoration.provideFileDecoration event');
+      const provideEvents = collected.filter((e) => e.type === 'decoration.provide');
+      assert.strictEqual(provideEvents.length, 1, 'Expected one decoration.provide event');
       const payload = provideEvents[0] as any;
       assert.strictEqual(payload.uri, uri.toString());
-      assert.ok(typeof payload.decorationProvided === 'boolean');
+      assert.ok(typeof payload.hit === 'boolean');
       assert.ok(typeof payload.executionTimeMs === 'number');
     });
 
-    test('provideFileDecoration with undefined result publishes decorationProvided=false', () => {
+    test('provideFileDecoration with undefined result publishes hit=false', () => {
       const store = new ProblemStore();
       const engine = new DecorationEngine(store, { getWorkspaceFolder: () => undefined });
       const reporter = new BusTelemetryReporter(makeConfigManager(), bus);
@@ -321,9 +320,9 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       const uri = Uri.parse('file:///project/unknown.ts');
       engine.provideFileDecoration(uri, new CancellationTokenSource().token);
 
-      const provideEvents = collected.filter((e) => e.type === 'decoration.provideFileDecoration');
+      const provideEvents = collected.filter((e) => e.type === 'decoration.provide');
       assert.strictEqual(provideEvents.length, 1);
-      assert.strictEqual((provideEvents[0] as any).decorationProvided, false);
+      assert.strictEqual((provideEvents[0] as any).hit, false);
     });
 
     test('restores original methods on dispose', () => {
