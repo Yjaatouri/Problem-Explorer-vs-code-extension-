@@ -111,6 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       telemetryReporter, problemStore, diagProviderManager, telemetryConfig,
       storeMonitor, providerMonitor, autoScannerMonitor, diagnosticsMonitor,
       folderMonitor, decorationMonitor, pipelineMonitor, runtimeAssertions,
+      timelineGenerator,
     );
     try {
       const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);

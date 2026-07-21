@@ -14,6 +14,7 @@ import { FolderMonitor } from './FolderMonitor';
 import { DecorationMonitor } from './DecorationMonitor';
 import { EventPipelineMonitor } from './EventPipelineMonitor';
 import { RuntimeAssertions } from './RuntimeAssertions';
+import { TimelineGenerator } from './TimelineGenerator';
 
 /* ------------------------------------------------------------------ */
 /*  Snapshot ID                                                        */
@@ -226,6 +227,7 @@ export class SnapshotSystem {
     protected readonly decorationMonitor?: DecorationMonitor,
     protected readonly pipelineMonitor?: EventPipelineMonitor,
     protected readonly runtimeAssertions?: RuntimeAssertions,
+    protected readonly timelineGenerator?: TimelineGenerator,
   ) {
     this.sub = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
@@ -327,6 +329,17 @@ export class SnapshotSystem {
       this.totalSnapshotSizeBytes += sizeBytes;
       const triggerKey = trigger as string;
       this.snapshotsByTrigger.set(triggerKey, (this.snapshotsByTrigger.get(triggerKey) ?? 0) + 1);
+
+      try {
+        this.timelineGenerator?.recordEvent({
+          type: 'snapshot.captured',
+          timestamp: data.timestamp,
+          traceId: generateTraceId(),
+          source: 'SnapshotSystem',
+          snapshotId: id,
+          trigger: triggerKey,
+        } as any);
+      } catch { /* non-critical */ }
 
       return snapshot;
     } catch (e) {
@@ -713,6 +726,7 @@ export function createSnapshotSystem(
   decorationMonitor?: DecorationMonitor,
   pipelineMonitor?: EventPipelineMonitor,
   runtimeAssertions?: RuntimeAssertions,
+  timelineGenerator?: TimelineGenerator,
 ): SnapshotSystem {
-  return new SnapshotSystem(reporter, problemStore, dpm, configManager, storeMonitor, providerMonitor, autoScannerMonitor, diagnosticsMonitor, folderMonitor, decorationMonitor, pipelineMonitor, runtimeAssertions);
+  return new SnapshotSystem(reporter, problemStore, dpm, configManager, storeMonitor, providerMonitor, autoScannerMonitor, diagnosticsMonitor, folderMonitor, decorationMonitor, pipelineMonitor, runtimeAssertions, timelineGenerator);
 }
