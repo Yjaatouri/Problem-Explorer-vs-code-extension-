@@ -38,7 +38,7 @@ export interface DashboardMonitorRefs {
   readonly runtimeAssertions: RuntimeAssertions;
   readonly snapshotSystem: SnapshotSystem;
   readonly timelineGenerator: TimelineGenerator;
-  readonly fileLogger: FileLogger;
+  readonly fileLogger?: FileLogger;
   readonly performanceMonitor: PerformanceMonitor;
 }
 
@@ -320,6 +320,7 @@ export class Dashboard {
   private collectFileLoggerData(): unknown {
     try {
       const logger = this.monitors.fileLogger;
+      if (!logger) return { status: 'unavailable', message: 'FileLogger not initialized' };
       return {
         statistics: logger.getStatistics(),
         currentSession: logger.getCurrentSession(),

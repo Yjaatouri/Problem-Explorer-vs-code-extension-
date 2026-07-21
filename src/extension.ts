@@ -38,7 +38,7 @@ import { createSnapshotSystem } from './telemetry/monitors/SnapshotSystem';
 import { createFileLogger, FileLogger } from './telemetry/monitors/FileLogger';
 import { createTelemetryFileLogger } from './telemetry/monitors/TelemetryFileLogger';
 import { TelemetryLogEditorProvider } from './telemetry/monitors/TelemetryLogEditorProvider';
-import { DeveloperDashboard } from './telemetry/monitors/DeveloperDashboard';
+import { Dashboard } from './telemetry/dashboard/Dashboard';
 
 console.log('[LOG:DIST_LOADED]');
 
@@ -118,8 +118,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
       snapshotSystem.setEnvironmentInfo(vscode.version, context.extension.packageJSON.version ?? 'unknown', wf);
     } catch { /* non-critical */ }
-    const devDashboard = new DeveloperDashboard();
-
     // Legacy file logger for offline forensic analysis
     let telemetryFileLogger: import('./telemetry/monitors/TelemetryFileLogger').TelemetryFileLogger | undefined;
     let fileLogger: FileLogger | undefined;
@@ -134,6 +132,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     } catch (e) {
       log(`[TELEMETRY] Failed to create file logger: ${e}`);
     }
+
+    // Create the new Dashboard with all monitor references
+    const devDashboard = new Dashboard(
+      context.extensionUri,
+      telemetryReporter,
+      {
+        storeMonitor,
+        providerMonitor,
+        autoScannerMonitor,
+        diagnosticsMonitor,
+        decorationMonitor,
+        folderMonitor,
+        pipelineMonitor,
+        runtimeAssertions,
+        snapshotSystem,
+        timelineGenerator,
+        fileLogger: fileLogger ?? undefined,
+        performanceMonitor: perfMonitor,
+      },
+    );
+    try {
+      const extVersion = context.extension.packageJSON.version ?? 'unknown';
+      devDashboard.setVersions(extVersion, vscode.version);
+    } catch { /* non-critical */ }
 
     // Auto-reveal dashboard on assertion failures for live debugging
     telemetryReporter.subscribe('assertion.failure', () => {
@@ -420,7 +442,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 
     // Set up recovery handlers
     runtimeAssertions.engine.setRecoveryHandlers({
-      notifyDashboard: () => devDashboard.notifyAssertion(),
+      notifyDashboard: () => { try { devDashboard.notifyAssertion(); } catch { /* dashboard may be disposed */ } },
       requestSnapshot: () => {
         const snapshot = snapshotSystem.captureManual();
         log(`[ASSERTION] Snapshot ${snapshot.metadata.id} captured with ${Object.keys(snapshot.data).length} data sections`);
