@@ -294,14 +294,17 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
     const context: AssertionContext = { engine: this };
     let result: AssertionResult;
 
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       result = await Promise.race([
         rule.execute(context),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Assertion rule "${rule.name}" timed out after ${this.executionTimeoutMs}ms`)), this.executionTimeoutMs)
-        ),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(`Assertion rule "${rule.name}" timed out after ${this.executionTimeoutMs}ms`)), this.executionTimeoutMs);
+        }),
       ]);
+      clearTimeout(timeoutHandle);
     } catch (e) {
+      clearTimeout(timeoutHandle);
       const msg = e instanceof Error ? e.message : String(e);
       result = {
         passed: false,
@@ -482,6 +485,12 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
     this.failureProviderCount.clear();
     this.failureMonitorCount.clear();
     this.failureUriCount.clear();
+    this.totalExecuted = 0;
+    this.totalPassed = 0;
+    this.totalFailed = 0;
+    this.totalExecutionTimeMs = 0;
+    this.peakExecutionTimeMs = 0;
+    this.assertionFrequency.clear();
   }
 
   dispose(): void {
