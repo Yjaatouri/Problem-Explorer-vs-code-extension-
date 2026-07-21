@@ -35,6 +35,7 @@ import { createPerformanceMonitor } from './telemetry/monitors/PerformanceMonito
 import { createRuntimeAssertions } from './telemetry/monitors/RuntimeAssertions';
 import { createTimelineGenerator, TimelineGenerator } from './telemetry/monitors/TimelineGenerator';
 import { createSnapshotSystem } from './telemetry/monitors/SnapshotSystem';
+import { createFileLogger, FileLogger } from './telemetry/monitors/FileLogger';
 import { createTelemetryFileLogger } from './telemetry/monitors/TelemetryFileLogger';
 import { TelemetryLogEditorProvider } from './telemetry/monitors/TelemetryLogEditorProvider';
 import { DeveloperDashboard } from './telemetry/monitors/DeveloperDashboard';
@@ -119,12 +120,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     } catch { /* non-critical */ }
     const devDashboard = new DeveloperDashboard();
 
-    // File logger for offline forensic analysis (rotates at 5 MB, keeps 3 files)
+    // Legacy file logger for offline forensic analysis
     let telemetryFileLogger: import('./telemetry/monitors/TelemetryFileLogger').TelemetryFileLogger | undefined;
+    let fileLogger: FileLogger | undefined;
     try {
       const logDir = context.logUri.fsPath;
       if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
       telemetryFileLogger = createTelemetryFileLogger(telemetryReporter, logDir);
+      const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)[0];
+      fileLogger = createFileLogger(telemetryReporter, logDir, undefined, undefined, context.extension.packageJSON.version ?? 'unknown', vscode.version, wf);
+      fileLogger.startSession().catch(() => {});
+      fileLogger.cleanupOldSessions(20);
     } catch (e) {
       log(`[TELEMETRY] Failed to create file logger: ${e}`);
     }
@@ -344,6 +350,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       snapshotSystem,
       devDashboard,
       ...(telemetryFileLogger ? [telemetryFileLogger] : []),
+      ...(fileLogger ? [{ dispose: () => { fileLogger.close(); } }] : []),
       { dispose: () => { trendTracker.stop(); } },
     );
 
