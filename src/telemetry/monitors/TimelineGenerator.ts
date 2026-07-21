@@ -81,6 +81,8 @@ export interface Timeline {
   readonly createdAt: number;
   lastActivityAt: number;
   error?: string;
+  parentTimelineId?: TimelineId;
+  readonly childTimelineIds: TimelineId[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -232,6 +234,7 @@ export class TimelineGenerator {
       hasProviderFailure: false,
       createdAt: now,
       lastActivityAt: now,
+      childTimelineIds: [],
     };
 
     this.timelines.set(id, timeline);
@@ -300,6 +303,18 @@ export class TimelineGenerator {
           tlEvent.parentEventSeq = pe.seq;
           pe.childEventSeqs.push(tlEvent.seq);
           break;
+        }
+      }
+      if (tlEvent.parentEventSeq === undefined) {
+        for (const [otherId, other] of this.timelines) {
+          if (otherId === timeline.id) continue;
+          if (other.traceIds.includes(event.parentTraceId)) {
+            timeline.parentTimelineId = otherId;
+            if (!other.childTimelineIds.includes(timeline.id)) {
+              other.childTimelineIds.push(timeline.id);
+            }
+            break;
+          }
         }
       }
     }
@@ -413,6 +428,7 @@ export class TimelineGenerator {
       hasProviderFailure: false,
       createdAt: ts,
       lastActivityAt: ts,
+      childTimelineIds: [],
     };
 
     this.timelines.set(id, timeline);
@@ -459,6 +475,86 @@ export class TimelineGenerator {
 
   getHistoricalTimelines(): readonly Timeline[] {
     return [...this.timelines.values()].filter((t) => t.status !== TimelineStatus.Live);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Event Correlation API                                              */
+  /* ------------------------------------------------------------------ */
+
+  getEventsByPipelineId(pipelineId: string): TimelineEvent[] {
+    const result: TimelineEvent[] = [];
+    for (const tl of this.timelines.values()) {
+      for (const ev of tl.events) {
+        if (ev.pipelineId === pipelineId) result.push(ev);
+      }
+    }
+    return result;
+  }
+
+  getEventsByUri(uri: string): TimelineEvent[] {
+    const result: TimelineEvent[] = [];
+    for (const tl of this.timelines.values()) {
+      for (const ev of tl.events) {
+        if (ev.uri === uri) result.push(ev);
+      }
+    }
+    return result;
+  }
+
+  getEventsByProvider(provider: string): TimelineEvent[] {
+    const result: TimelineEvent[] = [];
+    for (const tl of this.timelines.values()) {
+      for (const ev of tl.events) {
+        if (ev.provider === provider) result.push(ev);
+      }
+    }
+    return result;
+  }
+
+  reconstructExecutionOrder(timelineId: TimelineId): TimelineEvent[] {
+    const tl = this.timelines.get(timelineId);
+    if (!tl) return [];
+    return [...tl.events].sort((a, b) => {
+      if (a.event.timestamp !== b.event.timestamp) return a.event.timestamp - b.event.timestamp;
+      return a.seq - b.seq;
+    });
+  }
+
+  getCorrelatedTimelines(timelineId: TimelineId): { parents: TimelineId[]; children: TimelineId[]; siblings: TimelineId[] } {
+    const tl = this.timelines.get(timelineId);
+    if (!tl) return { parents: [], children: [], siblings: [] };
+
+    const parents: TimelineId[] = [];
+    const children: TimelineId[] = [];
+    const siblings: TimelineId[] = [];
+
+    const allParentTraceIds = new Set<string>();
+    for (const ev of tl.events) {
+      if (ev.event.parentTraceId) allParentTraceIds.add(ev.event.parentTraceId);
+    }
+    const allChildTraceIds = new Set<string>();
+    for (const ev of tl.events) {
+      allChildTraceIds.add(ev.event.traceId);
+    }
+
+    for (const [otherId, other] of this.timelines) {
+      if (otherId === timelineId) continue;
+
+      for (const otherEv of other.events) {
+        if (allParentTraceIds.has(otherEv.event.traceId)) {
+          if (!parents.includes(otherId)) parents.push(otherId);
+        }
+        if (allChildTraceIds.has(otherEv.event.parentTraceId ?? '')) {
+          if (!children.includes(otherId)) children.push(otherId);
+        }
+      }
+
+      if (other.uris.some((u) => tl.uris.includes(u)) && !parents.includes(otherId) && !children.includes(otherId)) {
+        if (!siblings.includes(otherId)) siblings.push(otherId);
+      }
+    }
+
+    return { parents, children, siblings };
   }
 
   /* ------------------------------------------------------------------ */
