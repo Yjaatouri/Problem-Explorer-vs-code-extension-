@@ -75,6 +75,7 @@ export class Dashboard {
     this.controller = new DashboardController(
       reporter,
       dataProviders,
+      (scope, format) => this.handleExport(scope, format),
       this.options.autoRefreshIntervalMs,
     );
 
@@ -97,6 +98,67 @@ export class Dashboard {
   setVersions(extensionVersion: string, vscodeVersion: string): void {
     this.extensionVersion = extensionVersion;
     this.vscodeVersion = vscodeVersion;
+  }
+
+  private async handleExport(scope: DashboardPanelType, format: 'json' | 'csv' | 'text'): Promise<string> {
+    const defaultName = `${scope}-${new Date().toISOString().slice(0, 19)}.${format}`;
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(defaultName),
+      filters: { 'Exported Data': [format] },
+    });
+    if (!uri) throw new Error('Export cancelled');
+
+    const fs = await import('fs');
+
+    switch (scope) {
+      case 'overview': {
+        const data = this.collectOverviewData();
+        fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), 'utf8');
+        break;
+      }
+      case 'performance': {
+        const data = this.monitors.performanceMonitor.getStatistics();
+        fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), 'utf8');
+        break;
+      }
+      case 'assertions': {
+        const engine = this.monitors.runtimeAssertions.engine;
+        const data = { statistics: engine.getStatistics(), failures: engine.getFailures(), rules: engine.getAllRules() };
+        fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), 'utf8');
+        break;
+      }
+      case 'snapshots': {
+        const system = this.monitors.snapshotSystem;
+        fs.writeFileSync(uri.fsPath, system.exportAllSnapshots(true), 'utf8');
+        break;
+      }
+      case 'timeline': {
+        const gen = this.monitors.timelineGenerator;
+        const data = {
+          statistics: gen.getStatistics(),
+          live: gen.getLiveTimelines(),
+          historical: gen.getHistoricalTimelines(),
+          failed: gen.getFailedTimelines(),
+        };
+        fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), 'utf8');
+        break;
+      }
+      default: {
+        /* For individual monitor panels, collect their data provider output */
+        const provider = this.getDataProvider(scope);
+        const data = provider ? provider() : { scope, note: 'No data available' };
+        fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), 'utf8');
+        break;
+      }
+    }
+
+    return uri.fsPath;
+  }
+
+  private getDataProvider(panel: DashboardPanelType): (() => unknown) | undefined {
+    const map = new Map<DashboardPanelType, () => unknown>();
+    this.registerDataProviders(map);
+    return map.get(panel);
   }
 
   refresh(): void {

@@ -12,6 +12,8 @@ import type {
 /*  DashboardController — business logic layer                         */
 /* ------------------------------------------------------------------ */
 
+export type ExportHandler = (scope: DashboardPanelType, format: 'json' | 'csv' | 'text') => Promise<string>;
+
 export class DashboardController implements DashboardControllerApi {
   private view: DashboardViewApi | undefined;
   private readonly dataCache = new Map<string, unknown>();
@@ -22,9 +24,9 @@ export class DashboardController implements DashboardControllerApi {
   constructor(
     private readonly reporter: TelemetryReporter,
     private readonly dataProviders: Map<DashboardPanelType, () => unknown>,
+    private readonly exportHandler?: ExportHandler,
     private readonly refreshIntervalMs: number = 2000,
   ) {
-    /* Subscribe to telemetry bus for live push updates */
     this.reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
       this.handleLiveEvent(event);
@@ -44,10 +46,12 @@ export class DashboardController implements DashboardControllerApi {
         break;
       case 'setFilter':
         this.currentFilter = message.filter;
-        this.onNavigate(this.getCurrentPanel());
         break;
       case 'requestData':
         this.collectAndSend(message.panel);
+        break;
+      case 'requestExport':
+        this.handleExport(message.scope, message.format);
         break;
       case 'refresh':
         this.refreshAll();
@@ -65,10 +69,6 @@ export class DashboardController implements DashboardControllerApi {
     for (const panel of this.dataProviders.keys()) {
       this.collectAndSend(panel);
     }
-  }
-
-  private getCurrentPanel(): DashboardPanelType {
-    return 'overview';
   }
 
   private onNavigate(panel: DashboardPanelType): void {
@@ -95,7 +95,6 @@ export class DashboardController implements DashboardControllerApi {
   }
 
   private applyFilter(data: unknown, _filter: DashboardFilter): unknown {
-    /* T8 — filtering logic will be expanded here */
     return data;
   }
 
@@ -114,8 +113,23 @@ export class DashboardController implements DashboardControllerApi {
     this.refreshTimers.set(panel, timer);
   }
 
+  private async handleExport(scope: DashboardPanelType, format: 'json' | 'csv' | 'text'): Promise<void> {
+    if (!this.exportHandler || !this.view) return;
+
+    try {
+      const resultPath = await this.exportHandler(scope, format);
+      this.view.postMessage({
+        type: 'dataUpdate',
+        panel: 'export',
+        data: { exported: true, path: resultPath, scope, format },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.view.postMessage({ type: 'error', message: `Export failed: ${msg}` });
+    }
+  }
+
   private handleLiveEvent(_event: TelemetryEvent): void {
-    /* T2+ — incremental updates on live events */
   }
 
   dispose(): void {

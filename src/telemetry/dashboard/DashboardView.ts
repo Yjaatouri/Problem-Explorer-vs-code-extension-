@@ -204,6 +204,7 @@ export class DashboardView implements DashboardViewApi {
 
   /* ---- Panel Renderers ---- */
   function renderPanel(panelId, data) {
+    if (panelId === 'export') return renderExport(data);
     if (!data) return '<div class=\"loading-overlay\"><span class=\"spinner\"></span> Loading...</div>';
     if (data.error) return \`<div class="error-banner">\\u26A0 \${data.error}</div>\`;
     var fns = {
@@ -552,13 +553,27 @@ export class DashboardView implements DashboardViewApi {
   }
 
   /* ---- Export ---- */
-  function renderExport() {
-    return '<h2>Export</h2><div class=\"stat-grid\">' +
-      clickCard('Export Overview', 'JSON', 'Download system overview', 'overview') +
+  function renderExport(d) {
+    if (!d) d = {};
+    var resultHtml = '';
+    if (d && d.exported) {
+      resultHtml = '<div style=\"background:var(--vscode-inputValidation-infoBackground,#1d5a1d);color:var(--vscode-inputValidation-infoForeground,#6ecf6e);border:1px solid var(--vscode-inputValidation-infoBorder,#1d7a1d);border-radius:4px;padding:8px 12px;margin-bottom:12px\">' +
+        '\\u2713 Exported ' + esc(d.scope || 'data') + ' as ' + esc(d.format || 'json') + ' to: ' + esc(d.path || '') +
+      '</div>';
+    }
+    return resultHtml + '<h2>Export</h2><div class=\"stat-grid\">' +
+      clickCard('Export Overview', 'JSON', 'Download system overview snapshot', 'overview') +
       clickCard('Export Performance', 'JSON', 'Download performance report', 'performance') +
       clickCard('Export Assertions', 'JSON', 'Download assertion report', 'assertions') +
       clickCard('Export Snapshots', 'JSON', 'Download all snapshots', 'snapshots') +
       clickCard('Export Timelines', 'JSON', 'Download timeline data', 'timeline') +
+      clickCard('Export Store', 'JSON', 'Download store snapshot', 'store') +
+      clickCard('Export Providers', 'JSON', 'Download provider stats', 'provider') +
+      clickCard('Export AutoScanner', 'JSON', 'Download autoscanner stats', 'autoscanner') +
+      clickCard('Export Diagnostics', 'JSON', 'Download diagnostics stats', 'diagnostics') +
+      clickCard('Export Folder', 'JSON', 'Download folder stats', 'folder') +
+      clickCard('Export Decoration', 'JSON', 'Download decoration stats', 'decoration') +
+      clickCard('Export Pipeline', 'JSON', 'Download pipeline stats', 'pipeline') +
     '</div>';
   }
 
