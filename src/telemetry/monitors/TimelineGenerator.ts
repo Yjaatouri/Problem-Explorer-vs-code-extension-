@@ -208,7 +208,6 @@ export class TimelineGenerator {
   protected seq = 0;
 
   /* Statistics */
-  protected statsStarted = Date.now();
   protected totalCreated = 0;
   protected totalReconstructionTimeMs = 0;
   protected reconstructionCount = 0;
@@ -396,8 +395,14 @@ export class TimelineGenerator {
 
     timeline.eventTypeCounts.set(event.type, (timeline.eventTypeCounts.get(event.type) ?? 0) + 1);
 
-    if (event.type === 'assertion.failure') timeline.hasAssertionFailure = true;
-    if (event.type === 'pipeline.execution.failed') timeline.hasPipelineFailure = true;
+    if (event.type === 'assertion.failure') {
+      timeline.hasAssertionFailure = true;
+      if (provider) timeline.hasProviderFailure = true;
+    }
+    if (event.type === 'pipeline.execution.failed') {
+      timeline.hasPipelineFailure = true;
+      if (provider) timeline.hasProviderFailure = true;
+    }
 
     const phase = (event as any).phase;
     if (phase === 'error' || phase === 'cancelled') {
@@ -487,7 +492,7 @@ export class TimelineGenerator {
 
   protected isFailureEvent(event: TelemetryEvent): boolean {
     const data = event as unknown as Record<string, unknown>;
-    return data.phase === 'error' || event.type === 'assertion.failure' || event.type === 'pipeline.execution.failed';
+    return data.phase === 'error' || data.phase === 'cancelled' || event.type === 'assertion.failure' || event.type === 'pipeline.execution.failed';
   }
 
   /* ------------------------------------------------------------------ */
@@ -652,24 +657,6 @@ export class TimelineGenerator {
   /*  Timeline Reconstruction                                            */
   /* ------------------------------------------------------------------ */
 
-  readonly SAVE_SCAN_STORE_FOLDER_DECORATION = [
-    'autoscan.fileSaved', 'autoscan.queue', 'autoscan.flush', 'provider.scan',
-    'store.set', 'folder.updateAncestors', 'decoration.fireDidChange', 'decoration.provideFileDecoration',
-  ];
-
-  readonly DIAGNOSTICS_PATH = [
-    'diagnostics.change', 'diagnostics.updateUri', 'store.set',
-    'folder.updateAncestors', 'decoration.fireDidChange',
-  ];
-
-  readonly DECORATION_PATH = [
-    'decoration.fireDidChange', 'decoration.provideFileDecoration',
-  ];
-
-  readonly PROVIDER_REFRESH_PATH = [
-    'provider.lifecycle', 'provider.scan', 'store.set',
-  ];
-
   reconstructTimeline(timelineId: TimelineId): ReconstructionReport {
     const reconStart = Date.now();
     const tl = this.timelines.get(timelineId);
@@ -728,18 +715,11 @@ export class TimelineGenerator {
   }
 
   protected matchExecutionPath(eventTypes: string[]): { name: string; path: readonly string[] } | undefined {
-    const candidates: { name: string; path: readonly string[] }[] = [
-      { name: 'save-scan-store-folder-decoration', path: this.SAVE_SCAN_STORE_FOLDER_DECORATION },
-      { name: 'diagnostics', path: this.DIAGNOSTICS_PATH },
-      { name: 'decoration', path: this.DECORATION_PATH },
-      { name: 'provider-refresh', path: this.PROVIDER_REFRESH_PATH },
-    ];
-
     const eventSet = new Set(eventTypes);
-    for (const candidate of candidates) {
+    for (const candidate of PIPELINE_STEPS) {
       let longestRun = 0;
       let currentRun = 0;
-      for (const step of candidate.path) {
+      for (const step of candidate.steps) {
         if (eventSet.has(step)) {
           currentRun++;
           if (currentRun > longestRun) longestRun = currentRun;
@@ -747,9 +727,9 @@ export class TimelineGenerator {
           currentRun = 0;
         }
       }
-      const minRequired = Math.min(2, Math.ceil(candidate.path.length * 0.75));
+      const minRequired = Math.min(2, Math.ceil(candidate.steps.length * 0.75));
       if (longestRun >= minRequired) {
-        return candidate;
+        return { name: candidate.name, path: candidate.steps };
       }
     }
     return undefined;
@@ -946,7 +926,7 @@ export class TimelineGenerator {
     const lines: string[] = [];
     const nowStr = new Date().toISOString();
 
-    lines.push(`[TIMELINE:REPORT] ===== TIMELINE REPORT ====="`);
+    lines.push(`[TIMELINE:REPORT] ===== TIMELINE REPORT =====`);
     lines.push(`[TIMELINE:REPORT] Generated: ${nowStr}`);
     lines.push(`[TIMELINE:REPORT] TraceId: ${report.traceId}`);
     lines.push(`[TIMELINE:REPORT] Total duration: ${report.totalDurationMs}ms`);
@@ -992,7 +972,7 @@ export class TimelineGenerator {
     if (report.missingEvents.length > 0) {
       lines.push(``);
       lines.push(`[TIMELINE:REPORT] Missing Events (${report.missingEvents.length}):`);
-      lines.push(`[TIMELINE:REPORT} ------------------------------`);
+      lines.push(`[TIMELINE:REPORT] ------------------------------`);
       for (const m of report.missingEvents) {
         lines.push(`[TIMELINE:REPORT]   ${m}`);
       }
