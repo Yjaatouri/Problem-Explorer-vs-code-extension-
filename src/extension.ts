@@ -108,6 +108,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const runtimeAssertions = createRuntimeAssertions(telemetryReporter);
     const timelineGenerator = createTimelineGenerator(telemetryReporter);
     const snapshotSystem = createSnapshotSystem(telemetryReporter, problemStore, diagProviderManager, telemetryConfig);
+    try {
+      const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+      snapshotSystem.setEnvironmentInfo(vscode.version, context.extension.packageJSON.version ?? 'unknown', wf);
+    } catch { /* non-critical */ }
     const devDashboard = new DeveloperDashboard();
 
     // File logger for offline forensic analysis (rotates at 5 MB, keeps 3 files)
