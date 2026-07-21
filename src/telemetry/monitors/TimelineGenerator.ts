@@ -1,9 +1,92 @@
 import * as fs from 'fs';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { TelemetrySubscription } from '../../telemetry/TelemetryBus';
-import { TelemetryEvent } from '../../telemetry/TelemetryEvent';
+import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
 
-/** A single entry in the event timeline */
+/* ------------------------------------------------------------------ */
+/*  Timeline ID                                                        */
+/* ------------------------------------------------------------------ */
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+declare const TimelineIdBrand: unique symbol;
+export type TimelineId = string & { readonly __brand: typeof TimelineIdBrand };
+
+export function generateTimelineId(): TimelineId {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}` as TimelineId;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Timeline Status                                                   */
+/* ------------------------------------------------------------------ */
+
+export enum TimelineStatus {
+  Live = 'live',
+  Completed = 'completed',
+  Failed = 'failed',
+  Cancelled = 'cancelled',
+  TimedOut = 'timedOut',
+}
+
+/* ------------------------------------------------------------------ */
+/*  Timeline Event                                                     */
+/* ------------------------------------------------------------------ */
+
+export enum TimelineEventCategory {
+  Store = 'store',
+  Provider = 'provider',
+  AutoScanner = 'autoscanner',
+  Diagnostics = 'diagnostics',
+  Folder = 'folder',
+  Decoration = 'decoration',
+  Pipeline = 'pipeline',
+  Assertion = 'assertion',
+  Snapshot = 'snapshot',
+  Unknown = 'unknown',
+}
+
+export interface TimelineEvent {
+  readonly seq: number;
+  readonly event: TelemetryEvent;
+  readonly category: TimelineEventCategory;
+  readonly receivedAt: number;
+  readonly pipelineId?: string;
+  readonly uri?: string;
+  readonly provider?: string;
+  parentEventSeq?: number;
+  readonly childEventSeqs: number[];
+  previousEventSeq?: number;
+  nextEventSeq?: number;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Timeline                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface Timeline {
+  readonly id: TimelineId;
+  readonly traceIds: readonly TraceId[];
+  readonly primaryTraceId: TraceId;
+  readonly startTime: number;
+  endTime?: number;
+  durationMs?: number;
+  status: TimelineStatus;
+  readonly events: TimelineEvent[];
+  readonly pipelineIds: readonly string[];
+  readonly uris: readonly string[];
+  readonly providers: readonly string[];
+  readonly eventTypeCounts: ReadonlyMap<string, number>;
+  readonly hasAssertionFailure: boolean;
+  readonly hasPipelineFailure: boolean;
+  readonly hasProviderFailure: boolean;
+  readonly createdAt: number;
+  lastActivityAt: number;
+  error?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Legacy interfaces (backward compat)                                */
+/* ------------------------------------------------------------------ */
+
 export interface TimelineEntry {
   readonly seq: number;
   readonly type: string;
@@ -14,7 +97,6 @@ export interface TimelineEntry {
   readonly detail?: string;
 }
 
-/** Structured timeline report for a single traceId */
 export interface TimelineReport {
   readonly traceId: string;
   readonly entries: readonly TimelineEntry[];
@@ -24,10 +106,30 @@ export interface TimelineReport {
   readonly missingEvents: readonly string[];
 }
 
-const MAX_EVENTS_PER_TRACE = 500;
-const MAX_TRACES = 1000;
+/* ------------------------------------------------------------------ */
+/*  Timeline Statistics                                                */
+/* ------------------------------------------------------------------ */
 
-/** Known pipeline sequences for missing-event detection */
+export interface TimelineStatistics {
+  totalTimelines: number;
+  liveTimelines: number;
+  completedTimelines: number;
+  failedTimelines: number;
+  cancelledTimelines: number;
+  timedOutTimelines: number;
+  totalEvents: number;
+  averageEventsPerTimeline: number;
+  averageDurationMs: number;
+  longestTimelineMs: number;
+  incompleteTimelines: number;
+  timelinesWithAssertionFailures: number;
+  timelinesWithPipelineFailures: number;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Known pipeline sequences for missing-event detection               */
+/* ------------------------------------------------------------------ */
+
 const PIPELINE_STEPS: ReadonlyArray<{
   name: string;
   steps: readonly string[];
@@ -50,46 +152,304 @@ const PIPELINE_STEPS: ReadonlyArray<{
   },
 ];
 
-/** Builds forensic-style execution timelines from traceId-grouped event histories */
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
+const MAX_TIMELINES = 500;
+const MAX_EVENTS_PER_TIMELINE = 2000;
+
+/* ------------------------------------------------------------------ */
+/*  TimelineGenerator                                                  */
+/* ------------------------------------------------------------------ */
+
 export class TimelineGenerator {
-  private readonly eventsByTraceId = new Map<string, TelemetryEvent[]>();
-  private readonly traceOrder: string[] = [];
-  private disposed = false;
-  private subscription: TelemetrySubscription | undefined;
+  protected readonly timelines = new Map<TimelineId, Timeline>();
+  protected readonly timelineOrder: TimelineId[] = [];
+  protected readonly eventsByTraceId = new Map<string, TelemetryEvent[]>();
+  protected readonly traceOrder: string[] = [];
+  protected readonly subscription: TelemetrySubscription;
+  protected disposed = false;
+  protected seq = 0;
+
+  /* Statistics */
+  protected statsStarted = Date.now();
 
   constructor(reporter: TelemetryReporter) {
     this.subscription = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
-      if (event.type.startsWith('pipeline.') || event.type.startsWith('perf.') || event.type.startsWith('timeline.')) return;
-
-      let chain = this.eventsByTraceId.get(event.traceId);
-      if (!chain) {
-        chain = [];
-        this.eventsByTraceId.set(event.traceId, chain);
-        this.traceOrder.push(event.traceId);
-        if (this.traceOrder.length > MAX_TRACES) {
-          const oldest = this.traceOrder.shift()!;
-          this.eventsByTraceId.delete(oldest);
-        }
-      }
-      chain.push(event);
-      if (chain.length > MAX_EVENTS_PER_TRACE) {
-        chain.splice(0, chain.length - MAX_EVENTS_PER_TRACE);
-      }
+      this.processGlobalEvent(event);
     });
   }
 
-  /** Get all trace IDs currently stored */
+  /* ------------------------------------------------------------------ */
+  /*  Global Event Processing                                            */
+  /* ------------------------------------------------------------------ */
+
+  protected processGlobalEvent(event: TelemetryEvent): void {
+    if (event.type.startsWith('pipeline.') || event.type.startsWith('perf.') || event.type.startsWith('timeline.')) return;
+
+    let chain = this.eventsByTraceId.get(event.traceId);
+    if (!chain) {
+      chain = [];
+      this.eventsByTraceId.set(event.traceId, chain);
+      this.traceOrder.push(event.traceId);
+    }
+    chain.push(event);
+
+    if (!this.hasTimelineForTrace(event.traceId, event)) {
+      this.createTimelineFromEvent(event);
+    }
+
+    this.routeEventToTimeline(event);
+  }
+
+  protected hasTimelineForTrace(traceId: TraceId, _event: TelemetryEvent): boolean {
+    for (const tl of this.timelines.values()) {
+      if (tl.traceIds.includes(traceId)) return true;
+    }
+    return false;
+  }
+
+  protected createTimelineFromEvent(event: TelemetryEvent): TimelineId {
+    const id = generateTimelineId();
+    const primaryTraceId = event.traceId;
+    const now = Date.now();
+
+    const timeline: Timeline = {
+      id,
+      traceIds: [primaryTraceId],
+      primaryTraceId,
+      startTime: now,
+      status: TimelineStatus.Live,
+      events: [],
+      pipelineIds: [],
+      uris: [],
+      providers: [],
+      eventTypeCounts: new Map(),
+      hasAssertionFailure: false,
+      hasPipelineFailure: false,
+      hasProviderFailure: false,
+      createdAt: now,
+      lastActivityAt: now,
+    };
+
+    this.timelines.set(id, timeline);
+    this.timelineOrder.push(id);
+
+    if (this.timelineOrder.length > MAX_TIMELINES) {
+      const oldest = this.timelineOrder.shift()!;
+      this.timelines.delete(oldest);
+    }
+
+    return id;
+  }
+
+  protected routeEventToTimeline(event: TelemetryEvent): void {
+    let best: Timeline | undefined;
+    let bestScore = -1;
+
+    for (const tl of this.timelines.values()) {
+      let score = 0;
+      if (tl.status !== TimelineStatus.Live) continue;
+      if (tl.traceIds.includes(event.traceId)) score += 10;
+      if (event.parentTraceId && tl.traceIds.includes(event.parentTraceId)) score += 8;
+      const uri = this.extractUri(event);
+      if (uri && tl.uris.includes(uri)) score += 5;
+      const provider = this.extractProvider(event);
+      if (provider && tl.providers.includes(provider)) score += 3;
+      if (score > bestScore) {
+        bestScore = score;
+        best = tl;
+      }
+    }
+
+    if (best) {
+      this.addEventToTimeline(best, event);
+    } else {
+      this.addEventToTimeline(this.timelines.get(this.timelineOrder[this.timelineOrder.length - 1])!, event);
+    }
+  }
+
+  protected addEventToTimeline(timeline: Timeline, event: TelemetryEvent): void {
+    const seq = ++this.seq;
+    const category = this.categorizeEvent(event.type);
+    const uri = this.extractUri(event);
+    const provider = this.extractProvider(event);
+
+    const tlEvent: TimelineEvent = {
+      seq,
+      event,
+      category,
+      receivedAt: Date.now(),
+      pipelineId: this.extractPipelineId(event),
+      uri,
+      provider,
+      childEventSeqs: [],
+    };
+
+    const lastEvent = timeline.events[timeline.events.length - 1];
+    if (lastEvent) {
+      tlEvent.previousEventSeq = lastEvent.seq;
+      lastEvent.nextEventSeq = tlEvent.seq;
+    }
+
+    if (event.parentTraceId) {
+      for (const pe of timeline.events) {
+        if (pe.event.traceId === event.parentTraceId) {
+          tlEvent.parentEventSeq = pe.seq;
+          pe.childEventSeqs.push(tlEvent.seq);
+          break;
+        }
+      }
+    }
+
+    timeline.events.push(tlEvent);
+    timeline.lastActivityAt = Date.now();
+
+    if (uri && !timeline.uris.includes(uri)) (timeline.uris as string[]).push(uri);
+    if (provider && !timeline.providers.includes(provider)) (timeline.providers as string[]).push(provider);
+    if (tlEvent.pipelineId && !timeline.pipelineIds.includes(tlEvent.pipelineId)) (timeline.pipelineIds as string[]).push(tlEvent.pipelineId);
+    if (!timeline.traceIds.includes(event.traceId)) (timeline.traceIds as TraceId[]).push(event.traceId);
+
+    const current = timeline.eventTypeCounts.get(event.type) ?? 0;
+    (timeline.eventTypeCounts as Map<string, number>).set(event.type, current + 1);
+
+    if (event.type === 'assertion.failure') (timeline as { hasAssertionFailure: boolean }).hasAssertionFailure = true;
+    if (event.type === 'pipeline.execution.failed') (timeline as { hasPipelineFailure: boolean }).hasPipelineFailure = true;
+
+    const phase = (event as any).phase;
+    if (phase === 'error' || phase === 'cancelled') {
+      if (category === TimelineEventCategory.Provider) (timeline as { hasProviderFailure: boolean }).hasProviderFailure = true;
+    }
+
+    if (this.isTerminalEvent(event) && timeline.status === TimelineStatus.Live) {
+      const endTime = Date.now();
+      timeline.endTime = endTime;
+      timeline.durationMs = endTime - timeline.startTime;
+      timeline.status = this.isFailureEvent(event) ? TimelineStatus.Failed : TimelineStatus.Completed;
+      if (phase === 'cancelled') timeline.status = TimelineStatus.Cancelled;
+    }
+
+    if (timeline.events.length > MAX_EVENTS_PER_TIMELINE) {
+      timeline.events.splice(0, timeline.events.length - MAX_EVENTS_PER_TIMELINE);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Helpers                                                            */
+  /* ------------------------------------------------------------------ */
+
+  protected categorizeEvent(type: string): TimelineEventCategory {
+    if (type.startsWith('store.')) return TimelineEventCategory.Store;
+    if (type.startsWith('provider.')) return TimelineEventCategory.Provider;
+    if (type.startsWith('autoscan.')) return TimelineEventCategory.AutoScanner;
+    if (type.startsWith('diagnostics.')) return TimelineEventCategory.Diagnostics;
+    if (type.startsWith('folder.')) return TimelineEventCategory.Folder;
+    if (type.startsWith('decoration.')) return TimelineEventCategory.Decoration;
+    if (type.startsWith('pipeline.')) return TimelineEventCategory.Pipeline;
+    if (type.startsWith('assertion.')) return TimelineEventCategory.Assertion;
+    if (type.startsWith('snapshot.')) return TimelineEventCategory.Snapshot;
+    return TimelineEventCategory.Unknown;
+  }
+
+  protected extractUri(event: TelemetryEvent): string | undefined {
+    const data = event as unknown as Record<string, unknown>;
+    if (typeof data.uri === 'string') return data.uri;
+    if (typeof data.fileUri === 'string') return data.fileUri;
+    if (Array.isArray(data.uris)) {
+      const uris = data.uris as string[];
+      if (uris.length > 0) return uris[0];
+    }
+    return undefined;
+  }
+
+  protected extractProvider(event: TelemetryEvent): string | undefined {
+    const data = event as unknown as Record<string, unknown>;
+    if (typeof data.provider === 'string') return data.provider;
+    if (typeof data.providerName === 'string') return data.providerName;
+    return undefined;
+  }
+
+  protected extractPipelineId(event: TelemetryEvent): string | undefined {
+    const data = event as unknown as Record<string, unknown>;
+    if (typeof data.pipelineId === 'string') return data.pipelineId;
+    return undefined;
+  }
+
+  protected isTerminalEvent(event: TelemetryEvent): boolean {
+    return event.type === 'decoration.fire'
+      || event.type === 'autoscan.cancel'
+      || event.type === 'pipeline.execution.completed'
+      || event.type === 'pipeline.execution.failed'
+      || event.type === 'pipeline.execution.cancelled';
+  }
+
+  protected isFailureEvent(event: TelemetryEvent): boolean {
+    const data = event as unknown as Record<string, unknown>;
+    return data.phase === 'error' || event.type === 'assertion.failure' || event.type === 'pipeline.execution.failed';
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Timeline Query API                                                 */
+  /* ------------------------------------------------------------------ */
+
+  createTimeline(): TimelineId {
+    const id = generateTimelineId();
+    const ts = Date.now();
+
+    const timeline: Timeline = {
+      id,
+      traceIds: [],
+      primaryTraceId: '' as TraceId,
+      startTime: ts,
+      status: TimelineStatus.Live,
+      events: [],
+      pipelineIds: [],
+      uris: [],
+      providers: [],
+      eventTypeCounts: new Map(),
+      hasAssertionFailure: false,
+      hasPipelineFailure: false,
+      hasProviderFailure: false,
+      createdAt: ts,
+      lastActivityAt: ts,
+    };
+
+    this.timelines.set(id, timeline);
+    this.timelineOrder.push(id);
+    return id;
+  }
+
+  getTimeline(id: TimelineId): Timeline | undefined {
+    return this.timelines.get(id);
+  }
+
+  listTimelines(): readonly Timeline[] {
+    return [...this.timelines.values()];
+  }
+
+  deleteTimeline(id: TimelineId): boolean {
+    const tl = this.timelines.get(id);
+    if (!tl) return false;
+    this.timelines.delete(id);
+    const idx = this.timelineOrder.indexOf(id);
+    if (idx >= 0) this.timelineOrder.splice(idx, 1);
+    return true;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Legacy API (backward compat)                                       */
+  /* ------------------------------------------------------------------ */
+
   getTraceIds(): readonly string[] {
     return [...this.traceOrder];
   }
 
-  /** Get raw events for a traceId */
   getEvents(traceId: string): readonly TelemetryEvent[] {
     return this.eventsByTraceId.get(traceId) ?? [];
   }
 
-  /** Generate a structured timeline report for the given traceId */
   generateReport(traceId: string): TimelineReport {
     const raw = this.eventsByTraceId.get(traceId);
     if (!raw || raw.length === 0) {
@@ -151,14 +511,13 @@ export class TimelineGenerator {
     return { traceId, entries, totalDurationMs, warnings, errors, missingEvents };
   }
 
-  /** Generate a human-readable forensic report string */
   generateForensicReport(traceId: string): string {
     const report = this.generateReport(traceId);
     const lines: string[] = [];
-    const now = new Date().toISOString();
+    const nowStr = new Date().toISOString();
 
     lines.push(`[TIMELINE:REPORT] ===== TIMELINE REPORT ====="`);
-    lines.push(`[TIMELINE:REPORT] Generated: ${now}`);
+    lines.push(`[TIMELINE:REPORT] Generated: ${nowStr}`);
     lines.push(`[TIMELINE:REPORT] TraceId: ${report.traceId}`);
     lines.push(`[TIMELINE:REPORT] Total duration: ${report.totalDurationMs}ms`);
     lines.push(`[TIMELINE:REPORT] Events: ${report.entries.length}`);
@@ -203,7 +562,7 @@ export class TimelineGenerator {
     if (report.missingEvents.length > 0) {
       lines.push(``);
       lines.push(`[TIMELINE:REPORT] Missing Events (${report.missingEvents.length}):`);
-      lines.push(`[TIMELINE:REPORT] ------------------------------`);
+      lines.push(`[TIMELINE:REPORT} ------------------------------`);
       for (const m of report.missingEvents) {
         lines.push(`[TIMELINE:REPORT]   ${m}`);
       }
@@ -214,7 +573,6 @@ export class TimelineGenerator {
     return lines.join('\n');
   }
 
-  /** Generate a summary report from a JSONL log file for offline forensic analysis */
   static analyzeLogFile(filePath: string): string {
     let data: string;
     try {
@@ -249,9 +607,9 @@ export class TimelineGenerator {
       typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1);
       if (e.timestamp < minTime) minTime = e.timestamp;
       if (e.timestamp > maxTime) maxTime = e.timestamp;
-      const data = e as any;
-      if (data.phase === 'error' || data.phase === 'cancelled' || e.type === 'assertion.failure') {
-        errors.push(`${e.type}[${e.traceId}]: ${data.error ?? data.detail ?? data.message ?? ''}`);
+      const data2 = e as any;
+      if (data2.phase === 'error' || data2.phase === 'cancelled' || e.type === 'assertion.failure') {
+        errors.push(`${e.type}[${e.traceId}]: ${data2.error ?? data2.detail ?? data2.message ?? ''}`);
       }
     }
 
@@ -291,10 +649,16 @@ export class TimelineGenerator {
     return lines2.join('\n');
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Lifecycle                                                          */
+  /* ------------------------------------------------------------------ */
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.subscription?.dispose();
+    this.subscription.dispose();
+    this.timelines.clear();
+    this.timelineOrder.length = 0;
     this.eventsByTraceId.clear();
     this.traceOrder.length = 0;
   }
