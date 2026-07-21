@@ -182,7 +182,6 @@ export interface ProviderStats {
   readonly failures: number;
   readonly cancellations: number;
   readonly timeouts: number;
-  readonly queueWaitAverageMs: number;
 }
 
 export interface ResourceStats {
@@ -206,6 +205,7 @@ export interface PerformanceStatistics {
   readonly provider: ProviderStats[];
   readonly resources: ResourceStats;
   readonly throughput: number;
+  readonly peakQueueSize: number;
   readonly slowestOperation: { metric: string; valueMs: number; timestamp: number };
   readonly bottlenecks: string[];
   readonly health: HealthScore;
@@ -255,7 +255,6 @@ export class PerformanceMonitor {
     scanDurationSum: number; scanCount: number;
     refreshDurationSum: number; refreshCount: number;
     failures: number; cancellations: number; timeouts: number;
-    queueWaitSum: number; queueWaitCount: number;
   }>();
 
   /* Resource tracking */
@@ -271,6 +270,7 @@ export class PerformanceMonitor {
   private sampleCount = 0;
   private trackedSince = Date.now();
   private totalLatencyMs = 0;
+  private peakQueueSize = 0;
 
   /* Slowest operation */
   private slowestMetric = '';
@@ -307,7 +307,7 @@ export class PerformanceMonitor {
   private getOrCreateProviderStats(provider: string): NonNullable<ReturnType<PerformanceMonitor['providerStats']['get']>> {
     let s = this.providerStats.get(provider);
     if (!s) {
-      s = { scanDurationSum: 0, scanCount: 0, refreshDurationSum: 0, refreshCount: 0, failures: 0, cancellations: 0, timeouts: 0, queueWaitSum: 0, queueWaitCount: 0 };
+      s = { scanDurationSum: 0, scanCount: 0, refreshDurationSum: 0, refreshCount: 0, failures: 0, cancellations: 0, timeouts: 0 };
       this.providerStats.set(provider, s);
     }
     return s;
@@ -403,6 +403,30 @@ export class PerformanceMonitor {
         break;
       }
 
+      case 'autoscan.queue': {
+        /* Track peak queue size */
+        if (typeof data.queueSize === 'number' && data.queueSize > this.peakQueueSize) {
+          this.peakQueueSize = data.queueSize;
+        }
+        break;
+      }
+
+      case 'provider.refresh':
+      case 'provider.lifecycle': {
+        if ((data.phase === 'end' || data.phase === 'completed') && typeof data.executionTimeMs === 'number') {
+          this.recordLatency('providerRefresh', data.executionTimeMs, data.provider);
+          this.recordProviderRefresh(data.provider, data.executionTimeMs);
+        }
+        break;
+      }
+
+      case 'pipeline.execution.completed': {
+        if (data.status === 'timedOut') {
+          this.recordProviderTimeout(data.provider);
+        }
+        break;
+      }
+
       default: {
         if (data.executionTimeMs && typeof data.executionTimeMs === 'number') {
           this.recordLatency(`event.${event.type}`, data.executionTimeMs);
@@ -479,6 +503,17 @@ export class PerformanceMonitor {
   private recordProviderCancellation(provider: string): void {
     const s = this.getOrCreateProviderStats(provider);
     s.cancellations++;
+  }
+
+  private recordProviderRefresh(provider: string, durationMs: number): void {
+    const s = this.getOrCreateProviderStats(provider);
+    s.refreshDurationSum += durationMs;
+    s.refreshCount++;
+  }
+
+  private recordProviderTimeout(provider: string): void {
+    const s = this.getOrCreateProviderStats(provider);
+    s.timeouts++;
   }
 
   /* ------------------------------------------------------------------ */
@@ -587,7 +622,6 @@ export class PerformanceMonitor {
         failures: s.failures,
         cancellations: s.cancellations,
         timeouts: s.timeouts,
-        queueWaitAverageMs: s.queueWaitCount > 0 ? Math.round(s.queueWaitSum / s.queueWaitCount) : 0,
       });
     }
 
@@ -605,6 +639,7 @@ export class PerformanceMonitor {
       slowestOperation: { metric: this.slowestMetric, valueMs: this.slowestValueMs, timestamp: this.slowestTimestamp },
       bottlenecks,
       health,
+      peakQueueSize: this.peakQueueSize,
       totalSamples: this.sampleCount,
       trackedSince: this.trackedSince,
     };
