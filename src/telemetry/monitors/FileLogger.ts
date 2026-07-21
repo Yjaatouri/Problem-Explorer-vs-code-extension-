@@ -372,6 +372,34 @@ export class FileLogger {
     this.writer = this.createWriter(stream, oldPath);
   }
 
+  cleanupOldSessions(maxSessions?: number): number {
+    const keep = maxSessions ?? this.maxLogFiles;
+    const sessionDirs: { name: string; mtime: Date }[] = [];
+
+    try {
+      for (const entry of fs.readdirSync(this.logDir)) {
+        if (entry.startsWith('session-')) {
+          const full = path.join(this.logDir, entry);
+          try {
+            sessionDirs.push({ name: entry, mtime: fs.statSync(full).mtime });
+          } catch { /* skip */ }
+        }
+      }
+    } catch { return 0; }
+
+    sessionDirs.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    let removed = 0;
+    while (sessionDirs.length > keep) {
+      const oldest = sessionDirs.pop()!;
+      const full = path.join(this.logDir, oldest.name);
+      try {
+        fs.rmSync(full, { recursive: true, force: true });
+        removed++;
+      } catch { /* skip */ }
+    }
+    return removed;
+  }
+
   private createWriter(stream: fs.WriteStream, filePath: string): LogWriter {
     return {
       write: (entry: LogEntry): Promise<void> => {
