@@ -670,6 +670,14 @@ export function createSnapshotSystem(
   problemStore?: ProblemStore,
   dpm?: DiagnosticProviderManager,
   configManager?: TelemetryConfigManager,
+  storeMonitor?: StoreMonitor,
+  providerMonitor?: ProviderMonitor,
+  autoScannerMonitor?: AutoScannerMonitor,
+  diagnosticsMonitor?: DiagnosticsMonitor,
+  folderMonitor?: FolderMonitor,
+  decorationMonitor?: DecorationMonitor,
+  pipelineMonitor?: EventPipelineMonitor,
+  runtimeAssertions?: RuntimeAssertions,
 ): SnapshotSystem {
-  return new SnapshotSystem(reporter, problemStore, dpm, configManager);
+  return new SnapshotSystem(reporter, problemStore, dpm, configManager, storeMonitor, providerMonitor, autoScannerMonitor, diagnosticsMonitor, folderMonitor, decorationMonitor, pipelineMonitor, runtimeAssertions);
 }

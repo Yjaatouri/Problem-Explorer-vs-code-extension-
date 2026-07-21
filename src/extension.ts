@@ -107,7 +107,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const perfMonitor = createPerformanceMonitor(telemetryReporter);
     const runtimeAssertions = createRuntimeAssertions(telemetryReporter);
     const timelineGenerator = createTimelineGenerator(telemetryReporter);
-    const snapshotSystem = createSnapshotSystem(telemetryReporter, problemStore, diagProviderManager, telemetryConfig);
+    const snapshotSystem = createSnapshotSystem(
+      telemetryReporter, problemStore, diagProviderManager, telemetryConfig,
+      storeMonitor, providerMonitor, autoScannerMonitor, diagnosticsMonitor,
+      folderMonitor, decorationMonitor, pipelineMonitor, runtimeAssertions,
+    );
     try {
       const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
       snapshotSystem.setEnvironmentInfo(vscode.version, context.extension.packageJSON.version ?? 'unknown', wf);
@@ -410,8 +414,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     runtimeAssertions.engine.setRecoveryHandlers({
       notifyDashboard: () => devDashboard.notifyAssertion(),
       requestSnapshot: () => {
-        const snapshot = snapshotSystem.captureSystemSnapshot();
-        log(`[ASSERTION] Snapshot captured: ${Object.keys(snapshot).length} entries`);
+        const snapshot = snapshotSystem.captureManual();
+        log(`[ASSERTION] Snapshot ${snapshot.metadata.id} captured with ${Object.keys(snapshot.data).length} data sections`);
       },
       stopPipeline: (pipelineId?: string) => {
         if (pipelineId) {
