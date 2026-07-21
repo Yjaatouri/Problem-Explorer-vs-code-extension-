@@ -213,6 +213,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
   private readonly assertionFrequency = new Map<string, number>();
 
   private readonly maxStoredFailures = 10000;
+  private readonly executionTimeoutMs = 10000;
   private recoveryHandlers: RecoveryContext = {};
 
   constructor(private readonly reporter: TelemetryReporter) {}
@@ -285,6 +286,9 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
     }
     return results;
   }
+  // KNOWN LIMITATION (H2): 13 rules (store, folder) iterate the entire store via
+  // forEachEntry/forEachFileEntry. For workspaces with 10k+ entries this may be
+  // expensive. A future optimization would add dirty-tracking / incremental checks.
 
   private async runRule(rule: AssertionRule): Promise<AssertionResult> {
     const start = Date.now();
@@ -292,7 +296,12 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
     let result: AssertionResult;
 
     try {
-      result = await rule.execute(context);
+      result = await Promise.race([
+        rule.execute(context),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Assertion rule "${rule.name}" timed out after ${this.executionTimeoutMs}ms`)), this.executionTimeoutMs)
+        ),
+      ]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result = {
@@ -310,6 +319,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
     }
 
     const elapsed = Date.now() - start;
+    result = { ...result, executionTimeMs: elapsed };
     this.totalExecuted++;
     this.totalExecutionTimeMs += elapsed;
     if (elapsed > this.peakExecutionTimeMs) this.peakExecutionTimeMs = elapsed;
@@ -1586,14 +1596,26 @@ export function createFolderInconsistentParentChildRule(store: ProblemStore): As
 }
 
 /** Detect impossible folder transition: folder state changed without child changes */
-export function createFolderImpossibleTransitionRule(): AssertionRule {
+export function createFolderImpossibleTransitionRule(manager: FolderStatusManager, store: ProblemStore): AssertionRule {
   return {
     name: 'folder.impossibleTransition', description: 'Detect impossible folder state changes',
     category: AssertionCategory.Folder, severity: AssertionSeverity.Info,
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      return passResult(start);
+      const failures: AssertionFailure[] = [];
+      const m = manager as any;
+      const childIndex: Map<string, Map<string, unknown>> = m.childIndex;
+      if (!childIndex) return passResult(start);
+      for (const [parentKey] of childIndex) {
+        const stored = store.get(Uri.parse(parentKey));
+        if (!stored) continue;
+        if (stored.fileCount === 0 && (stored.errorCount > 0 || stored.warningCount > 0 || stored.infoCount > 0)) {
+          failures.push({ assertion: 'folder.impossibleTransition', category: AssertionCategory.Folder, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Folder "${parentKey}" has zero fileCount but non-zero counts (${stored.errorCount}e/${stored.warningCount}w/${stored.infoCount}i)`, uri: parentKey });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
     },
   };
 }
@@ -1703,7 +1725,7 @@ export class RuntimeAssertions implements Disposable {
       createFolderDuplicateRebuildRule(manager),
       createFolderStaleAggregateRule(store),
       createFolderInconsistentParentChildRule(store),
-      createFolderImpossibleTransitionRule(),
+      createFolderImpossibleTransitionRule(manager, store),
     ];
     for (const rule of rules) {
       disposables.push(this.engine.registerRule(rule));
