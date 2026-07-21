@@ -63,7 +63,7 @@ export class TscRunner {
 
     return new Promise<TscRunResult>((resolve) => {
       let settled = false;
-      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined; // eslint-disable-line prefer-const
       let childResolved = false;
 
       const finish = (result: TscRunResult): void => {

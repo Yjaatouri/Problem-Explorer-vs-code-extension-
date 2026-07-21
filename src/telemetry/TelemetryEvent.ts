@@ -1,6 +1,8 @@
 /** Unique identifier for a single execution trace */
 export type TraceId = string & { readonly __brand: typeof TraceIdBrand };
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare const TraceIdBrand: unique symbol;
+
 
 /** Generate a new trace ID */
 export function generateTraceId(): TraceId {

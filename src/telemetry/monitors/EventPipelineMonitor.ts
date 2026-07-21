@@ -7,8 +7,10 @@ import { generateTraceId } from '../../telemetry/TelemetryConfig';
 /*  Pipeline Identity                                                  */
 /* ------------------------------------------------------------------ */
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare const PipelineIdBrand: unique symbol;
 export type PipelineId = string & { readonly __brand: typeof PipelineIdBrand };
+
 
 export function generatePipelineId(): PipelineId {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` as PipelineId;

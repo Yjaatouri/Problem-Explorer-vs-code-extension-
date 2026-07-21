@@ -353,9 +353,8 @@ export class ProviderMonitor {
     });
 
     /* Wrap refresh() to capture start/end/duration/success/failure */
-    const self = this;
-    provider.refresh = function (): void | Promise<void> {
-      return self.wrapRefresh(name, tracking, provider);
+    provider.refresh = (): void | Promise<void> => {
+      return this.wrapRefresh(name, tracking, provider);
     };
   }
 

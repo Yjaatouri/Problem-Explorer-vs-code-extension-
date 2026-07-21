@@ -298,17 +298,16 @@ export class FolderMonitor {
   }
 
   private wrapUpdateAncestors(): void {
-    const self = this;
-    this.folderManager.updateAncestors = function (fileUri: Uri): Uri[] {
-      if (self.disposed) return self.originalUpdateAncestors(fileUri);
-      self.activeUpdates++;
+    this.folderManager.updateAncestors = (fileUri: Uri): Uri[] => {
+      if (this.disposed) return this.originalUpdateAncestors(fileUri);
+      this.activeUpdates++;
       try {
         const start = Date.now();
         const uriStr = fileUri.toString();
-        const indexBefore = self.folderManager.childIndexSize;
+        const indexBefore = this.folderManager.childIndexSize;
 
       /* Emit start event */
-      self.reporter.report({
+      this.reporter.report({
         type: 'folder.updateAncestors.start',
         timestamp: start,
         traceId: generateTraceId(),
@@ -318,9 +317,9 @@ export class FolderMonitor {
       } as any);
 
       /* Compute ancestor chain before the call */
-      const { ancestors, rootStr } = self.computeAncestorChain(uriStr);
+      const { ancestors, rootStr } = this.computeAncestorChain(uriStr);
 
-      const changed = self.originalUpdateAncestors(fileUri);
+      const changed = this.originalUpdateAncestors(fileUri);
       const now = Date.now();
       const durationMs = now - start;
       const changedUris = changed.map((u: Uri) => u.toString());
@@ -331,27 +330,27 @@ export class FolderMonitor {
       const foldersSkipped = ancestors.filter((a) => !changedSet.has(a));
       const foldersUpdated = ancestors.filter((a) => changedSet.has(a));
       const traversalDepth = ancestors.length;
-      self.stats.totalFoldersSkipped += foldersSkipped.length;
-      self.stats.totalAncestorsTraversed += traversalDepth;
-      self.stats.propagationDepthSum += traversalDepth;
-      self.stats.totalFoldersProcessed += changed.length;
+      this.stats.totalFoldersSkipped += foldersSkipped.length;
+      this.stats.totalAncestorsTraversed += traversalDepth;
+      this.stats.propagationDepthSum += traversalDepth;
+      this.stats.totalFoldersProcessed += changed.length;
 
       /* Estimate depth from URI path segments */
       const segments = uriStr.split('/').filter(Boolean);
       const depth = segments.length;
 
-      self.stats.totalUpdateAncestors++;
-      self.stats.totalFoldersChanged += changed.length;
-      self.stats.updateAncestorsDurationSumMs += durationMs;
-      if (durationMs > self.stats.peakUpdateAncestorsDurationMs) {
-        self.stats.peakUpdateAncestorsDurationMs = durationMs;
+      this.stats.totalUpdateAncestors++;
+      this.stats.totalFoldersChanged += changed.length;
+      this.stats.updateAncestorsDurationSumMs += durationMs;
+      if (durationMs > this.stats.peakUpdateAncestorsDurationMs) {
+        this.stats.peakUpdateAncestorsDurationMs = durationMs;
       }
 
-      if (traversalDepth > self.stats.peakPropagationDepth) {
-        self.stats.peakPropagationDepth = traversalDepth;
+      if (traversalDepth > this.stats.peakPropagationDepth) {
+        this.stats.peakPropagationDepth = traversalDepth;
       }
 
-      self.reporter.report({
+      this.reporter.report({
         type: 'folder.updateAncestors',
         timestamp: now,
         traceId: generateTraceId(),
@@ -363,12 +362,12 @@ export class FolderMonitor {
         durationMs,
         depth,
         indexSizeBefore: indexBefore,
-        indexSizeAfter: self.folderManager.childIndexSize,
+        indexSizeAfter: this.folderManager.childIndexSize,
       } as any);
 
       /* Emit propagation event with full ancestor chain */
       const propagationMs = Date.now() - propagationStart;
-      self.reporter.report({
+      this.reporter.report({
         type: 'folder.propagation',
         timestamp: now,
         traceId: generateTraceId(),
@@ -384,46 +383,45 @@ export class FolderMonitor {
 
       /* Check skipped ancestors for stale aggregates (Task 5) */
       for (const skipped of foldersSkipped) {
-        self.checkStaleAggregate(Uri.parse(skipped));
+        this.checkStaleAggregate(Uri.parse(skipped));
       }
 
       /* Runtime assertions (Task 6) */
-      self.checkMissingAncestorUpdate(changedUris, ancestors, uriStr);
-      self.checkDuplicateFolderUpdate(changedUris, uriStr);
+      this.checkMissingAncestorUpdate(changedUris, ancestors, uriStr);
+      this.checkDuplicateFolderUpdate(changedUris, uriStr);
       for (const updated of changedUris) {
-        self.checkOrphanFolder(Uri.parse(updated));
+        this.checkOrphanFolder(Uri.parse(updated));
       }
 
       /* Check rebuild consistency: an aggregate updated here should match the last rebuild */
-      if (self.lastRebuildChangedUris) {
+      if (this.lastRebuildChangedUris) {
         for (const changedUri of changedUris) {
-          if (!self.lastRebuildChangedUris.includes(changedUri)) {
-            self.emitAssertion('REBUILD_INCONSISTENCY',
+          if (!this.lastRebuildChangedUris.includes(changedUri)) {
+            this.emitAssertion('REBUILD_INCONSISTENCY',
               `Folder ${changedUri} was updated by updateAncestors but not by last rebuildAll`,
-              changedUri, `rebuildAffected=[${self.lastRebuildChangedUris.join(',')}]`);
+              changedUri, `rebuildAffected=[${this.lastRebuildChangedUris.join(',')}]`);
           }
         }
-        self.lastRebuildChangedUris = undefined;
+        this.lastRebuildChangedUris = undefined;
       }
 
       return changed;
       } finally {
-        self.activeUpdates--;
+        this.activeUpdates--;
       }
     };
   }
 
   private wrapRebuildAll(): void {
-    const self = this;
-    this.folderManager.rebuildAll = function (): Uri[] {
-      if (self.disposed) return self.originalRebuildAll();
-      self.activeRebuilds++;
+    this.folderManager.rebuildAll = (): Uri[] => {
+      if (this.disposed) return this.originalRebuildAll();
+      this.activeRebuilds++;
       try {
         const start = Date.now();
-        const indexSizeBefore = self.folderManager.childIndexSize;
+        const indexSizeBefore = this.folderManager.childIndexSize;
 
       /* Emit start event */
-      self.reporter.report({
+      this.reporter.report({
         type: 'folder.rebuildAll.start',
         timestamp: start,
         traceId: generateTraceId(),
@@ -432,18 +430,18 @@ export class FolderMonitor {
         workspaceFolders: workspace.workspaceFolders?.length ?? 0,
       } as any);
 
-      const changed = self.originalRebuildAll();
+      const changed = this.originalRebuildAll();
       const now = Date.now();
       const durationMs = now - start;
       const changedUris = changed.map((u: Uri) => u.toString());
 
-      self.stats.totalRebuilds++;
-      self.stats.rebuildDurationSumMs += durationMs;
-      if (durationMs > self.stats.peakRebuildDurationMs) {
-        self.stats.peakRebuildDurationMs = durationMs;
+      this.stats.totalRebuilds++;
+      this.stats.rebuildDurationSumMs += durationMs;
+      if (durationMs > this.stats.peakRebuildDurationMs) {
+        this.stats.peakRebuildDurationMs = durationMs;
       }
 
-      self.reporter.report({
+      this.reporter.report({
         type: 'folder.rebuildAll',
         timestamp: now,
         traceId: generateTraceId(),
@@ -454,33 +452,32 @@ export class FolderMonitor {
         affectedUris: changedUris,
         workspaceFolders: 0,
         indexSizeBefore,
-        indexSizeAfter: self.folderManager.childIndexSize,
+        indexSizeAfter: this.folderManager.childIndexSize,
       } as any);
 
-      self.lastRebuildChangedUris = changedUris;
+      this.lastRebuildChangedUris = changedUris;
 
       return changed;
       } finally {
-        self.activeRebuilds--;
+        this.activeRebuilds--;
       }
     };
   }
 
   private wrapRecomputeFolderStatus(): void {
-    const self = this;
-    this.folderManager.recomputeFolderStatus = function (folderUri: Uri): ProblemState {
-      if (self.disposed) return self.originalRecomputeFolderStatus(folderUri);
+    this.folderManager.recomputeFolderStatus = (folderUri: Uri): ProblemState => {
+      if (this.disposed) return this.originalRecomputeFolderStatus(folderUri);
       const start = Date.now();
       const uriStr = folderUri.toString();
-      const aggregateBefore = self.problemStore.get(folderUri);
-      const result = self.originalRecomputeFolderStatus(folderUri);
+      const aggregateBefore = this.problemStore.get(folderUri);
+      const result = this.originalRecomputeFolderStatus(folderUri);
       const now = Date.now();
       const durationMs = now - start;
 
-      self.stats.totalRecomputes++;
-      self.stats.recomputeDurationSumMs += durationMs;
+      this.stats.totalRecomputes++;
+      this.stats.recomputeDurationSumMs += durationMs;
 
-      self.reporter.report({
+      this.reporter.report({
         type: 'folder.recompute',
         timestamp: now,
         traceId: generateTraceId(),
@@ -541,36 +538,35 @@ export class FolderMonitor {
   }
 
   private wrapSetFolderAggregate(): void {
-    const self = this;
-    this.problemStore.setFolderAggregate = function (uri: Uri, state: ProblemState): boolean {
-      if (self.disposed) return self.originalSetFolderAggregate(uri, state);
-      if (self.reentrant > 0) return self.originalSetFolderAggregate(uri, state);
-      self.reentrant++;
+    this.problemStore.setFolderAggregate = (uri: Uri, state: ProblemState): boolean => {
+      if (this.disposed) return this.originalSetFolderAggregate(uri, state);
+      if (this.reentrant > 0) return this.originalSetFolderAggregate(uri, state);
+      this.reentrant++;
       try {
         const start = Date.now();
         const uriStr = uri.toString();
-        const before = self.problemStore.get(uri);
-        const owner = self.problemStore.getOwningProvider(uri);
-        const accepted = self.originalSetFolderAggregate(uri, state);
+        const before = this.problemStore.get(uri);
+        const owner = this.problemStore.getOwningProvider(uri);
+        const accepted = this.originalSetFolderAggregate(uri, state);
         const now = Date.now();
-        const after = self.problemStore.get(uri);
+        const after = this.problemStore.get(uri);
         const durationMs = now - start;
 
         if (accepted) {
           if (!before) {
-            self.emitAggregateEvent(uriStr, 'created', before, after, now);
+            this.emitAggregateEvent(uriStr, 'created', before, after, now);
           } else {
-            self.emitAggregateEvent(uriStr, 'updated', before, after, now);
+            this.emitAggregateEvent(uriStr, 'updated', before, after, now);
           }
-          self.stats.totalStoreWrites++;
-          self.stats.totalStoreWritesAccepted++;
+          this.stats.totalStoreWrites++;
+          this.stats.totalStoreWritesAccepted++;
         } else {
-          self.emitAggregateEvent(uriStr, 'unchanged', before, after, now);
-          self.stats.totalStoreWrites++;
-          self.stats.totalStoreWritesRejected++;
+          this.emitAggregateEvent(uriStr, 'unchanged', before, after, now);
+          this.stats.totalStoreWrites++;
+          this.stats.totalStoreWritesRejected++;
         }
 
-        self.reporter.report({
+        this.reporter.report({
           type: 'folder.storeWrite',
           timestamp: now,
           traceId: generateTraceId(),
@@ -587,33 +583,32 @@ export class FolderMonitor {
 
         return accepted;
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
   }
 
   private wrapStoreDelete(): void {
-    const self = this;
-    this.problemStore.delete = function (uri: Uri): boolean {
-      if (self.disposed) return self.originalStoreDelete(uri);
-      if (!self.problemStore.isFolderAggregate(uri)) {
-        return self.originalStoreDelete(uri);
+    this.problemStore.delete = (uri: Uri): boolean => {
+      if (this.disposed) return this.originalStoreDelete(uri);
+      if (!this.problemStore.isFolderAggregate(uri)) {
+        return this.originalStoreDelete(uri);
       }
-      if (self.reentrant > 0) return self.originalStoreDelete(uri);
-      self.reentrant++;
+      if (this.reentrant > 0) return this.originalStoreDelete(uri);
+      this.reentrant++;
       try {
         const start = Date.now();
         const uriStr = uri.toString();
-        const before = self.problemStore.get(uri);
-        const owner = self.problemStore.getOwningProvider(uri);
-        const result = self.originalStoreDelete(uri);
+        const before = this.problemStore.get(uri);
+        const owner = this.problemStore.getOwningProvider(uri);
+        const result = this.originalStoreDelete(uri);
         const now = Date.now();
         const durationMs = now - start;
 
         if (result && before) {
-          self.emitAggregateEvent(uriStr, 'removed', before, undefined, now);
+          this.emitAggregateEvent(uriStr, 'removed', before, undefined, now);
 
-          self.reporter.report({
+          this.reporter.report({
             type: 'folder.storeWrite',
             timestamp: now,
             traceId: generateTraceId(),
@@ -629,7 +624,7 @@ export class FolderMonitor {
         }
         return result;
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
   }

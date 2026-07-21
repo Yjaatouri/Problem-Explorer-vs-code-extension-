@@ -231,19 +231,17 @@ export class DecorationMonitor {
   /* ------------------------------------------------------------------ */
 
   private wrapMethods(): void {
-    const self = this;
-
-    this.engine.fireDidChange = function (uris: Uri | Uri[] | undefined): void {
-      if (self.disposed) { self.originalFireDidChange(uris); return; }
-      self.handleFireDidChange(uris);
+    this.engine.fireDidChange = (uris: Uri | Uri[] | undefined): void => {
+      if (this.disposed) { this.originalFireDidChange(uris); return; }
+      this.handleFireDidChange(uris);
     };
 
-    this.engine.provideFileDecoration = function (
+    this.engine.provideFileDecoration = (
       uri: Uri,
       token: CancellationToken,
-    ): FileDecoration | undefined {
-      if (self.disposed) { return self.originalProvideFileDecoration(uri, token); }
-      return self.handleProvideFileDecoration(uri, token);
+    ): FileDecoration | undefined => {
+      if (this.disposed) { return this.originalProvideFileDecoration(uri, token); }
+      return this.handleProvideFileDecoration(uri, token);
     };
   }
 

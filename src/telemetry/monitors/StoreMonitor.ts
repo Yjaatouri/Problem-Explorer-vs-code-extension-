@@ -331,60 +331,60 @@ export class StoreMonitor {
   }
 
   private wrapMethods(): void {
-    const self = this;
+    
 
     /* — set() — */
-    this.store.set = function (uri: Uri, state: ProblemState, providerName?: string): boolean {
-      if (self.disposed) return self.originalSet(uri, state, providerName);
-      if (self.reentrant > 0) {
-        self.nestedEventsSkipped++;
-        self.nestedSetsSkipped++;
-        const result = self.originalSet(uri, state, providerName);
-        if (result) { self.totalWrites++; if (self.batchStartTime > 0) self.batchWriteCount++; }
-        else { self.totalRejected++; if (self.batchStartTime > 0) self.batchRejectedCount++; }
+    this.store.set = (uri: Uri, state: ProblemState, providerName?: string): boolean => {
+      if (this.disposed) return this.originalSet(uri, state, providerName);
+      if (this.reentrant > 0) {
+        this.nestedEventsSkipped++;
+        this.nestedSetsSkipped++;
+        const result = this.originalSet(uri, state, providerName);
+        if (result) { this.totalWrites++; if (this.batchStartTime > 0) this.batchWriteCount++; }
+        else { this.totalRejected++; if (this.batchStartTime > 0) this.batchRejectedCount++; }
         return result;
       }
 
       if (!uri) {
-        self.safeReportAssertion('nullUri', 'set() called with null/undefined URI');
-        return self.originalSet(uri, state, providerName);
+        this.safeReportAssertion('nullUri', 'set() called with null/undefined URI');
+        return this.originalSet(uri, state, providerName);
       }
       if (state == null) {
-        self.safeReportAssertion('nullState', 'set() called with null/undefined state');
-        return self.originalSet(uri, state, providerName);
+        this.safeReportAssertion('nullState', 'set() called with null/undefined state');
+        return this.originalSet(uri, state, providerName);
       }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
         const uriStr = uri.toString();
         const normKey = normalizeUriKey(uri);
-        const ownerBefore = self.store.getOwningProvider(uri);
-        const stateBefore = self.store.get(uri);
+        const ownerBefore = this.store.getOwningProvider(uri);
+        const stateBefore = this.store.get(uri);
         const severityBefore = stateBefore?.severity;
         const errorCountBefore = stateBefore?.errorCount ?? 0;
         const warningCountBefore = stateBefore?.warningCount ?? 0;
         const infoCountBefore = stateBefore?.infoCount ?? 0;
 
-        const accepted = self.originalSet(uri, state, providerName);
+        const accepted = this.originalSet(uri, state, providerName);
         const executionTimeMs = Date.now() - start;
 
         try {
           if (accepted) {
-            const ownerAfter = self.store.getOwningProvider(uri);
-            const stateAfter = self.store.get(uri);
+            const ownerAfter = this.store.getOwningProvider(uri);
+            const stateAfter = this.store.get(uri);
             const severityAfter = stateAfter?.severity;
             const errorCountAfter = stateAfter?.errorCount ?? 0;
             const warningCountAfter = stateAfter?.warningCount ?? 0;
             const infoCountAfter = stateAfter?.infoCount ?? 0;
 
-            const hasChanged = self.hasStateChanged(stateBefore, state);
+            const hasChanged = this.hasStateChanged(stateBefore, state);
 
-            self.totalWrites++;
-            if (self.batchStartTime > 0) self.batchWriteCount++;
+            this.totalWrites++;
+            if (this.batchStartTime > 0) this.batchWriteCount++;
 
-            self.safeReport({
+            this.safeReport({
               type: 'store.set',
               timestamp: start,
               traceId,
@@ -411,24 +411,24 @@ export class StoreMonitor {
             /* Ownership tracking — trust store's post-call state (ownerAfter) */
             if (providerName !== undefined && ownerAfter === providerName) {
               if (!ownerBefore) {
-                self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
-                self.ownedUris.set(normKey, providerName);
-                self.safeReport({
+                this.ownerCounts.set(providerName, (this.ownerCounts.get(providerName) ?? 0) + 1);
+                this.ownedUris.set(normKey, providerName);
+                this.safeReport({
                   type: 'store.ownership.acquired',
                   timestamp: start,
                   traceId,
                   source: 'StoreMonitor',
                   uri: uriStr,
                   provider: providerName,
-                  priority: self.store.getProviderPriority(providerName),
+                  priority: this.store.getProviderPriority(providerName),
                 });
               } else if (ownerBefore !== providerName) {
-                self.totalOwnershipConflicts++;
-                if (self.batchStartTime > 0) self.batchConflictCount++;
-                self.decrementOwnerCount(ownerBefore);
-                self.ownerCounts.set(providerName, (self.ownerCounts.get(providerName) ?? 0) + 1);
-                self.ownedUris.set(normKey, providerName);
-                self.safeReport({
+                this.totalOwnershipConflicts++;
+                if (this.batchStartTime > 0) this.batchConflictCount++;
+                this.decrementOwnerCount(ownerBefore);
+                this.ownerCounts.set(providerName, (this.ownerCounts.get(providerName) ?? 0) + 1);
+                this.ownedUris.set(normKey, providerName);
+                this.safeReport({
                   type: 'store.ownership.transferred',
                   timestamp: start,
                   traceId,
@@ -436,23 +436,23 @@ export class StoreMonitor {
                   uri: uriStr,
                   fromProvider: ownerBefore,
                   toProvider: providerName,
-                  fromPriority: self.store.getProviderPriority(ownerBefore),
-                  toPriority: self.store.getProviderPriority(providerName),
+                  fromPriority: this.store.getProviderPriority(ownerBefore),
+                  toPriority: this.store.getProviderPriority(providerName),
                 });
               }
             }
           } else {
-            self.totalRejected++;
-            if (self.batchStartTime > 0) self.batchRejectedCount++;
+            this.totalRejected++;
+            if (this.batchStartTime > 0) this.batchRejectedCount++;
 
             /* Determine rejection reason */
             let reason: { reason: 'ownership' | 'unchanged' | 'unknown'; detail: string };
             try {
-              reason = self.determineRejectReason(providerName, ownerBefore, state, stateBefore);
+              reason = this.determineRejectReason(providerName, ownerBefore, state, stateBefore);
             } catch (reasonErr) {
               reason = { reason: 'unknown', detail: `determineRejectReason threw: ${reasonErr instanceof Error ? reasonErr.message : String(reasonErr)}` };
             }
-            self.safeReport({
+            this.safeReport({
               type: 'store.setRejected',
               timestamp: start,
               traceId,
@@ -461,8 +461,8 @@ export class StoreMonitor {
               provider: providerName ?? 'unknown',
               requestedState: state,
               currentOwner: ownerBefore,
-              currentOwnerPriority: ownerBefore ? self.store.getProviderPriority(ownerBefore) : -1,
-              requesterPriority: providerName ? self.store.getProviderPriority(providerName) : -1,
+              currentOwnerPriority: ownerBefore ? this.store.getProviderPriority(ownerBefore) : -1,
+              requesterPriority: providerName ? this.store.getProviderPriority(providerName) : -1,
               reason: reason.reason,
               detail: reason.detail,
               executionTimeMs,
@@ -470,7 +470,7 @@ export class StoreMonitor {
 
             /* Ownership rejection event */
             if (reason.reason === 'ownership' && ownerBefore && providerName) {
-              self.safeReport({
+              this.safeReport({
                 type: 'store.ownership.rejected',
                 timestamp: start,
                 traceId,
@@ -478,54 +478,54 @@ export class StoreMonitor {
                 uri: uriStr,
                 requester: providerName,
                 currentOwner: ownerBefore,
-                requesterPriority: self.store.getProviderPriority(providerName),
-                currentOwnerPriority: self.store.getProviderPriority(ownerBefore),
+                requesterPriority: this.store.getProviderPriority(providerName),
+                currentOwnerPriority: this.store.getProviderPriority(ownerBefore),
               });
             }
           }
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `set wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `set wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
 
         /* Track duration for all set calls (accepted + rejected) */
-        self.setDurationSum += executionTimeMs;
-        self.setDurationCount++;
+        this.setDurationSum += executionTimeMs;
+        this.setDurationCount++;
 
         try {
-          self.sampleAssertions();
+          this.sampleAssertions();
         } catch {
           /* sampleAssertions already self-protects; swallow defensively */
         }
         return accepted;
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — delete() — */
-    this.store.delete = function (uri: Uri): boolean {
-      if (self.disposed) return self.originalDelete(uri);
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedDeletesSkipped++; return self.originalDelete(uri); }
+    this.store.delete = (uri: Uri): boolean => {
+      if (this.disposed) return this.originalDelete(uri);
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; this.nestedDeletesSkipped++; return this.originalDelete(uri); }
 
       if (!uri) {
-        self.safeReportAssertion('nullUri', 'delete() called with null/undefined URI');
-        return self.originalDelete(uri);
+        this.safeReportAssertion('nullUri', 'delete() called with null/undefined URI');
+        return this.originalDelete(uri);
       }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
         const uriStr = uri.toString();
         const normKey = normalizeUriKey(uri);
-        const stateBefore = self.store.get(uri);
-        const ownerBefore = self.store.getOwningProvider(uri);
+        const stateBefore = this.store.get(uri);
+        const ownerBefore = this.store.getOwningProvider(uri);
 
-        const accepted = self.originalDelete(uri);
+        const accepted = this.originalDelete(uri);
         const executionTimeMs = Date.now() - start;
 
         try {
-          self.safeReport({
+          this.safeReport({
             type: 'store.delete',
             timestamp: start,
             traceId,
@@ -538,9 +538,9 @@ export class StoreMonitor {
           });
 
           if (accepted && ownerBefore) {
-            self.decrementOwnerCount(ownerBefore);
-            self.ownedUris.delete(normKey);
-            self.safeReport({
+            this.decrementOwnerCount(ownerBefore);
+            this.ownedUris.delete(normKey);
+            this.safeReport({
               type: 'store.ownership.released',
               timestamp: start,
               traceId,
@@ -550,61 +550,61 @@ export class StoreMonitor {
             });
           }
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `delete wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `delete wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
 
         try {
-          self.sampleAssertions();
+          this.sampleAssertions();
         } catch {
           /* swallow defensively */
         }
         return accepted;
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — clear() — */
-    this.store.clear = function (): void {
-      if (self.disposed) { self.originalClear(); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedClearsSkipped++; self.originalClear(); return; }
+    this.store.clear = (): void => {
+      if (this.disposed) { this.originalClear(); return; }
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; this.nestedClearsSkipped++; this.originalClear(); return; }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
-        const entryCountBefore = self.store.size();
+        const entryCountBefore = this.store.size();
 
-        self.originalClear();
+        this.originalClear();
         const executionTimeMs = Date.now() - start;
 
         try {
           /* Reset non-batch monitor state to reflect empty store */
-          self.totalWrites = 0;
-          self.totalRejected = 0;
-          self.totalOwnershipConflicts = 0;
-          self.setDurationSum = 0;
-          self.setDurationCount = 0;
-          self.nestedEventsSkipped = 0;
-          self.nestedSetsSkipped = 0;
-          self.nestedDeletesSkipped = 0;
-          self.nestedClearsSkipped = 0;
-          self.nestedBeginBatchesSkipped = 0;
-          self.nestedEndBatchesSkipped = 0;
-          self.ownerCounts.clear();
-          self.ownedUris.clear();
+          this.totalWrites = 0;
+          this.totalRejected = 0;
+          this.totalOwnershipConflicts = 0;
+          this.setDurationSum = 0;
+          this.setDurationCount = 0;
+          this.nestedEventsSkipped = 0;
+          this.nestedSetsSkipped = 0;
+          this.nestedDeletesSkipped = 0;
+          this.nestedClearsSkipped = 0;
+          this.nestedBeginBatchesSkipped = 0;
+          this.nestedEndBatchesSkipped = 0;
+          this.ownerCounts.clear();
+          this.ownedUris.clear();
 
           /* If not inside a batch, also reset batch state */
-          if (self.batchDepth === 0) {
-            self.batchCount = 0;
-            self.batchStartTime = 0;
-            self.batchWriteCount = 0;
-            self.batchRejectedCount = 0;
-            self.batchConflictCount = 0;
-            self.batchStateStack = [];
+          if (this.batchDepth === 0) {
+            this.batchCount = 0;
+            this.batchStartTime = 0;
+            this.batchWriteCount = 0;
+            this.batchRejectedCount = 0;
+            this.batchConflictCount = 0;
+            this.batchStateStack = [];
           }
 
-          self.safeReport({
+          this.safeReport({
             type: 'store.clear',
             timestamp: start,
             traceId,
@@ -613,80 +613,80 @@ export class StoreMonitor {
             executionTimeMs,
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `clear wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `clear wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
 
         try {
-          self.sampleAssertions();
+          this.sampleAssertions();
         } catch {
           /* swallow defensively */
         }
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — beginBatch() — */
-    this.store.beginBatch = function (): void {
-      if (self.disposed) { self.originalBeginBatch(); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedBeginBatchesSkipped++; self.originalBeginBatch(); return; }
+    this.store.beginBatch = (): void => {
+      if (this.disposed) { this.originalBeginBatch(); return; }
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; this.nestedBeginBatchesSkipped++; this.originalBeginBatch(); return; }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         /* Save outer batch state if already in a batch */
-        if (self.batchDepth > 0) {
-          self.batchStateStack.push({
-            startTime: self.batchStartTime,
-            writeCount: self.batchWriteCount,
-            rejectedCount: self.batchRejectedCount,
-            conflictCount: self.batchConflictCount,
+        if (this.batchDepth > 0) {
+          this.batchStateStack.push({
+            startTime: this.batchStartTime,
+            writeCount: this.batchWriteCount,
+            rejectedCount: this.batchRejectedCount,
+            conflictCount: this.batchConflictCount,
           });
         }
-        self.batchDepth++;
-        self.batchStartTime = Date.now();
-        self.batchWriteCount = 0;
-        self.batchRejectedCount = 0;
-        self.batchConflictCount = 0;
+        this.batchDepth++;
+        this.batchStartTime = Date.now();
+        this.batchWriteCount = 0;
+        this.batchRejectedCount = 0;
+        this.batchConflictCount = 0;
 
-        self.originalBeginBatch();
+        this.originalBeginBatch();
 
         try {
           const traceId = generateTraceId();
-          self.safeReport({
+          this.safeReport({
             type: 'store.beginBatch',
-            timestamp: self.batchStartTime,
+            timestamp: this.batchStartTime,
             traceId,
             source: 'StoreMonitor',
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `beginBatch wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `beginBatch wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — endBatch() — */
-    this.store.endBatch = function (): void {
-      if (self.disposed) { self.originalEndBatch(); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.nestedEndBatchesSkipped++; self.originalEndBatch(); return; }
+    this.store.endBatch = (): void => {
+      if (this.disposed) { this.originalEndBatch(); return; }
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; this.nestedEndBatchesSkipped++; this.originalEndBatch(); return; }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const traceId = generateTraceId();
         const now = Date.now();
-        const durationMs = self.batchStartTime > 0 ? now - self.batchStartTime : 0;
-        const writes = self.batchWriteCount;
-        const rejectedWrites = self.batchRejectedCount;
-        const ownershipConflicts = self.batchConflictCount;
+        const durationMs = this.batchStartTime > 0 ? now - this.batchStartTime : 0;
+        const writes = this.batchWriteCount;
+        const rejectedWrites = this.batchRejectedCount;
+        const ownershipConflicts = this.batchConflictCount;
 
-        self.originalEndBatch();
+        this.originalEndBatch();
 
         try {
-          self.batchCount++;
-          self.batchStartTime = 0;
+          this.batchCount++;
+          this.batchStartTime = 0;
 
-          self.safeReport({
+          this.safeReport({
             type: 'store.endBatch',
             timestamp: now,
             traceId,
@@ -698,45 +698,45 @@ export class StoreMonitor {
           });
 
           /* Restore outer batch state if nested */
-          self.batchDepth--;
-          if (self.batchDepth > 0) {
-            const prev = self.batchStateStack.pop();
+          this.batchDepth--;
+          if (this.batchDepth > 0) {
+            const prev = this.batchStateStack.pop();
             if (prev) {
-              self.batchStartTime = prev.startTime;
-              self.batchWriteCount = prev.writeCount;
-              self.batchRejectedCount = prev.rejectedCount;
-              self.batchConflictCount = prev.conflictCount;
+              this.batchStartTime = prev.startTime;
+              this.batchWriteCount = prev.writeCount;
+              this.batchRejectedCount = prev.rejectedCount;
+              this.batchConflictCount = prev.conflictCount;
             }
           }
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `endBatch wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `endBatch wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
 
         try {
-          self.sampleAssertions();
+          this.sampleAssertions();
         } catch {
           /* swallow defensively */
         }
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — configureProvider() — */
-    this.store.configureProvider = function (providerName: string, priority: number): void {
-      if (self.disposed) { self.originalConfigureProvider(providerName, priority); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalConfigureProvider(providerName, priority); return; }
+    this.store.configureProvider = (providerName: string, priority: number): void => {
+      if (this.disposed) { this.originalConfigureProvider(providerName, priority); return; }
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; this.originalConfigureProvider(providerName, priority); return; }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
 
-        self.originalConfigureProvider(providerName, priority);
+        this.originalConfigureProvider(providerName, priority);
         const executionTimeMs = Date.now() - start;
 
         try {
-          self.safeReport({
+          this.safeReport({
             type: 'store.configureProvider',
             timestamp: start,
             traceId,
@@ -746,39 +746,39 @@ export class StoreMonitor {
             executionTimeMs,
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `configureProvider wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `configureProvider wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — releaseOwnership() — */
-    this.store.releaseOwnership = function (providerName: string): void {
-      if (self.disposed) { self.originalReleaseOwnership(providerName); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalReleaseOwnership(providerName); return; }
+    this.store.releaseOwnership = (providerName: string): void => {
+      if (this.disposed) { this.originalReleaseOwnership(providerName); return; }
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; this.originalReleaseOwnership(providerName); return; }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
 
-        self.originalReleaseOwnership(providerName);
+        this.originalReleaseOwnership(providerName);
         const executionTimeMs = Date.now() - start;
 
         try {
           /* Reset ownership tracking for this provider */
-          self.ownerCounts.delete(providerName);
+          this.ownerCounts.delete(providerName);
           let actualReleased = 0;
           const staleKeys: string[] = [];
-          for (const [u, p] of self.ownedUris) {
+          for (const [u, p] of this.ownedUris) {
             if (p === providerName) staleKeys.push(u);
           }
           for (const key of staleKeys) {
-            const provider = self.ownedUris.get(key);
+            const provider = this.ownedUris.get(key);
             if (provider !== undefined) {
               actualReleased++;
-              self.safeReport({
+              this.safeReport({
                 type: 'store.ownership.released',
                 timestamp: start,
                 traceId,
@@ -787,10 +787,10 @@ export class StoreMonitor {
                 provider,
               });
             }
-            self.ownedUris.delete(key);
+            this.ownedUris.delete(key);
           }
 
-          self.safeReport({
+          this.safeReport({
             type: 'store.releaseOwnership',
             timestamp: start,
             traceId,
@@ -800,41 +800,41 @@ export class StoreMonitor {
             executionTimeMs,
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `releaseOwnership wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `releaseOwnership wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — setFolderAggregate() — */
-    this.store.setFolderAggregate = function (uri: Uri, state: ProblemState): boolean {
-      if (self.disposed) return self.originalSetFolderAggregate(uri, state);
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalSetFolderAggregate(uri, state); }
+    this.store.setFolderAggregate = (uri: Uri, state: ProblemState): boolean => {
+      if (this.disposed) return this.originalSetFolderAggregate(uri, state);
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; return this.originalSetFolderAggregate(uri, state); }
 
       if (!uri) {
-        self.safeReportAssertion('nullUri', 'setFolderAggregate() called with null/undefined URI');
-        return self.originalSetFolderAggregate(uri, state);
+        this.safeReportAssertion('nullUri', 'setFolderAggregate() called with null/undefined URI');
+        return this.originalSetFolderAggregate(uri, state);
       }
       if (state == null) {
-        self.safeReportAssertion('nullState', 'setFolderAggregate() called with null/undefined state');
-        return self.originalSetFolderAggregate(uri, state);
+        this.safeReportAssertion('nullState', 'setFolderAggregate() called with null/undefined state');
+        return this.originalSetFolderAggregate(uri, state);
       }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
         const uriStr = uri.toString();
-        const stateBefore = self.store.get(uri);
+        const stateBefore = this.store.get(uri);
 
-        const accepted = self.originalSetFolderAggregate(uri, state);
+        const accepted = this.originalSetFolderAggregate(uri, state);
         const executionTimeMs = Date.now() - start;
 
-        const stateAfter = self.store.get(uri);
+        const stateAfter = this.store.get(uri);
 
         try {
-          self.safeReport({
+          this.safeReport({
             type: 'store.setFolderAggregate',
             timestamp: start,
             traceId,
@@ -846,47 +846,47 @@ export class StoreMonitor {
             executionTimeMs,
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `setFolderAggregate wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `setFolderAggregate wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
 
         try {
-          self.sampleAssertions();
+          this.sampleAssertions();
         } catch {
           /* swallow defensively */
         }
         return accepted;
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — deleteByPrefix() — */
-    this.store.deleteByPrefix = function (prefix: string): number {
-      if (self.disposed) return self.originalDeleteByPrefix(prefix);
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalDeleteByPrefix(prefix); }
+    this.store.deleteByPrefix = (prefix: string): number => {
+      if (this.disposed) return this.originalDeleteByPrefix(prefix);
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; return this.originalDeleteByPrefix(prefix); }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
 
-        const deletedCount = self.originalDeleteByPrefix(prefix);
+        const deletedCount = this.originalDeleteByPrefix(prefix);
         const executionTimeMs = Date.now() - start;
 
         try {
           /* Clear ownership tracking for all matching entries */
           const prefixSlash = prefix + '/';
           const staleKeys: string[] = [];
-          for (const key of self.ownedUris.keys()) {
+          for (const key of this.ownedUris.keys()) {
             if (key === prefix || key.startsWith(prefixSlash)) {
               staleKeys.push(key);
             }
           }
           for (const key of staleKeys) {
-            const provider = self.ownedUris.get(key);
+            const provider = this.ownedUris.get(key);
             if (provider !== undefined) {
-              self.decrementOwnerCount(provider);
-              self.safeReport({
+              this.decrementOwnerCount(provider);
+              this.safeReport({
                 type: 'store.ownership.released',
                 timestamp: start,
                 traceId,
@@ -895,10 +895,10 @@ export class StoreMonitor {
                 provider,
               });
             }
-            self.ownedUris.delete(key);
+            this.ownedUris.delete(key);
           }
 
-          self.safeReport({
+          this.safeReport({
             type: 'store.deleteByPrefix',
             timestamp: start,
             traceId,
@@ -908,25 +908,25 @@ export class StoreMonitor {
             executionTimeMs,
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `deleteByPrefix wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `deleteByPrefix wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
         return deletedCount;
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — movePrefix() — */
-    this.store.movePrefix = function (oldPrefix: string, newPrefix: string): number {
-      if (self.disposed) return self.originalMovePrefix(oldPrefix, newPrefix);
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; return self.originalMovePrefix(oldPrefix, newPrefix); }
+    this.store.movePrefix = (oldPrefix: string, newPrefix: string): number => {
+      if (this.disposed) return this.originalMovePrefix(oldPrefix, newPrefix);
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; return this.originalMovePrefix(oldPrefix, newPrefix); }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
 
-        const movedCount = self.originalMovePrefix(oldPrefix, newPrefix);
+        const movedCount = this.originalMovePrefix(oldPrefix, newPrefix);
         const executionTimeMs = Date.now() - start;
 
         try {
@@ -934,16 +934,16 @@ export class StoreMonitor {
           if (oldPrefix !== newPrefix) {
             const oldPrefixSlash = oldPrefix + '/';
             const rekey: [string, string, string][] = [];
-          for (const [key, provider] of self.ownedUris) {
+          for (const [key, provider] of this.ownedUris) {
               if (key === oldPrefix || key.startsWith(oldPrefixSlash)) {
                 const newKey = newPrefix + key.slice(oldPrefix.length);
                 rekey.push([key, newKey, provider]);
               }
             }
             for (const [oldKey, newKey, provider] of rekey) {
-              self.ownedUris.delete(oldKey);
-              self.ownedUris.set(newKey, provider);
-              self.safeReport({
+              this.ownedUris.delete(oldKey);
+              this.ownedUris.set(newKey, provider);
+              this.safeReport({
                 type: 'store.ownership.moved',
                 timestamp: start,
                 traceId,
@@ -955,7 +955,7 @@ export class StoreMonitor {
             }
           }
 
-          self.safeReport({
+          this.safeReport({
             type: 'store.movePrefix',
             timestamp: start,
             traceId,
@@ -966,36 +966,36 @@ export class StoreMonitor {
             executionTimeMs,
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `movePrefix wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `movePrefix wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
         return movedCount;
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — unconfigureProvider() — */
-    this.store.unconfigureProvider = function (providerName: string): void {
-      if (self.disposed) { self.originalUnconfigureProvider(providerName); return; }
-      if (self.reentrant > 0) { self.nestedEventsSkipped++; self.originalUnconfigureProvider(providerName); return; }
+    this.store.unconfigureProvider = (providerName: string): void => {
+      if (this.disposed) { this.originalUnconfigureProvider(providerName); return; }
+      if (this.reentrant > 0) { this.nestedEventsSkipped++; this.originalUnconfigureProvider(providerName); return; }
 
-      self.reentrant++;
+      this.reentrant++;
       try {
         const start = Date.now();
         const traceId = generateTraceId();
 
-        self.originalUnconfigureProvider(providerName);
+        this.originalUnconfigureProvider(providerName);
         const executionTimeMs = Date.now() - start;
 
         try {
           /* Clean up ownership tracking for this provider */
-          self.ownerCounts.delete(providerName);
+          this.ownerCounts.delete(providerName);
           const staleKeys: string[] = [];
-          for (const [u, p] of self.ownedUris) {
+          for (const [u, p] of this.ownedUris) {
             if (p === providerName) staleKeys.push(u);
           }
           for (const key of staleKeys) {
-            self.safeReport({
+            this.safeReport({
               type: 'store.ownership.released',
               timestamp: start,
               traceId,
@@ -1003,10 +1003,10 @@ export class StoreMonitor {
               uri: key,
               provider: providerName,
             });
-            self.ownedUris.delete(key);
+            this.ownedUris.delete(key);
           }
 
-          self.safeReport({
+          this.safeReport({
             type: 'store.unconfigureProvider',
             timestamp: start,
             traceId,
@@ -1015,50 +1015,50 @@ export class StoreMonitor {
             executionTimeMs,
           });
         } catch (telemetryErr) {
-          self.safeReportAssertion('telemetryException', `unconfigureProvider wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
+          this.safeReportAssertion('telemetryException', `unconfigureProvider wrapper: ${telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr)}`);
         }
       } finally {
-        self.reentrant--;
+        this.reentrant--;
       }
     };
 
     /* — dispose() — */
-    this.store.dispose = function (): void {
-      if (self.disposed) { self.originalDispose(); return; }
+    this.store.dispose = (): void => {
+      if (this.disposed) { this.originalDispose(); return; }
 
-      self.disposed = true;
+      this.disposed = true;
 
-      const entryCount = self.store.size();
+      const entryCount = this.store.size();
       const traceId = generateTraceId();
       const timestamp = Date.now();
 
-      self.safeReport({
+      this.safeReport({
         type: 'store.dispose',
         timestamp,
         traceId,
         source: 'StoreMonitor',
         entryCount,
-        totalWrites: self.totalWrites,
-        totalRejected: self.totalRejected,
-        totalOwnershipConflicts: self.totalOwnershipConflicts,
-        batchCount: self.batchCount,
+        totalWrites: this.totalWrites,
+        totalRejected: this.totalRejected,
+        totalOwnershipConflicts: this.totalOwnershipConflicts,
+        batchCount: this.batchCount,
       });
 
       /* restore all original methods */
-      self.store.set = self.originalSet;
-      self.store.delete = self.originalDelete;
-      self.store.clear = self.originalClear;
-      self.store.beginBatch = self.originalBeginBatch;
-      self.store.endBatch = self.originalEndBatch;
-      self.store.configureProvider = self.originalConfigureProvider;
-      self.store.releaseOwnership = self.originalReleaseOwnership;
-      self.store.setFolderAggregate = self.originalSetFolderAggregate;
-      self.store.deleteByPrefix = self.originalDeleteByPrefix;
-      self.store.movePrefix = self.originalMovePrefix;
-      self.store.unconfigureProvider = self.originalUnconfigureProvider;
-      self.store.dispose = self.originalDispose;
+      this.store.set = this.originalSet;
+      this.store.delete = this.originalDelete;
+      this.store.clear = this.originalClear;
+      this.store.beginBatch = this.originalBeginBatch;
+      this.store.endBatch = this.originalEndBatch;
+      this.store.configureProvider = this.originalConfigureProvider;
+      this.store.releaseOwnership = this.originalReleaseOwnership;
+      this.store.setFolderAggregate = this.originalSetFolderAggregate;
+      this.store.deleteByPrefix = this.originalDeleteByPrefix;
+      this.store.movePrefix = this.originalMovePrefix;
+      this.store.unconfigureProvider = this.originalUnconfigureProvider;
+      this.store.dispose = this.originalDispose;
 
-      self.originalDispose();
+      this.originalDispose();
     };
   }
 
@@ -1128,15 +1128,13 @@ export class StoreMonitor {
   private runAssertions(): void {
     try {
       let entryCount = 0;
-      let folderCount = 0;
       let negativeCounts = 0;
       let badSeverity = 0;
       const fileKeys: string[] = [];
 
       this.store.forEachEntry((key, state, isFolder) => {
         entryCount++;
-        if (isFolder) folderCount++;
-        else fileKeys.push(key);
+        if (!isFolder) fileKeys.push(key);
         if (state.errorCount < 0 || state.warningCount < 0 || state.infoCount < 0) {
           negativeCounts++;
         }

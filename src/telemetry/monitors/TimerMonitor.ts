@@ -43,40 +43,37 @@ export class TimerMonitor {
     this.originalSetTimeout = globalThis.setTimeout.bind(globalThis);
     this.originalClearTimeout = globalThis.clearTimeout.bind(globalThis);
 
-    const self = this;
-
-    globalThis.setTimeout = function <TArgs extends any[]>(
+    globalThis.setTimeout = (<TArgs extends any[]>(
       callback: (...args: TArgs) => void,
       ms?: number,
       ...args: TArgs
-    ): NodeJS.Timeout {
-      if (self.disposed) {
-        return self.originalSetTimeout(callback, ms, ...args) as NodeJS.Timeout;
+    ): NodeJS.Timeout => {
+      if (this.disposed) {
+        return this.originalSetTimeout(callback, ms, ...args) as NodeJS.Timeout;
       }
 
       const delay = ms ?? 0;
       const start = Date.now();
 
-      let timerId: NodeJS.Timeout | undefined;
-      const wrappedCallback = function (this: unknown) {
-        const actualDelay = Date.now() - start;
-        const cbStart = Date.now();
-        try {
-          callback.apply(this, args);
-        } finally {
-          const cbDuration = Date.now() - cbStart;
-          self.reportExecution(actualDelay, cbDuration);
-          if (timerId) self.timers.delete(timerId);
-        }
-      };
-      timerId = self.originalSetTimeout(
-        wrappedCallback,
+      const { originalSetTimeout, timers, reporter, reportExecution } = this;
+      const timerId = originalSetTimeout(
+        function (this: unknown) {
+          const actualDelay = Date.now() - start;
+          const cbStart = Date.now();
+          try {
+            callback.apply(this, args);
+          } finally {
+            const cbDuration = Date.now() - cbStart;
+            reportExecution(actualDelay, cbDuration);
+            if (timerId) timers.delete(timerId);
+          }
+        },
         delay,
       ) as NodeJS.Timeout;
 
-      self.timers.set(timerId, { delay, createdAt: start });
+      timers.set(timerId, { delay, createdAt: start });
 
-      self.reporter.report({
+      reporter.report({
         type: 'timer.setTimeout',
         timestamp: Date.now(),
         traceId: generateTraceId(),
@@ -85,27 +82,27 @@ export class TimerMonitor {
       } as any);
 
       return timerId;
-    } as typeof globalThis.setTimeout;
+    }) as typeof globalThis.setTimeout;
 
-    globalThis.clearTimeout = function (timerId: NodeJS.Timeout | number | string | undefined): void {
-      if (self.disposed) {
-        return self.originalClearTimeout(timerId);
+    globalThis.clearTimeout = ((timerId: NodeJS.Timeout | number | string | undefined): void => {
+      if (this.disposed) {
+        return this.originalClearTimeout(timerId);
       }
 
-      const info = timerId !== undefined ? self.timers.get(timerId as NodeJS.Timeout) : undefined;
+      const info = timerId !== undefined ? this.timers.get(timerId as NodeJS.Timeout) : undefined;
       if (info) {
-        self.reporter.report({
+        this.reporter.report({
           type: 'timer.clearTimeout',
           timestamp: Date.now(),
           traceId: generateTraceId(),
           source: 'TimerMonitor',
           actualDelay: Date.now() - info.createdAt,
         } as any);
-        self.timers.delete(timerId as NodeJS.Timeout);
+        this.timers.delete(timerId as NodeJS.Timeout);
       }
 
-      self.originalClearTimeout(timerId);
-    } as typeof globalThis.clearTimeout;
+      this.originalClearTimeout(timerId);
+    }) as typeof globalThis.clearTimeout;
   }
 
   private reportExecution(actualDelay: number, callbackDuration: number): void {
