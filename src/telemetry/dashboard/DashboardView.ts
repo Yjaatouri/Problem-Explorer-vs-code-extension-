@@ -342,18 +342,48 @@ export class DashboardView implements DashboardViewApi {
     var stats = d.statistics || {};
     var failures = d.failures || [];
     var rules = d.rules || [];
-    return '<div class=\"stat-grid\">' +
+    var filter = state.filter || {};
+    function matches(f) {
+      if (filter.freeText) {
+        var txt = filter.freeText.toLowerCase();
+        var rule = (f.ruleName || f.name || '').toLowerCase();
+        var cat = (f.category || '').toLowerCase();
+        var sev = (f.severity || '').toLowerCase();
+        if (rule.indexOf(txt) < 0 && cat.indexOf(txt) < 0 && sev.indexOf(txt) < 0) return false;
+      }
+      if (filter.severity && f.severity !== filter.severity) return false;
+      return true;
+    }
+    function sevClass(s) {
+      s = (s || '').toLowerCase();
+      if (s === 'error' || s === 'critical') return 'red';
+      if (s === 'warning') return 'yellow';
+      return 'gray';
+    }
+    var filteredFailures = failures.filter(matches);
+    return '<div class=\"search-bar\">' +
+      '<input id=\"assertionSearch\" placeholder=\"Search by rule, category, severity...\" value=\"' + esc(filter.freeText || '') + '\" oninput=\"onAssertionFilter()\" style=\"flex:2\">' +
+      '<select id=\"assertionSeverity\" onchange=\"onAssertionFilter()\">' +
+        '<option value=\"\">All Severities</option>' +
+        '<option value=\"Error\"' + (filter.severity === 'Error' ? ' selected' : '') + '>Error</option>' +
+        '<option value=\"Warning\"' + (filter.severity === 'Warning' ? ' selected' : '') + '>Warning</option>' +
+        '<option value=\"Info\"' + (filter.severity === 'Info' ? ' selected' : '') + '>Info</option>' +
+      '</select>' +
+    '</div>' +
+    '<div class=\"stat-grid\">' +
       statCard('Total Rules', rules.length) +
-      statCard('Active Failures', failures.length) +
+      statCard('Active Failures', filteredFailures.length) +
       statCard('Total Executed', stats.totalExecuted ?? 0) +
       statCard('Total Failed', stats.totalFailed ?? 0) +
       statCard('Pass Rate', stats.totalExecuted > 0 ? ((1 - (stats.totalFailed || 0) / stats.totalExecuted) * 100).toFixed(1) + '%' : '--') +
     '</div>' +
-    '<div class=\"section\"><h3>Active Failures (' + failures.length + ')</h3>' + (failures.length === 0 ? '<div class=\"empty-state\">No active failures</div>' : makeTable(['Rule','Category','Severity','Count'], failures, function(f) {
-      return [esc(f.ruleName || f.name || '?'), esc(f.category || ''), esc(f.severity || ''), f.count ?? 1];
+    '<div class=\"section\"><h3>Active Failures (' + filteredFailures.length + ')</h3>' +
+    (filteredFailures.length === 0 ? '<div class=\"empty-state\">' + (failures.length > 0 ? 'No failures match filter' : 'No active failures') + '</div>' :
+    makeTable(['','Rule','Category','Severity','Count','Message'], filteredFailures, function(f) {
+      return ['<span class=\"status-dot ' + sevClass(f.severity) + '\"></span>', esc(f.ruleName || f.name || '?'), esc(f.category || ''), esc(f.severity || ''), f.count ?? 1, esc((f.message || f.reason || '').substring(0,80))];
     })) + '</div>' +
     '<div class=\"section\"><h3>Rules (' + rules.length + ')</h3>' + makeTable(['Name','Category','Severity','Enabled'], rules, function(r) {
-      return [esc(r.name), esc(r.category || ''), esc(r.severity || ''), r.enabled ? '\\u2713' : '\\u2717'];
+      return [esc(r.name), esc(r.category || ''), '<span class=\"status-dot ' + sevClass(r.severity) + '\"></span>' + esc(r.severity || ''), r.enabled ? '\\u2713' : '\\u2717'];
     }) + '</div>';
   }
 
@@ -551,6 +581,13 @@ export class DashboardView implements DashboardViewApi {
     state.filter.pipelineId = document.getElementById('timelineFilterPipeline')?.value || '';
     var d = state.data['timeline'];
     if (d) content.innerHTML = renderTimeline(d);
+  };
+  window.onAssertionFilter = function() {
+    state.filter = state.filter || {};
+    state.filter.freeText = document.getElementById('assertionSearch')?.value || '';
+    state.filter.severity = document.getElementById('assertionSeverity')?.value || '';
+    var d = state.data['assertions'];
+    if (d) content.innerHTML = renderAssertions(d);
   };
   window.requestTimelineDetails = function(id) {
     var d = state.data['timeline'];
