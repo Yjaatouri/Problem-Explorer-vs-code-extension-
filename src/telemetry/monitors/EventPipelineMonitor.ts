@@ -251,6 +251,8 @@ const MAX_EXECUTIONS = 500;
 const MAX_EVENTS_PER_EXECUTION = 1000;
 const MAX_EVENTS_TOTAL = 10000;
 const MAX_PAUSE_DURATION_MS = 300000;
+const MAX_SEEN_KEYS = 5000;
+const MAX_DURATION_SAMPLES = 5000;
 
 /** Map event type prefixes to stage names */
 function eventTypeToStage(eventType: string): string {
@@ -337,6 +339,8 @@ export class EventPipelineMonitor {
   private peakConcurrent = 0;
   private readonly stageDurationAccumulators: Record<string, { count: number; totalMs: number; peakMs: number }> = {};
   private readonly durationSamples: number[] = [];
+  private totalStarted = 0;
+  private eventsProcessed = 0;
   private totalCompleted = 0;
   private totalFailed = 0;
   private totalCancelled = 0;
@@ -446,6 +450,7 @@ export class EventPipelineMonitor {
     };
 
     this.executions.set(id, execution);
+    this.totalStarted++;
 
     let uriSet = this.executionsByUri.get(uri);
     if (!uriSet) {
@@ -456,10 +461,14 @@ export class EventPipelineMonitor {
 
     /* Enforce active execution cap */
     if (this.getActiveCount() > MAX_EXECUTIONS) {
-      const active = [...this.executions.entries()].filter(([, e]) => e.status === 'running');
-      if (active.length > 0) {
-        active.sort(([, a], [, b]) => a.createdAt - b.createdAt);
-        this.finalizeExecution(active[0][1], 'timedOut', 'Active execution cap reached');
+      let oldest: PipelineExecution | undefined;
+      for (const [, e] of this.executions) {
+        if (e.status === 'running' && (!oldest || e.createdAt < oldest.createdAt)) {
+          oldest = e;
+        }
+      }
+      if (oldest) {
+        this.finalizeExecution(oldest, 'timedOut', 'Active execution cap reached');
       }
     }
 
@@ -500,6 +509,7 @@ export class EventPipelineMonitor {
 
     execution.events.push(pipelineEvent);
     this.allEvents.push(pipelineEvent);
+    this.eventsProcessed++;
 
     /* Index by traceId */
     const traceId = event.traceId;
@@ -600,9 +610,6 @@ export class EventPipelineMonitor {
     if (event.type === 'decoration.fire' || event.type === 'autoscan.cancel') {
       this.finalizeExecution(execution, 'completed');
     }
-    if (event.type === 'autoscan.cancel') {
-      /* Already triggered by event type above */
-    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -687,6 +694,9 @@ export class EventPipelineMonitor {
     }
 
     if (execution.durationMs !== undefined) {
+      if (this.durationSamples.length >= MAX_DURATION_SAMPLES) {
+        this.durationSamples.splice(0, Math.floor(MAX_DURATION_SAMPLES / 4));
+      }
       this.durationSamples.push(execution.durationMs);
     }
 
@@ -722,6 +732,10 @@ export class EventPipelineMonitor {
         duplicateSeq: seq,
       } as any);
     }
+    if (this.seenKeys.size >= MAX_SEEN_KEYS) {
+      const keysToDelete = [...this.seenKeys.keys()].slice(0, Math.floor(MAX_SEEN_KEYS / 4));
+      for (const k of keysToDelete) this.seenKeys.delete(k);
+    }
     this.seenKeys.set(key, seq);
   }
 
@@ -741,6 +755,27 @@ export class EventPipelineMonitor {
       if (execution.status !== 'running') continue;
       if (now - execution.lastActivityAt > EXECUTION_TIMEOUT_MS) {
         this.finalizeExecution(execution, 'timedOut', 'No activity for ' + EXECUTION_TIMEOUT_MS + 'ms');
+      }
+    }
+
+    /* Evict oldest terminated executions when total exceeds limit */
+    if (this.executions.size > MAX_EXECUTIONS * 2) {
+      const terminated = [...this.executions.entries()]
+        .filter(([, e]) => e.status !== 'running' && e.status !== 'paused')
+        .sort(([, a], [, b]) => a.endTime ?? a.createdAt - (b.endTime ?? b.createdAt));
+      const toRemove = terminated.slice(0, Math.floor(MAX_EXECUTIONS * 0.5));
+      for (const [id, ex] of toRemove) {
+        for (const pe of ex.events) {
+          const tid = pe.event.traceId;
+          if (tid) this.traceIdIndex.get(tid)?.delete(pe);
+        }
+        this.pipelineDependencies.delete(id);
+        const uriSet = this.executionsByUri.get(ex.uri);
+        if (uriSet) {
+          uriSet.delete(id);
+          if (uriSet.size === 0) this.executionsByUri.delete(ex.uri);
+        }
+        this.executions.delete(id);
       }
     }
   }
@@ -865,12 +900,12 @@ export class EventPipelineMonitor {
     }
 
     return {
-      totalExecutions: this.executions.size,
+      totalExecutions: this.totalStarted,
       completedExecutions: this.totalCompleted,
       failedExecutions: this.totalFailed,
       cancelledExecutions: this.totalCancelled,
       timedOutExecutions: this.totalTimedOut,
-      totalEvents: this.seq,
+      totalEvents: this.eventsProcessed,
       averagePipelineDurationMs: durationCount > 0 ? Math.round(totalDurationMs / durationCount) : 0,
       peakPipelineDurationMs: peakDurationMs,
       stageDurations,
@@ -928,7 +963,11 @@ export class EventPipelineMonitor {
       const eventSet = this.traceIdIndex.get(currentTraceId);
       if (!eventSet || eventSet.size === 0) break;
 
-      const pe = [...eventSet].sort((a, b) => a.seq - b.seq)[0];
+      let pe: PipelineEvent | undefined;
+      for (const candidate of eventSet) {
+        if (!pe || candidate.seq < pe.seq) pe = candidate;
+      }
+      if (!pe) break;
       const parentTraceId = pe.event.parentTraceId;
 
       links.push({
@@ -1032,7 +1071,7 @@ export class EventPipelineMonitor {
         violations.push({ pipelineId, rule: 'stageCompleted', message: `Stage ${stage.name} still running after pipeline completion`, timestamp: now });
       }
     }
-    if (ex.status === 'running' && ex.pauseCount > 0 && ex.lastActivityAt > 0 && now - ex.lastActivityAt > EXECUTION_TIMEOUT_MS * 2) {
+    if (ex.pauseCount > 0 && ex.pausedAt !== undefined && now - ex.pausedAt > MAX_PAUSE_DURATION_MS) {
       violations.push({ pipelineId, rule: 'noDeadlock', message: `Pipeline paused for extended period without resume`, timestamp: now });
     }
 
