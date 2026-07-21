@@ -137,6 +137,24 @@ export class DashboardView implements DashboardViewApi {
     <h1>Problem Explorer Dashboard</h1>
     <span class="badge" id="healthBadge">--</span>
     <span style="margin-left:8px;font-size:11px;color:var(--vscode-descriptionForeground)" id="refreshStatus"></span>
+    <a href="#" id="filterToggle" style="margin-left:8px;font-size:11px;color:var(--vscode-textLink-foreground);text-decoration:none" onclick="toggleFilterBar()">Filter</a>
+  </div>
+  <div id="filterBar" style="display:none;padding:6px 16px;background:var(--vscode-sideBar-background,#252526);border-bottom:1px solid var(--vscode-panel-border,#3c3c3c);flex-shrink:0">
+    <div class="search-bar" style="margin-bottom:0">
+      <input id="filterUri" placeholder="URI..." oninput="onGlobalFilter()" style="min-width:120px">
+      <input id="filterProvider" placeholder="Provider..." oninput="onGlobalFilter()" style="min-width:120px">
+      <input id="filterPipeline" placeholder="Pipeline ID..." oninput="onGlobalFilter()" style="min-width:120px">
+      <input id="filterEventType" placeholder="Event type..." oninput="onGlobalFilter()" style="min-width:120px">
+      <select id="filterSeverity" onchange="onGlobalFilter()">
+        <option value="">Severity</option>
+        <option value="error">Error</option>
+        <option value="warning">Warning</option>
+        <option value="info">Info</option>
+      </select>
+      <input id="filterTimeFrom" type="datetime-local" onchange="onGlobalFilter()" title="From" style="width:170px">
+      <input id="filterTimeTo" type="datetime-local" onchange="onGlobalFilter()" title="To" style="width:170px">
+      <a href="#" style="font-size:11px;color:var(--vscode-textLink-foreground);white-space:nowrap" onclick="clearGlobalFilter()">Clear</a>
+    </div>
   </div>
   <div class="layout">
     <nav class="sidebar" id="sidebar"></nav>
@@ -588,6 +606,48 @@ export class DashboardView implements DashboardViewApi {
   }
 
   /* ---- Timeline Search (exposed globally for inline onclick) ---- */
+  window.toggleFilterBar = function() {
+    var el = document.getElementById('filterBar');
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+  };
+  window.onGlobalFilter = function() {
+    state.filter = {
+      uri: document.getElementById('filterUri')?.value || '',
+      provider: document.getElementById('filterProvider')?.value || '',
+      pipelineId: document.getElementById('filterPipeline')?.value || '',
+      eventType: document.getElementById('filterEventType')?.value || '',
+      severity: document.getElementById('filterSeverity')?.value || '',
+      timeRange: undefined,
+    };
+    var fromEl = document.getElementById('filterTimeFrom');
+    var toEl = document.getElementById('filterTimeTo');
+    if (fromEl?.value || toEl?.value) {
+      state.filter.timeRange = {};
+      if (fromEl?.value) state.filter.timeRange.from = new Date(fromEl.value).getTime();
+      if (toEl?.value) state.filter.timeRange.to = new Date(toEl.value).getTime();
+    }
+    vscode.postMessage({ type: 'setFilter', filter: state.filter });
+    var d = state.data[state.currentPanel];
+    if (d && (state.currentPanel === 'timeline' || state.currentPanel === 'assertions')) {
+      content.innerHTML = renderPanel(state.currentPanel, d);
+    }
+  };
+  window.clearGlobalFilter = function() {
+    ['filterUri','filterProvider','filterPipeline','filterEventType'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    var sev = document.getElementById('filterSeverity');
+    if (sev) sev.value = '';
+    var from = document.getElementById('filterTimeFrom');
+    var to = document.getElementById('filterTimeTo');
+    if (from) from.value = '';
+    if (to) to.value = '';
+    state.filter = {};
+    vscode.postMessage({ type: 'setFilter', filter: {} });
+    var d = state.data[state.currentPanel];
+    if (d) content.innerHTML = renderPanel(state.currentPanel, d);
+  };
   window.onTimelineFilter = function() {
     state.filter = state.filter || {};
     state.filter.uri = document.getElementById('timelineFilterUri')?.value || '';
