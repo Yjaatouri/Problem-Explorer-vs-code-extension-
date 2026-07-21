@@ -61,7 +61,6 @@ export interface RecoveryContext {
 /* ------------------------------------------------------------------ */
 
 export interface AssertionContext {
-  readonly reporter: TelemetryReporter;
   readonly engine: AssertionEngine;
 }
 
@@ -292,7 +291,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
 
   private async runRule(rule: AssertionRule): Promise<AssertionResult> {
     const start = Date.now();
-    const context: AssertionContext = { reporter: this.reporter, engine: this };
+    const context: AssertionContext = { engine: this };
     let result: AssertionResult;
 
     try {
@@ -350,6 +349,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
 
     this.totalFailed++;
     // Only emit assertion.failure events — assertion.execution is redundant for failures
+    const failureTraceId = generateTraceId();
 
     for (const f of result.failures) {
       const enhancedFailure: AssertionFailure = {
@@ -360,7 +360,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
       this.reporter.report({
         type: 'assertion.failure',
         timestamp: f.timestamp,
-        traceId: generateTraceId(),
+        traceId: failureTraceId,
         source: 'RuntimeAssertions',
         rule: rule.name,
         category: rule.category,
@@ -1420,6 +1420,7 @@ export function createDecorationInvalidIconRule(monitor: DecorationMonitor): Ass
     execute: () => {
       const start = Date.now();
       const m = monitor as any;
+      // Assumes _lastDecoration stores colorId; based on DecorationMonitor._lastDecoration shape
       const lastDecoration: Map<string, { colorId?: string }> = m._lastDecoration;
       if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
       const failures: AssertionFailure[] = [];
