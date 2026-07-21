@@ -50,6 +50,14 @@ export interface PipelineStage {
 
 export type PipelineStatus = 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'timedOut';
 
+export interface PipelineFailure {
+  readonly eventType: string;
+  readonly message: string;
+  readonly timestamp: number;
+  readonly stage: string;
+  readonly seq: number;
+}
+
 export interface PipelineExecution {
   readonly id: PipelineId;
   readonly uri: string;
@@ -62,6 +70,7 @@ export interface PipelineExecution {
   readonly stages: Map<string, PipelineStage>;
   readonly stageOrder: string[];
   readonly events: PipelineEvent[];
+  readonly failures: PipelineFailure[];
   error?: string;
   readonly createdAt: number;
   lastActivityAt: number;
@@ -73,6 +82,13 @@ export interface PipelineExecution {
 /* ------------------------------------------------------------------ */
 /*  Pipeline Statistics & Snapshot                                     */
 /* ------------------------------------------------------------------ */
+
+export interface DurationHistogram {
+  readonly buckets: Record<string, number>;
+  readonly p50Ms: number;
+  readonly p90Ms: number;
+  readonly p99Ms: number;
+}
 
 export interface PipelineStatistics {
   totalExecutions: number;
@@ -87,6 +103,7 @@ export interface PipelineStatistics {
   concurrentPipelinePeak: number;
   pipelineThroughput: number;
   activeExecutions: number;
+  durationHistogram: DurationHistogram;
 }
 
 export interface PipelineSnapshot {
@@ -207,6 +224,13 @@ export type CausalChain = {
   readonly depth: number;
 };
 
+export interface PipelineAssertionViolation {
+  readonly pipelineId: PipelineId;
+  readonly rule: string;
+  readonly message: string;
+  readonly timestamp: number;
+}
+
 export type EventPipelineMonitorEvent =
   | PipelineExecutionStartedEventData
   | PipelineExecutionCompletedEventData
@@ -262,6 +286,34 @@ function extractProvider(event: TelemetryEvent): string | undefined {
   return undefined;
 }
 
+/** Compute percentile from sorted array */
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, idx)];
+}
+
+/** Build duration histogram buckets */
+function computeHistogram(samples: number[]): DurationHistogram {
+  const sorted = [...samples].sort((a, b) => a - b);
+  const buckets: Record<string, number> = { '<10ms': 0, '<50ms': 0, '<100ms': 0, '<500ms': 0, '<1s': 0, '<5s': 0, '>=5s': 0 };
+  for (const d of sorted) {
+    if (d < 10) buckets['<10ms']++;
+    else if (d < 50) buckets['<50ms']++;
+    else if (d < 100) buckets['<100ms']++;
+    else if (d < 500) buckets['<500ms']++;
+    else if (d < 1000) buckets['<1s']++;
+    else if (d < 5000) buckets['<5s']++;
+    else buckets['>=5s']++;
+  }
+  return {
+    buckets,
+    p50Ms: percentile(sorted, 50),
+    p90Ms: percentile(sorted, 90),
+    p99Ms: percentile(sorted, 99),
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  EventPipelineMonitor                                               */
 /* ------------------------------------------------------------------ */
@@ -277,11 +329,13 @@ export class EventPipelineMonitor {
   private readonly subscription: TelemetrySubscription;
   private readonly staleTimer: ReturnType<typeof setInterval>;
   private disposed = false;
+  private assertionsEnabled = true;
 
   /* Statistics */
   private statsStarted = Date.now();
   private peakConcurrent = 0;
   private readonly stageDurationAccumulators: Record<string, { count: number; totalMs: number; peakMs: number }> = {};
+  private readonly durationSamples: number[] = [];
   private totalCompleted = 0;
   private totalFailed = 0;
   private totalCancelled = 0;
@@ -384,6 +438,7 @@ export class EventPipelineMonitor {
       stages: new Map(),
       stageOrder: [],
       events: [],
+      failures: [],
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
       pausedDurationMs: 0,
@@ -504,6 +559,18 @@ export class EventPipelineMonitor {
 
     execution.lastActivityAt = Date.now();
 
+    /* Capture failures */
+    if (this.isStageError(event)) {
+      const data = event as unknown as Record<string, unknown>;
+      execution.failures.push({
+        eventType: event.type,
+        message: typeof data.error === 'string' ? data.error : `Phase: ${data.phase ?? 'error'}`,
+        timestamp: Date.now(),
+        stage,
+        seq,
+      });
+    }
+
     /* Check for terminal events */
     if (event.type === 'decoration.fire' || event.type === 'autoscan.cancel') {
       this.finalizeExecution(execution, 'completed');
@@ -592,6 +659,10 @@ export class EventPipelineMonitor {
       case 'failed': this.totalFailed++; break;
       case 'cancelled': this.totalCancelled++; break;
       case 'timedOut': this.totalTimedOut++; break;
+    }
+
+    if (execution.durationMs !== undefined) {
+      this.durationSamples.push(execution.durationMs);
     }
 
     this.emitExecutionCompleted(execution);
@@ -776,6 +847,7 @@ export class EventPipelineMonitor {
       concurrentPipelinePeak: this.peakConcurrent,
       pipelineThroughput: elapsedSec > 0 ? Math.round((total / elapsedSec) * 1000) : 0,
       activeExecutions: active,
+      durationHistogram: computeHistogram(this.durationSamples),
     };
   }
 
@@ -897,6 +969,55 @@ export class EventPipelineMonitor {
       pauseCount: ex.pauseCount,
     } as any);
     return true;
+  }
+
+  enableAssertions(): void { this.assertionsEnabled = true; }
+  disableAssertions(): void { this.assertionsEnabled = false; }
+
+  validate(pipelineId: PipelineId): PipelineAssertionViolation[] {
+    const violations: PipelineAssertionViolation[] = [];
+    if (!this.assertionsEnabled) return violations;
+    const ex = this.executions.get(pipelineId);
+    if (!ex) {
+      violations.push({ pipelineId, rule: 'exists', message: 'Pipeline not found', timestamp: Date.now() });
+      return violations;
+    }
+    const now = Date.now();
+
+    if (ex.events.length === 0) {
+      violations.push({ pipelineId, rule: 'hasEvents', message: 'Pipeline has no events', timestamp: now });
+    }
+    if (ex.status === 'completed' && ex.endTime && ex.endTime < ex.startTime) {
+      violations.push({ pipelineId, rule: 'endTimeAfterStart', message: 'End time before start time', timestamp: now });
+    }
+    for (const stage of ex.stages.values()) {
+      if (stage.status === 'completed' && stage.exitedAt && stage.exitedAt < stage.enteredAt) {
+        violations.push({ pipelineId, rule: 'stageDurationPositive', message: `Stage ${stage.name} has negative duration`, timestamp: now });
+      }
+      if (stage.status === 'running' && ex.status === 'completed') {
+        violations.push({ pipelineId, rule: 'stageCompleted', message: `Stage ${stage.name} still running after pipeline completion`, timestamp: now });
+      }
+    }
+    if (ex.status === 'running' && ex.pauseCount > 0 && ex.lastActivityAt > 0 && now - ex.lastActivityAt > EXECUTION_TIMEOUT_MS * 2) {
+      violations.push({ pipelineId, rule: 'noDeadlock', message: `Pipeline paused for extended period without resume`, timestamp: now });
+    }
+
+    return violations;
+  }
+
+  getPipelineTimeline(pipelineId: PipelineId): { events: PipelineEvent[]; stages: PipelineStage[]; execution: PipelineExecution | undefined } {
+    const ex = this.executions.get(pipelineId);
+    if (!ex) return { events: [], stages: [], execution: undefined };
+    return {
+      events: [...ex.events],
+      stages: this.getStageTimeline(pipelineId),
+      execution: ex,
+    };
+  }
+
+  getFailures(pipelineId: PipelineId): PipelineFailure[] {
+    const ex = this.executions.get(pipelineId);
+    return ex ? [...ex.failures] : [];
   }
 
   getStageTimeline(pipelineId: PipelineId): PipelineStage[] {
