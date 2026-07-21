@@ -143,7 +143,6 @@ export interface DiagnosticsStatistics {
 /** Point-in-time snapshot of diagnostics monitor state */
 export interface DiagnosticsSnapshot {
   activeMappings: number;
-  pendingWrites: number;
   statistics: DiagnosticsStatistics;
 }
 
@@ -168,11 +167,11 @@ export class DiagnosticsMonitor implements Disposable {
 
   /* Diagnostics change tracking */
   private readonly knownUris = new Set<string>();
+  private readonly knownOwners = new Map<string, string>();
   private vsDiagProvider: DiagnosticProvider | undefined;
 
   /* Pipeline timing */
   private activeMappings = 0;
-  private pendingWrites = 0;
   private readonly mappingStartTimes = new Map<string, number>();
   /* Cumulative statistics */
   private readonly stats: DiagnosticsStatistics = {
@@ -211,7 +210,7 @@ export class DiagnosticsMonitor implements Disposable {
     this.disposables.push(
       languages.onDidChangeDiagnostics((e: DiagnosticChangeEvent) => {
         if (this.disposed) return;
-        this.handleChangeEvent(e);
+        try { this.handleChangeEvent(e); } catch { /* swallow */ }
       })
     );
   }
@@ -224,9 +223,11 @@ export class DiagnosticsMonitor implements Disposable {
     this.disposables.push(
       this.manager.onDidRegister((info) => {
         if (this.disposed) return;
-        if (info.name === 'vscodeDiagnostics' && !this.vsDiagProvider) {
-          this.attachToProvider(info.provider);
-        }
+        try {
+          if (info.name === 'vscodeDiagnostics' && !this.vsDiagProvider) {
+            this.attachToProvider(info.provider);
+          }
+        } catch { /* swallow */ }
       })
     );
   }
@@ -235,7 +236,7 @@ export class DiagnosticsMonitor implements Disposable {
     this.disposables.push(
       this.manager.onDidUpdateAll((uris) => {
         if (this.disposed) return;
-        this.handleFlushUpdates(uris);
+        try { this.handleFlushUpdates(uris); } catch { /* swallow */ }
       })
     );
   }
@@ -244,7 +245,7 @@ export class DiagnosticsMonitor implements Disposable {
     this.disposables.push(
       this.reporter.subscribe('assertion.failure', (event) => {
         if (this.disposed) return;
-        this.handleAssertionEvent(event as TelemetryEvent & { assertion: string; detail: string });
+        try { this.handleAssertionEvent(event as TelemetryEvent & { assertion: string; detail: string }); } catch { /* swallow */ }
       })
     );
   }
@@ -269,8 +270,13 @@ export class DiagnosticsMonitor implements Disposable {
     this.stats.totalChanges++;
     this.stats.totalUris += uris.length;
 
-    /* Discard stale entries from provider-skipped URIs in prior cycles */
-    this.mappingStartTimes.clear();
+    /* Discard stale entries for URIs not in the current change set */
+    const currentUriSet = new Set(uris);
+    for (const key of this.mappingStartTimes.keys()) {
+      if (!currentUriSet.has(key)) {
+        this.mappingStartTimes.delete(key);
+      }
+    }
     this.activeMappings = 0;
 
     for (const uri of uris) {
@@ -290,16 +296,18 @@ export class DiagnosticsMonitor implements Disposable {
     this.disposables.push(
       provider.onDidUpdate((uris: Uri[]) => {
         if (this.disposed) return;
-        this.handleProviderUpdate(uris);
+        try { this.handleProviderUpdate(uris); } catch { /* swallow */ }
       })
     );
 
     this.disposables.push(
       store.onDidChange((change: ProblemStoreChange) => {
         if (this.disposed) return;
-        /* Ignore events from stale store instances after provider re-registration */
-        if (this.vsDiagProvider?.store !== store) return;
-        this.handleStoreChange(change, store, provider.name);
+        try {
+          /* Ignore events from stale store instances after provider re-registration */
+          if (this.vsDiagProvider?.store !== store) return;
+          this.handleStoreChange(change, store, provider.name);
+        } catch { /* swallow */ }
       })
     );
   }
@@ -406,6 +414,7 @@ export class DiagnosticsMonitor implements Disposable {
         } as TelemetryEvent);
         this.stats.totalDuplicateDiagnostics++;
       }
+      if (currentOwner) this.knownOwners.set(uriStr, currentOwner);
     }
   }
 
@@ -501,6 +510,7 @@ export class DiagnosticsMonitor implements Disposable {
 
         if (ownerAfter !== undefined && !this.knownUris.has(uriStr)) {
           /* First ownership seen — URI not previously tracked */
+          this.knownOwners.set(uriStr, ownerAfter);
           this.reporter.report({
             type: 'diagnostics.ownership',
             timestamp: nowMs,
@@ -511,7 +521,21 @@ export class DiagnosticsMonitor implements Disposable {
             action: 'acquired',
           } as TelemetryEvent);
         } else if (ownerAfter !== undefined && this.knownUris.has(uriStr)) {
-          /* Ownership already tracked — URI was previously seen */
+          /* Ownership transferred to a different provider */
+          const prevOwner = this.knownOwners.get(uriStr);
+          if (prevOwner !== undefined && prevOwner !== ownerAfter) {
+            this.stats.totalOwnershipTransfers++;
+            this.knownOwners.set(uriStr, ownerAfter);
+            this.reporter.report({
+              type: 'diagnostics.ownership',
+              timestamp: nowMs,
+              traceId: generateTraceId(),
+              source: 'DiagnosticsMonitor',
+              uri: uriStr,
+              provider: ownerAfter,
+              action: 'transferred',
+            } as TelemetryEvent);
+          }
         }
 
         if (change.kind === 'added') {
@@ -568,6 +592,8 @@ export class DiagnosticsMonitor implements Disposable {
         this.stats.totalStoreWrites++;
         this.stats.totalAcceptedWrites++;
         this.stats.totalStateRemoves++;
+        this.knownUris.delete(uriStr);
+        this.knownOwners.delete(uriStr);
 
         this.reporter.report({
           type: 'diagnostics.ownership',
@@ -583,6 +609,7 @@ export class DiagnosticsMonitor implements Disposable {
 
       case 'cleared': {
         this.knownUris.clear();
+        this.knownOwners.clear();
         this.mappingStartTimes.clear();
         break;
       }
@@ -596,6 +623,7 @@ export class DiagnosticsMonitor implements Disposable {
         const prefix = change.prefix;
         const filter = (key: string) => key.startsWith(prefix);
         for (const key of this.knownUris) { if (filter(key)) this.knownUris.delete(key); }
+        for (const key of this.knownOwners.keys()) { if (filter(key)) this.knownOwners.delete(key); }
         for (const key of this.mappingStartTimes.keys()) { if (filter(key)) this.mappingStartTimes.delete(key); }
         break;
       }
@@ -613,6 +641,17 @@ export class DiagnosticsMonitor implements Disposable {
         for (const key of urisToMove) {
           this.knownUris.delete(key);
           this.knownUris.add(remap(key));
+        }
+
+        /* Remap knownOwners */
+        const ownersToMove: string[] = [];
+        for (const key of this.knownOwners.keys()) {
+          if (key.startsWith(oldPrefix)) ownersToMove.push(key);
+        }
+        for (const key of ownersToMove) {
+          const val = this.knownOwners.get(key)!;
+          this.knownOwners.delete(key);
+          this.knownOwners.set(remap(key), val);
         }
 
         /* Remap mappingStartTimes */
@@ -640,7 +679,6 @@ export class DiagnosticsMonitor implements Disposable {
   captureSnapshot(): DiagnosticsSnapshot {
     return {
       activeMappings: this.activeMappings,
-      pendingWrites: this.pendingWrites,
       statistics: this.getStatistics(),
     };
   }
@@ -654,9 +692,9 @@ export class DiagnosticsMonitor implements Disposable {
     this.disposables.length = 0;
     this.vsDiagProvider = undefined;
     this.knownUris.clear();
+    this.knownOwners.clear();
     this.mappingStartTimes.clear();
     this.activeMappings = 0;
-    this.pendingWrites = 0;
     Object.assign(this.stats, {
       totalChanges: 0,
       totalUris: 0,
