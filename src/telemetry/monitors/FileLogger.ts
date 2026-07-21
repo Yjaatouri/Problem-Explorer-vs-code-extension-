@@ -140,6 +140,7 @@ export class FileLogger {
   protected entriesBySource = new Map<string, number>();
   protected entriesByLevel = new Map<string, number>();
   protected readonly eventSub: TelemetrySubscription;
+  protected readonly pipelineIndex = new Map<string, Set<string>>();
 
   constructor(
     protected readonly reporter: TelemetryReporter,
@@ -156,6 +157,15 @@ export class FileLogger {
 
     this.eventSub = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
+      const pipelineId = (event as any).pipelineId as string | undefined;
+      if (pipelineId) {
+        const sessionSet = this.pipelineIndex.get(pipelineId);
+        if (sessionSet) {
+          if (this.currentSession) sessionSet.add(this.currentSession.id);
+        } else {
+          this.pipelineIndex.set(pipelineId, new Set(this.currentSession ? [this.currentSession.id] : []));
+        }
+      }
       this.write({
         level: this.eventLevel(event),
         source: event.source ?? 'unknown',
@@ -164,7 +174,7 @@ export class FileLogger {
         traceId: event.traceId,
         uri: (event as any).uri ?? (event as any).fileUri,
         provider: (event as any).provider ?? (event as any).providerName,
-        pipelineId: (event as any).pipelineId,
+        pipelineId,
         durationMs: (event as any).durationMs,
       }).catch(() => {});
     });
@@ -176,11 +186,13 @@ export class FileLogger {
 
   async startSession(): Promise<LogSessionId> {
     const id = generateLogSessionId();
+    const dateStr = new Date().toISOString().slice(0, 10);
     const sessionDir = path.join(this.logDir, `session-${id}`);
-    if (!fs.existsSync(sessionDir)) {
-      fs.mkdirSync(sessionDir, { recursive: true });
+    const dateDir = path.join(sessionDir, dateStr);
+    if (!fs.existsSync(dateDir)) {
+      fs.mkdirSync(dateDir, { recursive: true });
     }
-    const filePath = path.join(sessionDir, 'events.jsonl');
+    const filePath = path.join(dateDir, 'events.jsonl');
     const stream = fs.createWriteStream(filePath, { flags: 'a' });
 
     this.writer = this.createWriter(stream, filePath);
@@ -198,6 +210,21 @@ export class FileLogger {
     this.sessions.push(this.currentSession);
     this.sessionOrder.push(id);
 
+    /* Write session metadata */
+    const metaPath = path.join(sessionDir, 'session.json');
+    fs.writeFileSync(metaPath, JSON.stringify({
+      id, startTime: this.currentSession.startTime,
+      workspaceRoot: this.workspaceRoot,
+      extensionVersion: this.extensionVersion,
+      vscodeVersion: this.vscodeVersion,
+    }, null, 2), 'utf8');
+
+    /* Write workspace info at top level */
+    if (this.workspaceRoot) {
+      const infoPath = path.join(this.logDir, 'workspace.json');
+      fs.writeFileSync(infoPath, JSON.stringify({ root: this.workspaceRoot, updatedAt: Date.now() }, null, 2), 'utf8');
+    }
+
     /* Start flush timer */
     if (!this.flushTimer) {
       this.flushTimer = setInterval(() => {
@@ -213,9 +240,21 @@ export class FileLogger {
     await this.flush();
     this.currentSession.endTime = Date.now();
     this.currentSession.durationMs = this.currentSession.endTime - this.currentSession.startTime;
+    const sessionId = this.currentSession.id;
     await this.writer.close();
     this.writer = undefined;
     this.currentSession = undefined;
+
+    /* Write pipeline index */
+    const indexDir = path.join(this.logDir, `session-${sessionId}`);
+    if (fs.existsSync(indexDir)) {
+      const index: Record<string, string[]> = {};
+      for (const [pid, sessions] of this.pipelineIndex) {
+        index[pid] = [...sessions];
+      }
+      fs.writeFileSync(path.join(indexDir, 'pipelines.json'), JSON.stringify(index, null, 2), 'utf8');
+    }
+
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = undefined;
