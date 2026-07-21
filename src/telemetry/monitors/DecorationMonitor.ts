@@ -152,6 +152,9 @@ export class DecorationMonitor {
   /* Decoration result cache for hit/miss tracking */
   private _lastDecoration = new Map<string, { badge?: string; colorId?: string; tooltip?: string; timestamp: number }>();
 
+  /* Refresh counter excluding full refreshes (for accurate average) */
+  private _nonFullRefreshCount = 0;
+
   /* Loop detection counter */
   private _decorationLoopCount = new Map<string, number>();
 
@@ -172,6 +175,11 @@ export class DecorationMonitor {
   /** If true, capture stack traces on fireDidChange to identify callers (expensive) */
   private _captureCaller = false;
 
+  /** Enable or disable stack trace capture on fireDidChange */
+  setCaptureCaller(enabled: boolean): void {
+    this._captureCaller = enabled;
+  }
+
   constructor(
     private readonly engine: DecorationEngine,
     private readonly reporter: TelemetryReporter,
@@ -190,10 +198,10 @@ export class DecorationMonitor {
       this._onTelemetryEvent(event);
     });
 
-    /* Periodic cleanup of stale correlation entries (every 30s) */
+    /* Periodic cleanup of stale correlation entries (every 5s) */
     this._correlationCleanupTimer = setInterval(() => {
       this._cleanupStaleCorrelations();
-    }, 30000);
+    }, 5000);
 
     this.stats = {
       totalRefreshes: 0,
@@ -215,9 +223,6 @@ export class DecorationMonitor {
       decorationsPerSecond: 0,
       totalFirstTimeRequests: 0,
     };
-
-    /* problemStore available for sub-tasks */
-    void this.problemStore;
 
     this.wrapMethods();
   }
@@ -414,8 +419,8 @@ export class DecorationMonitor {
       ? Math.round(s.provideDurationSumMs / s.totalProvideCalls) : 0;
     s.cacheHitRatio = (s.totalCacheHits + s.totalCacheMisses) > 0
       ? Math.round((s.totalCacheHits / (s.totalCacheHits + s.totalCacheMisses)) * 100) : 0;
-    s.averageRefreshSize = s.totalRefreshes > 0
-      ? Math.round(s.totalUrisRefreshed / s.totalRefreshes) : 0;
+    s.averageRefreshSize = this._nonFullRefreshCount > 0
+      ? Math.round(s.totalUrisRefreshed / this._nonFullRefreshCount) : 0;
     s.decorationsPerSecond = elapsedSec > 0
       ? Math.round(s.totalProvideCalls / elapsedSec) : 0;
     return s;
@@ -527,6 +532,8 @@ export class DecorationMonitor {
       clearInterval(this._correlationCleanupTimer);
       this._correlationCleanupTimer = undefined;
     }
+    this.activeRefreshCount = 0;
+    this.activeProvideCount = 0;
     this._recentChanges.clear();
     this._refreshHistory.clear();
     this._lastDecoration.clear();
@@ -550,6 +557,7 @@ export class DecorationMonitor {
     } else if (Array.isArray(uris)) {
       callType = 'array';
       uriCount = uris.length;
+      this._nonFullRefreshCount++;
       uriStrs = uris.map((u) => u.toString());
       const wasEmpty = this._pendingFireUris.size === 0;
       for (const u of uriStrs) { this._pendingFireUris.add(u); }
@@ -557,6 +565,7 @@ export class DecorationMonitor {
     } else {
       callType = 'single';
       uriCount = 1;
+      this._nonFullRefreshCount++;
       uriStrs = [uris.toString()];
       const wasEmpty = this._pendingFireUris.size === 0;
       this._pendingFireUris.add(uriStrs[0]);
