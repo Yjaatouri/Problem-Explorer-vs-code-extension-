@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { TelemetrySubscription } from '../../telemetry/TelemetryBus';
 import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
+import { PipelineId } from './EventPipelineMonitor';
 
 /* ------------------------------------------------------------------ */
 /*  Timeline ID                                                        */
@@ -241,14 +242,14 @@ export class TimelineGenerator {
     }
     chain.push(event);
 
-    if (!this.hasTimelineForTrace(event.traceId, event)) {
+    if (!this.hasTimelineForTrace(event.traceId)) {
       this.createTimelineFromEvent(event);
     }
 
     this.routeEventToTimeline(event);
   }
 
-  protected hasTimelineForTrace(traceId: TraceId, _event: TelemetryEvent): boolean {
+  protected hasTimelineForTrace(traceId: TraceId): boolean {
     for (const tl of this.timelines.values()) {
       if (tl.traceIds.includes(traceId)) return true;
     }
@@ -456,6 +457,10 @@ export class TimelineGenerator {
       const uris = data.uris as string[];
       if (uris.length > 0) return uris[0];
     }
+    if (Array.isArray(data.affectedUris)) {
+      const uris = data.affectedUris as string[];
+      if (uris.length > 0) return uris[0];
+    }
     return undefined;
   }
 
@@ -466,9 +471,9 @@ export class TimelineGenerator {
     return undefined;
   }
 
-  protected extractPipelineId(event: TelemetryEvent): string | undefined {
+  protected extractPipelineId(event: TelemetryEvent): PipelineId | undefined {
     const data = event as unknown as Record<string, unknown>;
-    if (typeof data.pipelineId === 'string') return data.pipelineId;
+    if (typeof data.pipelineId === 'string') return data.pipelineId as PipelineId;
     return undefined;
   }
 
@@ -857,9 +862,9 @@ export class TimelineGenerator {
 
   protected rangesOverlap(a: Timeline, b: Timeline): boolean {
     const aStart = a.startTime;
-    const aEnd = a.endTime ?? a.lastActivityAt;
+    const aEnd = a.endTime ?? (a.events.length > 0 ? a.events[a.events.length - 1].event.timestamp : a.lastActivityAt);
     const bStart = b.startTime;
-    const bEnd = b.endTime ?? b.lastActivityAt;
+    const bEnd = b.endTime ?? (b.events.length > 0 ? b.events[b.events.length - 1].event.timestamp : b.lastActivityAt);
     return aStart < bEnd && bStart < aEnd;
   }
 
