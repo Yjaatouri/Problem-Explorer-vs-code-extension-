@@ -1,4 +1,7 @@
 import { Disposable } from 'vscode';
+import { ProblemStore } from '../../store/ProblemStore';
+import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
+import { ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
@@ -421,6 +424,245 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Helper: build a single-failure AssertionResult                     */
+/* ------------------------------------------------------------------ */
+
+function failResult(
+  rule: string, category: AssertionCategory, severity: AssertionSeverity,
+  message: string, startTime: number, uri?: string, provider?: string,
+): AssertionResult {
+  return {
+    passed: false,
+    failures: [{
+      assertion: rule, category, severity, timestamp: Date.now(),
+      message, uri, provider,
+    }],
+    executionTimeMs: Date.now() - startTime,
+  };
+}
+
+function passResult(startTime: number): AssertionResult {
+  return { passed: true, failures: [], executionTimeMs: Date.now() - startTime };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Task 3 — Store Assertion Rules                                     */
+/* ------------------------------------------------------------------ */
+
+/** Detect entries with negative error/warning/info counts */
+export function createStoreNegativeCountsRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'store.negativeCounts', description: 'Detect negative error/warning/info counts',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      store.forEachEntry((key, state) => {
+        if (state.errorCount < 0) {
+          failures.push({ assertion: 'store.negativeCounts', category: AssertionCategory.Store, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Negative errorCount=${state.errorCount} for key=${key}`, uri: key });
+        }
+        if (state.warningCount < 0) {
+          failures.push({ assertion: 'store.negativeCounts', category: AssertionCategory.Store, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Negative warningCount=${state.warningCount} for key=${key}`, uri: key });
+        }
+        if (state.infoCount < 0) {
+          failures.push({ assertion: 'store.negativeCounts', category: AssertionCategory.Store, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Negative infoCount=${state.infoCount} for key=${key}`, uri: key });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect severity values outside valid range (0-3) */
+export function createStoreInvalidSeverityRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'store.invalidSeverity', description: 'Detect severity values outside valid range 0–3',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      store.forEachEntry((key, state) => {
+        const s = state.severity;
+        if (s < ProblemSeverity.None || s > ProblemSeverity.Error) {
+          failures.push({ assertion: 'store.invalidSeverity', category: AssertionCategory.Store, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Invalid severity=${s} for key=${key} (expected 0–3)`, uri: key });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect impossible ProblemState: severity doesn't match actual counts */
+export function createStoreImpossibleStateRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'store.impossibleState', description: 'Detect severity/count mismatch (e.g. Error severity with 0 errors)',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      store.forEachEntry((key, state) => {
+        if (state.severity >= ProblemSeverity.Error && state.errorCount === 0 && state.warningCount === 0 && state.infoCount === 0) {
+          failures.push({ assertion: 'store.impossibleState', category: AssertionCategory.Store, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Severity=Error but all counts are 0 for key=${key}`, uri: key });
+        }
+        if (state.severity === ProblemSeverity.None && (state.errorCount > 0 || state.warningCount > 0 || state.infoCount > 0)) {
+          failures.push({ assertion: 'store.impossibleState', category: AssertionCategory.Store, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Severity=None but counts>0 (e=${state.errorCount} w=${state.warningCount} i=${state.infoCount}) for key=${key}`, uri: key });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Verify that running totals match manual computation */
+export function createStoreInconsistentTotalsRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'store.inconsistentTotals', description: 'Verify running totals match manual computation',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.RequestSnapshot] },
+    execute: () => {
+      const start = Date.now();
+      let computedErrors = 0, computedWarnings = 0, computedInfos = 0, computedFiles = 0;
+      store.forEachFileEntry((_key, state) => {
+        computedErrors += state.errorCount;
+        computedWarnings += state.warningCount;
+        computedInfos += state.infoCount;
+        computedFiles += 1;
+      });
+      const totals = store.computeTotals();
+      const messages: string[] = [];
+      if (totals.errorCount !== computedErrors) messages.push(`errorCount: store=${totals.errorCount} computed=${computedErrors}`);
+      if (totals.warningCount !== computedWarnings) messages.push(`warningCount: store=${totals.warningCount} computed=${computedWarnings}`);
+      if (totals.infoCount !== computedInfos) messages.push(`infoCount: store=${totals.infoCount} computed=${computedInfos}`);
+      if (totals.fileCount !== computedFiles) messages.push(`fileCount: store=${totals.fileCount} computed=${computedFiles}`);
+      if (messages.length === 0) return passResult(start);
+      return failResult('store.inconsistentTotals', AssertionCategory.Store, AssertionSeverity.Error, messages.join('; '), start);
+    },
+  };
+}
+
+/** Detect orphan ownership: owner references non-existent provider */
+export function createStoreOrphanOwnershipRule(store: ProblemStore, manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'store.orphanOwnership', description: 'Detect keys whose owner is not a registered provider',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const providerNames = new Set(manager.all().map((p) => p.name));
+      const failures: AssertionFailure[] = [];
+      const seen = new Set<string>();
+      store.forEachFileEntry((key) => {
+        const owner = store.getOwnerForKey(key);
+        if (owner && !providerNames.has(owner) && !seen.has(key)) {
+          seen.add(key);
+          failures.push({ assertion: 'store.orphanOwnership', category: AssertionCategory.Store, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Key ${key} owned by "${owner}" which is not a registered provider`, uri: key, provider: owner });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect stale ownership: owner is a disposed/unavailable provider */
+export function createStoreStaleOwnershipRule(store: ProblemStore, manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'store.staleOwnership', description: 'Detect keys owned by disposed providers',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      store.forEachFileEntry((key) => {
+        const owner = store.getOwnerForKey(key);
+        if (owner) {
+          const info = manager.getInfo(owner);
+          if (info && info.state === 'disposed') {
+            failures.push({ assertion: 'store.staleOwnership', category: AssertionCategory.Store, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Key ${key} owned by disposed provider "${owner}"`, uri: key, provider: owner });
+          }
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect duplicate ownership: keys with multiple conflicting owners */
+export function createStoreDuplicateOwnershipRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'store.duplicateOwnership', description: 'Detect keys claimed by multiple providers',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Error,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const seen = new Map<string, string>();
+      const failures: AssertionFailure[] = [];
+      store.forEachFileEntry((key) => {
+        const owner = store.getOwnerForKey(key);
+        if (owner) {
+          if (seen.has(key) && seen.get(key) !== owner) {
+            failures.push({ assertion: 'store.duplicateOwnership', category: AssertionCategory.Store, severity: AssertionSeverity.Error, timestamp: Date.now(), message: `Key ${key} has conflicting owners: "${seen.get(key)}" and "${owner}"`, uri: key, provider: owner });
+          }
+          seen.set(key, owner);
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect invalid folder aggregates */
+export function createStoreInvalidFolderAggregateRule(store: ProblemStore): AssertionRule {
+  return {
+    name: 'store.invalidFolderAggregate', description: 'Detect folder aggregates with negative counts',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const failures: AssertionFailure[] = [];
+      store.forEachEntry((key, state, isFolder) => {
+        if (!isFolder) return;
+        if (state.errorCount < 0 || state.warningCount < 0 || state.infoCount < 0) {
+          failures.push({ assertion: 'store.invalidFolderAggregate', category: AssertionCategory.Store, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Folder aggregate ${key} has negative count (e=${state.errorCount} w=${state.warningCount} i=${state.infoCount})`, uri: key });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect missing providers: store has configured providers that don't exist in manager */
+export function createStoreMissingProviderRule(store: ProblemStore, manager: DiagnosticProviderManager): AssertionRule {
+  return {
+    name: 'store.missingProvider', description: 'Detect provider priorities for unregistered providers',
+    category: AssertionCategory.Store, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const registered = new Set(manager.all().map((p) => p.name));
+      const failures: AssertionFailure[] = [];
+      store.forEachFileEntry((key) => {
+        const owner = store.getOwnerForKey(key);
+        if (owner && !registered.has(owner)) {
+          failures.push({ assertion: 'store.missingProvider', category: AssertionCategory.Store, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Key ${key} owned by "${owner}" which is not in manager`, uri: key, provider: owner });
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  RuntimeAssertions — Main Facade                                    */
 /* ------------------------------------------------------------------ */
 
@@ -456,6 +698,26 @@ export class RuntimeAssertions implements Disposable {
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /** Register all store assertion rules (Task 3) */
+  registerStoreAssertions(store: ProblemStore, manager: DiagnosticProviderManager): Disposable[] {
+    const disposables: Disposable[] = [];
+    const rules: AssertionRule[] = [
+      createStoreNegativeCountsRule(store),
+      createStoreInvalidSeverityRule(store),
+      createStoreImpossibleStateRule(store),
+      createStoreInconsistentTotalsRule(store),
+      createStoreOrphanOwnershipRule(store, manager),
+      createStoreStaleOwnershipRule(store, manager),
+      createStoreDuplicateOwnershipRule(store),
+      createStoreInvalidFolderAggregateRule(store),
+      createStoreMissingProviderRule(store, manager),
+    ];
+    for (const rule of rules) {
+      disposables.push(this.engine.registerRule(rule));
+    }
+    return disposables;
   }
 
   dispose(): void {
