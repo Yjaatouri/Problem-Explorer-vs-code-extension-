@@ -406,7 +406,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     runtimeAssertions.engine.setRecoveryHandlers({
       notifyDashboard: () => devDashboard.notifyAssertion(),
       requestSnapshot: () => {
-        const snapshot = snapshotSystem.captureSnapshot();
+        const snapshot = snapshotSystem.captureSystemSnapshot();
         log(`[ASSERTION] Snapshot captured: ${Object.keys(snapshot).length} entries`);
       },
       stopPipeline: (pipelineId?: string) => {

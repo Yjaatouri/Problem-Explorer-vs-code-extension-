@@ -7,7 +7,49 @@ import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderMan
 import { TelemetryConfigManager } from '../../telemetry/TelemetryConfig';
 
 /* ------------------------------------------------------------------ */
-/*  Snapshot data interfaces                                           */
+/*  Snapshot ID                                                        */
+/* ------------------------------------------------------------------ */
+
+declare const SnapshotIdBrand: unique symbol;
+export type SnapshotId = string & { readonly __brand: typeof SnapshotIdBrand };
+
+export function generateSnapshotId(): SnapshotId {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}` as SnapshotId;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Snapshot Trigger                                                   */
+/* ------------------------------------------------------------------ */
+
+export enum SnapshotTrigger {
+  Manual = 'manual',
+  AssertionFailure = 'assertionFailure',
+  PipelineFailure = 'pipelineFailure',
+  ProviderFailure = 'providerFailure',
+  FatalException = 'fatalException',
+  Automatic = 'automatic',
+  Periodic = 'periodic',
+}
+
+/* ------------------------------------------------------------------ */
+/*  Snapshot Metadata                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface SnapshotMetadata {
+  readonly id: SnapshotId;
+  readonly timestamp: number;
+  readonly trigger: SnapshotTrigger;
+  readonly pipelineId?: string;
+  readonly uri?: string;
+  readonly provider?: string;
+  readonly ruleName?: string;
+  readonly vscodeVersion: string;
+  readonly extensionVersion: string;
+  readonly workspaceFolders: readonly string[];
+}
+
+/* ------------------------------------------------------------------ */
+/*  Snapshot data interfaces (existing + extended)                     */
 /* ------------------------------------------------------------------ */
 
 export interface StoreSnapshot {
@@ -59,6 +101,25 @@ export interface ConfigSnapshot {
   readonly includeStackTraces: boolean;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Monitor state snapshots (captured from each monitor)               */
+/* ------------------------------------------------------------------ */
+
+export interface SnapshotMonitorState {
+  readonly store?: Record<string, unknown>;
+  readonly provider?: Record<string, unknown>;
+  readonly autoScanner?: Record<string, unknown>;
+  readonly diagnostics?: Record<string, unknown>;
+  readonly folder?: Record<string, unknown>;
+  readonly decoration?: Record<string, unknown>;
+  readonly pipeline?: Record<string, unknown>;
+  readonly runtimeAssertions?: Record<string, unknown>;
+}
+
+/* ------------------------------------------------------------------ */
+/*  SystemSnapshot — the core data payload                             */
+/* ------------------------------------------------------------------ */
+
 export interface SystemSnapshot {
   readonly timestamp: number;
   readonly store: StoreSnapshot;
@@ -68,6 +129,32 @@ export interface SystemSnapshot {
   readonly scans: ScanSnapshot;
   readonly timers: TimerSnapshot;
   readonly config: ConfigSnapshot;
+  readonly monitors?: SnapshotMonitorState;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Snapshot — a captured snapshot with metadata                       */
+/* ------------------------------------------------------------------ */
+
+export interface Snapshot {
+  readonly metadata: SnapshotMetadata;
+  readonly data: SystemSnapshot;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Snapshot Statistics                                                */
+/* ------------------------------------------------------------------ */
+
+export interface SnapshotStatistics {
+  readonly totalSnapshots: number;
+  readonly totalManual: number;
+  readonly totalAutomatic: number;
+  readonly totalFailed: number;
+  readonly averageCreationTimeMs: number;
+  readonly peakCreationTimeMs: number;
+  readonly totalSnapshotSizeBytes: number;
+  readonly averageSnapshotSizeBytes: number;
+  readonly snapshotsByTrigger: Record<string, number>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -75,20 +162,35 @@ export interface SystemSnapshot {
 /* ------------------------------------------------------------------ */
 
 export class SnapshotSystem {
-  private readonly sub: TelemetrySubscription;
-  private readonly assertionSub: TelemetrySubscription;
-  private disposed = false;
+  protected readonly snapshots = new Map<SnapshotId, Snapshot>();
+  protected readonly sub: TelemetrySubscription;
+  protected readonly assertionSub: TelemetrySubscription;
+  protected disposed = false;
 
   /* Runtime state tracked via events */
-  private activeScans = 0;
-  private queuedScans = 0;
-  private activeTimers = 0;
+  protected activeScans = 0;
+  protected queuedScans = 0;
+  protected activeTimers = 0;
+
+  /* Statistics counters */
+  protected totalSnapshots = 0;
+  protected totalManual = 0;
+  protected totalAutomatic = 0;
+  protected totalFailed = 0;
+  protected totalCreationTimeMs = 0;
+  protected peakCreationTimeMs = 0;
+  protected totalSnapshotSizeBytes = 0;
+  protected readonly snapshotsByTrigger = new Map<string, number>();
+
+  private vscodeVersion = 'unknown';
+  private extensionVersion = 'unknown';
+  private workspaceFolders: readonly string[] = [];
 
   constructor(
-    private readonly reporter: TelemetryReporter,
-    private readonly problemStore?: ProblemStore,
-    private readonly dpm?: DiagnosticProviderManager,
-    private readonly configManager?: TelemetryConfigManager,
+    protected readonly reporter: TelemetryReporter,
+    protected readonly problemStore?: ProblemStore,
+    protected readonly dpm?: DiagnosticProviderManager,
+    protected readonly configManager?: TelemetryConfigManager,
   ) {
     this.sub = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
@@ -96,32 +198,104 @@ export class SnapshotSystem {
 
       const data = event as any;
 
-      /* Track active scans */
       if (event.type === 'provider.scan') {
         if (data.phase === 'begin') this.activeScans++;
         else if (data.phase === 'end' || data.phase === 'error' || data.phase === 'cancelled') this.activeScans = Math.max(0, this.activeScans - 1);
       }
 
-      /* Track queued scans — autoscan.flush reports queueSize to correctly decrement */
       if (event.type === 'autoscan.queue') this.queuedScans++;
       else if (event.type === 'autoscan.flush') this.queuedScans = Math.max(0, this.queuedScans - (data.queueSize ?? 1));
       else if (event.type === 'autoscan.cancel') this.queuedScans = Math.max(0, this.queuedScans - 1);
 
-      /* Track active timers */
       if (event.type === 'timer.setTimeout') this.activeTimers++;
       else if (event.type === 'timer.clearTimeout' || event.type === 'timer.executed') this.activeTimers = Math.max(0, this.activeTimers - 1);
     });
 
-    /* Auto-snapshot on assertion failure */
     this.assertionSub = reporter.subscribe('assertion.failure', () => {
       this.captureAndReport();
     });
   }
 
-  /** Capture a full-system snapshot by querying available business objects and tracked event state */
-  captureSnapshot(): SystemSnapshot {
-    const timestamp = now();
+  setEnvironmentInfo(vscodeVersion: string, extensionVersion: string, workspaceFolders: readonly string[]): void {
+    this.vscodeVersion = vscodeVersion;
+    this.extensionVersion = extensionVersion;
+    this.workspaceFolders = workspaceFolders;
+  }
 
+  createSnapshot(trigger: SnapshotTrigger, extra?: Partial<SnapshotMetadata>): Snapshot {
+    const start = now();
+    try {
+      const id = generateSnapshotId();
+      const data = this.captureSystemSnapshot();
+      const sizeBytes = new TextEncoder().encode(JSON.stringify(data)).length;
+
+      const metadata: SnapshotMetadata = {
+        id,
+        timestamp: data.timestamp,
+        trigger,
+        pipelineId: extra?.pipelineId,
+        uri: extra?.uri,
+        provider: extra?.provider,
+        ruleName: extra?.ruleName,
+        vscodeVersion: this.vscodeVersion,
+        extensionVersion: this.extensionVersion,
+        workspaceFolders: this.workspaceFolders,
+      };
+
+      const snapshot: Snapshot = { metadata, data };
+
+      this.snapshots.set(id, snapshot);
+
+      const elapsed = now() - start;
+      this.totalSnapshots++;
+      if (trigger === SnapshotTrigger.Manual || trigger === SnapshotTrigger.Automatic) {
+        if (trigger === SnapshotTrigger.Manual) this.totalManual++;
+        else this.totalAutomatic++;
+      }
+      this.totalCreationTimeMs += elapsed;
+      if (elapsed > this.peakCreationTimeMs) this.peakCreationTimeMs = elapsed;
+      this.totalSnapshotSizeBytes += sizeBytes;
+      const triggerKey = trigger as string;
+      this.snapshotsByTrigger.set(triggerKey, (this.snapshotsByTrigger.get(triggerKey) ?? 0) + 1);
+
+      return snapshot;
+    } catch (e) {
+      this.totalFailed++;
+      throw e;
+    }
+  }
+
+  getSnapshot(id: SnapshotId): Snapshot | undefined {
+    return this.snapshots.get(id);
+  }
+
+  deleteSnapshot(id: SnapshotId): boolean {
+    const snapshot = this.snapshots.get(id);
+    if (!snapshot) return false;
+    this.totalSnapshotSizeBytes -= new TextEncoder().encode(JSON.stringify(snapshot.data)).length;
+    return this.snapshots.delete(id);
+  }
+
+  listSnapshots(): readonly Snapshot[] {
+    return [...this.snapshots.values()];
+  }
+
+  getStatistics(): SnapshotStatistics {
+    return {
+      totalSnapshots: this.totalSnapshots,
+      totalManual: this.totalManual,
+      totalAutomatic: this.totalAutomatic,
+      totalFailed: this.totalFailed,
+      averageCreationTimeMs: this.totalSnapshots > 0 ? Math.round(this.totalCreationTimeMs / this.totalSnapshots) : 0,
+      peakCreationTimeMs: this.peakCreationTimeMs,
+      totalSnapshotSizeBytes: this.totalSnapshotSizeBytes,
+      averageSnapshotSizeBytes: this.totalSnapshots > 0 ? Math.round(this.totalSnapshotSizeBytes / this.totalSnapshots) : 0,
+      snapshotsByTrigger: Object.fromEntries(this.snapshotsByTrigger),
+    };
+  }
+
+  captureSystemSnapshot(): SystemSnapshot {
+    const timestamp = now();
     return {
       timestamp,
       store: this.captureStore(),
@@ -210,27 +384,28 @@ export class SnapshotSystem {
     };
   }
 
-  /** Capture and report snapshot as a telemetry event with full payload */
-  captureAndReport(): void {
-    const snapshot = this.captureSnapshot();
+  captureAndReport(trigger?: SnapshotTrigger, extra?: Partial<SnapshotMetadata>): Snapshot {
+    const snapshot = this.createSnapshot(trigger ?? SnapshotTrigger.Automatic, extra);
     this.reporter.report({
       type: 'snapshot.capture',
-      timestamp: snapshot.timestamp,
+      timestamp: snapshot.metadata.timestamp,
       traceId: generateTraceId(),
       source: 'SnapshotSystem',
-      store: snapshot.store,
-      folders: snapshot.folders,
-      providers: snapshot.providers,
-      ownership: snapshot.ownership,
-      scans: snapshot.scans,
-      timers: snapshot.timers,
-      config: snapshot.config,
+      snapshotId: snapshot.metadata.id,
+      trigger: snapshot.metadata.trigger,
+      store: snapshot.data.store,
+      folders: snapshot.data.folders,
+      providers: snapshot.data.providers,
+      ownership: snapshot.data.ownership,
+      scans: snapshot.data.scans,
+      timers: snapshot.data.timers,
+      config: snapshot.data.config,
     } as any);
+    return snapshot;
   }
 
-  /** Generate a human-readable forensic snapshot report */
   generateForensicReport(): string {
-    const s = this.captureSnapshot();
+    const s = this.captureSystemSnapshot();
     const lines: string[] = [];
 
     lines.push(`[SNAPSHOT:REPORT] ===== SYSTEM SNAPSHOT =====`);
@@ -279,6 +454,7 @@ export class SnapshotSystem {
     this.disposed = true;
     this.sub.dispose();
     this.assertionSub.dispose();
+    this.snapshots.clear();
   }
 }
 
