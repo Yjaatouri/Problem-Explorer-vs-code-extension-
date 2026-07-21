@@ -709,6 +709,39 @@ export class TimelineGenerator {
     return clusters >= 3;
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Timeline Query API                                                 */
+  /* ------------------------------------------------------------------ */
+
+  getTimelineByPipeline(pipelineId: string): Timeline | undefined {
+    for (const tl of this.timelines.values()) {
+      if (tl.pipelineIds.includes(pipelineId)) return tl;
+    }
+    return undefined;
+  }
+
+  getTimelineByUri(uri: string): Timeline | undefined {
+    for (const tl of this.timelines.values()) {
+      if (tl.uris.includes(uri)) return tl;
+    }
+    return undefined;
+  }
+
+  getTimelineByProvider(provider: string): Timeline | undefined {
+    for (const tl of this.timelines.values()) {
+      if (tl.providers.includes(provider)) return tl;
+    }
+    return undefined;
+  }
+
+  getActiveTimelines(): readonly Timeline[] {
+    return this.getLiveTimelines();
+  }
+
+  getFailedTimelines(): readonly Timeline[] {
+    return [...this.timelines.values()].filter((t) => t.status === TimelineStatus.Failed || t.hasAssertionFailure || t.hasPipelineFailure || t.hasProviderFailure);
+  }
+
   protected rangesOverlap(a: Timeline, b: Timeline): boolean {
     const aStart = a.startTime;
     const aEnd = a.endTime ?? a.lastActivityAt;
