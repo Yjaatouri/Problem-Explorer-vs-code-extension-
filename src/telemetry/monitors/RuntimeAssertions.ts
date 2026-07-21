@@ -5,6 +5,7 @@ import { ProblemSeverity } from '../../core/types';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { EventPipelineMonitor, PipelineId } from './EventPipelineMonitor';
 import { DiagnosticsMonitor } from './DiagnosticsMonitor';
+import { DecorationMonitor } from './DecorationMonitor';
 import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 
@@ -1177,6 +1178,192 @@ export function createDiagnosticsInconsistentTotalsRule(monitor: DiagnosticsMoni
 }
 
 /* ------------------------------------------------------------------ */
+/*  Task 7 — Decoration Assertion Rules                                */
+/* ------------------------------------------------------------------ */
+
+/** Detect duplicate decoration refreshes */
+export function createDecorationDuplicateRefreshRule(monitor: DecorationMonitor): AssertionRule {
+  return {
+    name: 'decoration.duplicateRefresh', description: 'Detect duplicate decoration refreshes',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.duplicateRefreshesDetected > 0) {
+        return failResult('decoration.duplicateRefresh', AssertionCategory.Decoration, AssertionSeverity.Info,
+          `${stats.duplicateRefreshesDetected} duplicate refresh(es) detected`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect missing fireDidChange: refreshes without fires */
+export function createDecorationMissingFireRule(monitor: DecorationMonitor): AssertionRule {
+  return {
+    name: 'decoration.missingFire', description: 'Detect refreshes that never fired',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const stats = monitor.getStatistics();
+      if (stats.totalRefreshes > 0 && stats.totalFires === 0) {
+        return failResult('decoration.missingFire', AssertionCategory.Decoration, AssertionSeverity.Warning,
+          `${stats.totalRefreshes} refreshes but 0 fires`, start);
+      }
+      return passResult(start);
+    },
+  };
+}
+
+/** Detect decoration without state: decorations returned for entries not in store */
+export function createDecorationWithoutStateRule(monitor: DecorationMonitor, store: ProblemStore): AssertionRule {
+  return {
+    name: 'decoration.withoutState', description: 'Detect decorations returned for entries without store state',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const lastDecoration: Map<string, unknown> = m._lastDecoration;
+      if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
+      const failures: AssertionFailure[] = [];
+      for (const uriStr of lastDecoration.keys()) {
+        try {
+          if (!store.get(Uri.parse(uriStr))) {
+            failures.push({ assertion: 'decoration.withoutState', category: AssertionCategory.Decoration, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Decoration for ${uriStr} but no state in store`, uri: uriStr });
+          }
+        } catch { /* skip parse errors */ }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect state without decoration: store entries never decorated */
+export function createDecorationStateWithoutDecorationRule(monitor: DecorationMonitor, store: ProblemStore): AssertionRule {
+  return {
+    name: 'decoration.stateWithoutDecoration', description: 'Detect store entries that were never decorated',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const lastDecoration: Map<string, unknown> = m._lastDecoration;
+      if (!lastDecoration) return passResult(start);
+      const decoratedUris = new Set(lastDecoration.keys());
+      const failures: AssertionFailure[] = [];
+      let count = 0;
+      store.forEachFileEntry((key) => {
+        if (!decoratedUris.has(key) && count < 100) {
+          failures.push({ assertion: 'decoration.stateWithoutDecoration', category: AssertionCategory.Decoration, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `State exists for ${key} but never decorated`, uri: key });
+          count++;
+        }
+      });
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect repeated decoration loops */
+export function createDecorationLoopRule(monitor: DecorationMonitor): AssertionRule {
+  return {
+    name: 'decoration.loop', description: 'Detect repeated decoration loops (same URI decorated many times)',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Warning,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const loopCount: Map<string, number> = m._decorationLoopCount;
+      if (!loopCount || loopCount.size === 0) return passResult(start);
+      const failures: AssertionFailure[] = [];
+      for (const [key, count] of loopCount) {
+        if (count >= 10) {
+          failures.push({ assertion: 'decoration.loop', category: AssertionCategory.Decoration, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Decoration loop for key ${key}: ${count} repetitions`, uri: key.split('::')[0] });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect invalid badge in decorations */
+export function createDecorationInvalidBadgeRule(monitor: DecorationMonitor): AssertionRule {
+  return {
+    name: 'decoration.invalidBadge', description: 'Detect decorations with invalid badge patterns',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const lastDecoration: Map<string, { badge?: string }> = m._lastDecoration;
+      if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
+      const failures: AssertionFailure[] = [];
+      for (const [uriStr, entry] of lastDecoration) {
+        if (entry.badge && entry.badge.length > 2) {
+          failures.push({ assertion: 'decoration.invalidBadge', category: AssertionCategory.Decoration, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Badge "${entry.badge}" too long (${entry.badge.length} chars) for ${uriStr}`, uri: uriStr });
+        }
+        if (entry.badge && /[^a-zA-Z0-9+]/.test(entry.badge)) {
+          failures.push({ assertion: 'decoration.invalidBadge', category: AssertionCategory.Decoration, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Badge "${entry.badge}" has invalid characters for ${uriStr}`, uri: uriStr });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect invalid tooltip in decorations */
+export function createDecorationInvalidTooltipRule(monitor: DecorationMonitor): AssertionRule {
+  return {
+    name: 'decoration.invalidTooltip', description: 'Detect decorations with excessively long tooltips',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const lastDecoration: Map<string, { tooltip?: string }> = m._lastDecoration;
+      if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
+      const failures: AssertionFailure[] = [];
+      for (const [uriStr, entry] of lastDecoration) {
+        if (entry.tooltip && entry.tooltip.length > 500) {
+          failures.push({ assertion: 'decoration.invalidTooltip', category: AssertionCategory.Decoration, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Tooltip too long (${entry.tooltip.length} chars) for ${uriStr}`, uri: uriStr });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/** Detect invalid icon (missing color) in decorations */
+export function createDecorationInvalidIconRule(monitor: DecorationMonitor): AssertionRule {
+  return {
+    name: 'decoration.invalidIcon', description: 'Detect decorations without color information',
+    category: AssertionCategory.Decoration, severity: AssertionSeverity.Info,
+    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    execute: () => {
+      const start = Date.now();
+      const m = monitor as any;
+      const lastDecoration: Map<string, { colorId?: string }> = m._lastDecoration;
+      if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
+      const failures: AssertionFailure[] = [];
+      for (const [uriStr, entry] of lastDecoration) {
+        if (!entry.colorId) {
+          failures.push({ assertion: 'decoration.invalidIcon', category: AssertionCategory.Decoration, severity: AssertionSeverity.Info, timestamp: Date.now(), message: `Decoration for ${uriStr} has no color ID`, uri: uriStr });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  RuntimeAssertions — Main Facade                                    */
 /* ------------------------------------------------------------------ */
 
@@ -1245,6 +1432,25 @@ export class RuntimeAssertions implements Disposable {
       createProviderOwnershipMismatchRule(manager, store),
       createProviderDuplicateScanRule(manager),
       createProviderInvalidRefreshRule(manager),
+    ];
+    for (const rule of rules) {
+      disposables.push(this.engine.registerRule(rule));
+    }
+    return disposables;
+  }
+
+  /** Register all decoration assertion rules (Task 7) */
+  registerDecorationAssertions(monitor: DecorationMonitor, store: ProblemStore): Disposable[] {
+    const disposables: Disposable[] = [];
+    const rules: AssertionRule[] = [
+      createDecorationDuplicateRefreshRule(monitor),
+      createDecorationMissingFireRule(monitor),
+      createDecorationWithoutStateRule(monitor, store),
+      createDecorationStateWithoutDecorationRule(monitor, store),
+      createDecorationLoopRule(monitor),
+      createDecorationInvalidBadgeRule(monitor),
+      createDecorationInvalidTooltipRule(monitor),
+      createDecorationInvalidIconRule(monitor),
     ];
     for (const rule of rules) {
       disposables.push(this.engine.registerRule(rule));
