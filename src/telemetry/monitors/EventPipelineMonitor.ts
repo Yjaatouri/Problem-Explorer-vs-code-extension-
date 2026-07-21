@@ -3,180 +3,494 @@ import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { TelemetrySubscription } from '../../telemetry/TelemetryBus';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 
-/** Known pipeline sequences (ordered list of event types) */
-const PIPELINES: ReadonlyArray<{
-  name: string;
-  steps: readonly string[];
-  windowMs: number;
-}> = [
-  {
-    name: 'auto-scan-file-save',
-    steps: [
-      'autoscan.fileSaved',
-      'autoscan.queue',
-      'autoscan.flush',
-      'provider.scan',
-      'store.set',
-      'folder.updateAncestors',
-      'decoration.fireDidChange',
-      'decoration.provideFileDecoration',
-    ],
-    windowMs: 15000,
-  },
-  {
-    name: 'diagnostics-realtime',
-    steps: [
-      'diagnostics.change',
-      'diagnostics.updateUri',
-      'store.set',
-      'folder.updateAncestors',
-      'decoration.fireDidChange',
-    ],
-    windowMs: 5000,
-  },
-  {
-    name: 'provider-lifecycle',
-    steps: [
-      'provider.lifecycle',
-      'provider.scan',
-      'store.set',
-    ],
-    windowMs: 30000,
-  },
-  {
-    name: 'decoration-request',
-    steps: [
-      'decoration.fireDidChange',
-      'decoration.provideFileDecoration',
-    ],
-    windowMs: 3000,
-  },
-];
+/* ------------------------------------------------------------------ */
+/*  Pipeline Identity                                                  */
+/* ------------------------------------------------------------------ */
 
-/** Observed event with sequence context */
-interface TrackedEvent {
+declare const PipelineIdBrand: unique symbol;
+export type PipelineId = string & { readonly __brand: typeof PipelineIdBrand };
+
+export function generatePipelineId(): PipelineId {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` as PipelineId;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Pipeline Event                                                     */
+/* ------------------------------------------------------------------ */
+
+export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed' | 'cancelled' | 'timedOut';
+
+export interface PipelineEvent {
+  readonly pipelineId: PipelineId;
   readonly seq: number;
   readonly event: TelemetryEvent;
+  readonly stage: string;
   readonly receivedAt: number;
+  parentEventSeq?: number;
+  readonly childEventSeqs: number[];
+  previousEventSeq?: number;
+  nextEventSeq?: number;
 }
 
-/** Active pipeline instance being tracked */
-interface PipelineInstance {
-  readonly pipelineName: string;
-  readonly startedAt: number;
-  readonly steps: string[];
-  readonly matched: Array<{ stepIndex: number; event: TelemetryEvent; seq: number }>;
-  readonly windowMs: number;
-  complete: boolean;
+export interface PipelineStage {
+  readonly name: string;
+  readonly enteredAt: number;
+  exitedAt?: number;
+  durationMs?: number;
+  status: StageStatus;
+  readonly eventTypes: string[];
+  readonly eventSeqs: number[];
+  error?: string;
 }
 
-/** Structured event payload for duplicate detection */
+/* ------------------------------------------------------------------ */
+/*  Pipeline Execution                                                 */
+/* ------------------------------------------------------------------ */
+
+export type PipelineStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'timedOut';
+
+export interface PipelineExecution {
+  readonly id: PipelineId;
+  readonly uri: string;
+  provider?: string;
+  trigger?: string;
+  readonly startTime: number;
+  endTime?: number;
+  durationMs?: number;
+  status: PipelineStatus;
+  readonly stages: Map<string, PipelineStage>;
+  readonly events: PipelineEvent[];
+  error?: string;
+  readonly createdAt: number;
+  lastActivityAt: number;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Pipeline Statistics & Snapshot                                     */
+/* ------------------------------------------------------------------ */
+
+export interface PipelineStatistics {
+  totalExecutions: number;
+  completedExecutions: number;
+  failedExecutions: number;
+  cancelledExecutions: number;
+  timedOutExecutions: number;
+  totalEvents: number;
+  averagePipelineDurationMs: number;
+  peakPipelineDurationMs: number;
+  stageDurations: Record<string, { count: number; totalMs: number; peakMs: number; averageMs: number }>;
+  concurrentPipelinePeak: number;
+  pipelineThroughput: number;
+  activeExecutions: number;
+}
+
+export interface PipelineSnapshot {
+  activeExecutions: number;
+  totalExecutions: number;
+  completedExecutions: number;
+  failedExecutions: number;
+  statistics: PipelineStatistics;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Telemetry event data interfaces (emitted by this monitor)          */
+/* ------------------------------------------------------------------ */
+
+export interface PipelineExecutionStartedEventData {
+  readonly type: 'pipeline.execution.started';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
+  readonly pipelineId: PipelineId;
+  readonly uri: string;
+  readonly trigger: string;
+  readonly provider?: string;
+}
+
+export interface PipelineExecutionCompletedEventData {
+  readonly type: 'pipeline.execution.completed';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
+  readonly pipelineId: PipelineId;
+  readonly uri: string;
+  readonly durationMs: number;
+  readonly stageCount: number;
+  readonly eventCount: number;
+  readonly status: PipelineStatus;
+  readonly error?: string;
+}
+
+export interface PipelineStageEventData {
+  readonly type: 'pipeline.stage';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
+  readonly pipelineId: PipelineId;
+  readonly uri: string;
+  readonly stage: string;
+  readonly status: StageStatus;
+  readonly durationMs?: number;
+  readonly error?: string;
+}
+
 export interface PipelineDuplicateEventData {
   readonly type: 'pipeline.duplicateEvent';
+  readonly timestamp: number;
+  readonly traceId: string;
+  readonly source: 'EventPipelineMonitor';
   readonly eventType: string;
   readonly eventTraceId: string;
   readonly originalSeq: number;
   readonly duplicateSeq: number;
 }
 
-/** Structured event payload for out-of-order detection */
-export interface PipelineOutOfOrderEventData {
-  readonly type: 'pipeline.outOfOrder';
-  readonly eventType: string;
-  readonly eventTraceId: string;
-  readonly expectedType: string | undefined;
-  readonly sequenceGap: number;
-}
-
-/** Structured event payload for missing event detection */
-export interface PipelineMissingEventData {
-  readonly type: 'pipeline.missingEvent';
-  readonly pipelineName: string;
-  readonly missingStep: string;
-  readonly afterStep: string;
-  readonly windowMs: number;
-  readonly source: string;
-}
-
-/** Structured event payload for periodic snapshot */
-export interface PipelineSnapshotEventData {
-  readonly type: 'pipeline.snapshot';
-  readonly totalEvents: number;
-  readonly eventsByType: Record<string, number>;
-  readonly activePipelines: number;
-  readonly completedPipelines: number;
-  readonly eventsBySource: Record<string, number>;
-  readonly executionTimeMs: number;
-}
-
-/** Union of all pipeline monitor event types */
 export type EventPipelineMonitorEvent =
-  | PipelineDuplicateEventData
-  | PipelineOutOfOrderEventData
-  | PipelineMissingEventData
-  | PipelineSnapshotEventData;
+  | PipelineExecutionStartedEventData
+  | PipelineExecutionCompletedEventData
+  | PipelineStageEventData
+  | PipelineDuplicateEventData;
 
-const MAX_HISTORY = 2000;
-const SNAPSHOT_INTERVAL_MS = 60000;
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
 
-/** Monitors the event pipeline: tracks sequence, detects anomalies, and reports pipeline health */
+const EXECUTION_TIMEOUT_MS = 60000;
+const STALE_CHECK_INTERVAL_MS = 30000;
+const MAX_EXECUTIONS = 500;
+const MAX_EVENTS_PER_EXECUTION = 1000;
+const MAX_EVENTS_TOTAL = 10000;
+
+/** Map event type prefixes to stage names */
+function eventTypeToStage(eventType: string): string {
+  if (eventType.startsWith('autoscan.')) return 'autoScan';
+  if (eventType.startsWith('provider.')) return 'provider';
+  if (eventType.startsWith('diagnostics.')) return 'diagnostics';
+  if (eventType.startsWith('store.')) return 'store';
+  if (eventType.startsWith('folder.')) return 'folder';
+  if (eventType.startsWith('decoration.')) return 'decoration';
+  return 'unknown';
+}
+
+/** Extract URI from any telemetry event */
+function extractUri(event: TelemetryEvent): string | undefined {
+  const data = event as unknown as Record<string, unknown>;
+  if (typeof data.uri === 'string') return data.uri;
+  if (typeof data.fileUri === 'string') return data.fileUri;
+  if (Array.isArray(data.uris)) {
+    const uris = data.uris as string[];
+    if (uris.length > 0) return uris[0];
+  }
+  if (Array.isArray(data.affectedUris)) {
+    const uris = data.affectedUris as string[];
+    if (uris.length > 0) return uris[0];
+  }
+  return undefined;
+}
+
+/** Extract provider name from any telemetry event */
+function extractProvider(event: TelemetryEvent): string | undefined {
+  const data = event as unknown as Record<string, unknown>;
+  if (typeof data.provider === 'string') return data.provider;
+  if (typeof data.providerName === 'string') return data.providerName;
+  return undefined;
+}
+
+/* ------------------------------------------------------------------ */
+/*  EventPipelineMonitor                                               */
+/* ------------------------------------------------------------------ */
+
 export class EventPipelineMonitor {
   private seq = 0;
-  private readonly history: TrackedEvent[] = [];
-  private readonly eventCountByType = new Map<string, number>();
-  private readonly eventCountBySource = new Map<string, number>();
-  private readonly seenKeys = new Map<string, number>(); // type:traceId → seq
-  private readonly pipelines: PipelineInstance[] = [];
-  private completedPipelineCount = 0;
-  private lastSnapshotTime = 0;
-  private readonly snapshotIntervalMs: number;
+  private readonly executions = new Map<PipelineId, PipelineExecution>();
+  private readonly executionsByUri = new Map<string, Set<PipelineId>>();
+  private readonly seenKeys = new Map<string, number>();
+  private readonly allEvents: PipelineEvent[] = [];
+  private readonly subscription: TelemetrySubscription;
+  private readonly staleTimer: ReturnType<typeof setInterval>;
   private disposed = false;
-  private subscription: TelemetrySubscription | undefined;
 
-  constructor(
-    private readonly reporter: TelemetryReporter,
-    snapshotIntervalMs: number = SNAPSHOT_INTERVAL_MS
-  ) {
-    this.snapshotIntervalMs = snapshotIntervalMs;
-    this.lastSnapshotTime = Date.now();
+  /* Statistics */
+  private statsStarted = Date.now();
+  private peakConcurrent = 0;
+  private readonly stageDurationAccumulators: Record<string, { count: number; totalMs: number; peakMs: number }> = {};
+  private totalCompleted = 0;
+  private totalFailed = 0;
+  private totalCancelled = 0;
+  private totalTimedOut = 0;
+
+  constructor(private readonly reporter: TelemetryReporter) {
     this.subscription = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
       if (event.type.startsWith('pipeline.')) return;
       this.processEvent(event);
-      this.checkSnapshot();
     });
+
+    this.staleTimer = setInterval(() => {
+      this.cleanupStaleExecutions();
+    }, STALE_CHECK_INTERVAL_MS);
   }
+
+  /* ------------------------------------------------------------------ */
+  /*  Event Processing                                                    */
+  /* ------------------------------------------------------------------ */
 
   private processEvent(event: TelemetryEvent): void {
-    const now = Date.now();
     const seq = ++this.seq;
-    const eventType = event.type;
-    const source = event.source ?? 'unknown';
+    this.detectDuplicate(event, seq);
+    const execution = this.routeToExecution(event);
+    if (!execution) return;
+    this.addEventToExecution(execution, event, seq);
+  }
 
-    this.eventCountByType.set(eventType, (this.eventCountByType.get(eventType) ?? 0) + 1);
-    this.eventCountBySource.set(source, (this.eventCountBySource.get(source) ?? 0) + 1);
+  /** Route an event to the correct pipeline execution, creating one if needed */
+  private routeToExecution(event: TelemetryEvent): PipelineExecution | undefined {
+    const uri = extractUri(event);
+    const key = uri ?? `__${event.source ?? 'unknown'}__`;
 
-    const tracked: TrackedEvent = { seq, event, receivedAt: now };
-    this.history.push(tracked);
-    if (this.history.length > MAX_HISTORY) {
-      this.history.shift();
+    /* Look for an active execution for this URI */
+    const existingIds = this.executionsByUri.get(key);
+    if (existingIds && existingIds.size > 0) {
+      /* Find the most recent active execution */
+      let best: PipelineExecution | undefined;
+      for (const id of existingIds) {
+        const ex = this.executions.get(id);
+        if (!ex) continue;
+        if (ex.status !== 'running') continue;
+        if (!best || ex.lastActivityAt > best.lastActivityAt) {
+          best = ex;
+        }
+      }
+      if (best) {
+        best.lastActivityAt = Date.now();
+        return best;
+      }
     }
 
-    // Check for potential start of a pipeline
-    this.tryStartPipelines(event, seq);
+    /* Check linked by traceId chain to an existing execution */
+    if (event.parentTraceId) {
+      for (const [, ex] of this.executions) {
+        if (ex.status !== 'running') continue;
+        for (const pe of ex.events) {
+          if (pe.event.traceId === event.parentTraceId) {
+            ex.lastActivityAt = Date.now();
+            return ex;
+          }
+        }
+      }
+    }
 
-    // Feed event to active pipelines
-    this.feedPipelines(event, seq);
-
-    // Detect duplicates: same event type + same traceId within 1s
-    this.detectDuplicate(event, seq);
-
-    // Detect out-of-order within traceId chain
-    this.detectOutOfOrder(event, seq);
-
-    // Detect missing events in aged-out pipelines
-    this.detectMissing(now);
+    /* Create a new execution */
+    return this.createExecution(event, key);
   }
+
+  private createExecution(event: TelemetryEvent, key: string): PipelineExecution {
+    const id = generatePipelineId();
+    const uri = extractUri(event) ?? key;
+    const provider = extractProvider(event);
+    const trigger = event.type;
+
+    const execution: PipelineExecution = {
+      id,
+      uri,
+      provider,
+      trigger,
+      startTime: Date.now(),
+      status: 'running',
+      stages: new Map(),
+      events: [],
+      createdAt: Date.now(),
+      lastActivityAt: Date.now(),
+    };
+
+    this.executions.set(id, execution);
+
+    let uriSet = this.executionsByUri.get(key);
+    if (!uriSet) {
+      uriSet = new Set();
+      this.executionsByUri.set(key, uriSet);
+    }
+    uriSet.add(id);
+
+    /* Enforce execution cap */
+    if (this.executions.size > MAX_EXECUTIONS) {
+      const oldest = [...this.executions.entries()]
+        .sort(([, a], [, b]) => a.createdAt - b.createdAt)[0];
+      if (oldest) {
+        this.finalizeExecution(oldest[1], 'timedOut', 'Execution cap reached');
+      }
+    }
+
+    this.emitExecutionStarted(execution, trigger, provider);
+    this.updatePeakConcurrent();
+
+    return execution;
+  }
+
+  private addEventToExecution(execution: PipelineExecution, event: TelemetryEvent, seq: number): void {
+    const stage = eventTypeToStage(event.type);
+    const pipelineEvent: PipelineEvent = {
+      pipelineId: execution.id,
+      seq,
+      event,
+      stage,
+      receivedAt: Date.now(),
+      childEventSeqs: [],
+    };
+
+    /* Link to previous event in the same execution */
+    const lastEvent = execution.events[execution.events.length - 1];
+    if (lastEvent) {
+      pipelineEvent.previousEventSeq = lastEvent.seq;
+      lastEvent.nextEventSeq = pipelineEvent.seq;
+    }
+
+    /* Link by traceId parent chain */
+    if (event.parentTraceId) {
+      for (const pe of execution.events) {
+        if (pe.event.traceId === event.parentTraceId) {
+          pipelineEvent.parentEventSeq = pe.seq;
+          pe.childEventSeqs.push(pipelineEvent.seq);
+          break;
+        }
+      }
+    }
+
+    execution.events.push(pipelineEvent);
+    this.allEvents.push(pipelineEvent);
+
+    /* Enforce event cap per execution */
+    if (execution.events.length > MAX_EVENTS_PER_EXECUTION) {
+      execution.events.splice(0, execution.events.length - MAX_EVENTS_PER_EXECUTION);
+    }
+
+    /* Enforce total event cap */
+    if (this.allEvents.length > MAX_EVENTS_TOTAL) {
+      const removed = this.allEvents.splice(0, this.allEvents.length - MAX_EVENTS_TOTAL);
+      for (const re of removed) {
+        const ex = this.executions.get(re.pipelineId);
+        if (ex) {
+          const idx = ex.events.indexOf(re);
+          if (idx >= 0) ex.events.splice(idx, 1);
+        }
+      }
+    }
+
+    /* Track stage */
+    this.updateStage(execution, stage, event);
+
+    /* Track provider info */
+    const provider = extractProvider(event);
+    if (provider && !execution.provider) {
+      execution.provider = provider;
+    }
+
+    execution.lastActivityAt = Date.now();
+
+    /* Check for terminal events */
+    if (event.type === 'decoration.fire' || event.type === 'autoscan.cancel') {
+      this.finalizeExecution(execution, 'completed');
+    }
+    if (event.type === 'autoscan.cancel') {
+      /* Already triggered by event type above */
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Stage Tracking                                                     */
+  /* ------------------------------------------------------------------ */
+
+  private updateStage(execution: PipelineExecution, stageName: string, event: TelemetryEvent): void {
+    let stage = execution.stages.get(stageName);
+    if (!stage) {
+      stage = {
+        name: stageName,
+        enteredAt: Date.now(),
+        status: 'running',
+        eventTypes: [],
+        eventSeqs: [],
+      };
+      execution.stages.set(stageName, stage);
+      this.emitStageEvent(execution, stageName, 'running');
+    }
+
+    if (!stage.eventTypes.includes(event.type)) {
+      stage.eventTypes.push(event.type);
+    }
+
+    /* Check for stage completion indicators */
+    if (this.isStageTerminal(event.type, stageName)) {
+      stage.exitedAt = Date.now();
+      stage.durationMs = stage.exitedAt - stage.enteredAt;
+      stage.status = this.isStageError(event) ? 'failed' : 'completed';
+      this.accumulateStageDuration(stageName, stage.durationMs);
+      this.emitStageEvent(execution, stageName, stage.status, stage.durationMs, stage.error);
+    }
+  }
+
+  private isStageTerminal(eventType: string, stage: string): boolean {
+    if (stage === 'autoScan' && (eventType === 'autoscan.flush' || eventType === 'autoscan.cancel')) return true;
+    if (stage === 'provider' && eventType === 'provider.scan') return true;
+    if (stage === 'diagnostics' && eventType === 'diagnostics.storeWrite') return true;
+    if (stage === 'store' && (eventType === 'store.endBatch' || eventType === 'store.set')) return true;
+    if (stage === 'folder' && eventType === 'folder.updateAncestors') return true;
+    if (stage === 'decoration' && eventType === 'decoration.fire') return true;
+    return false;
+  }
+
+  private isStageError(event: TelemetryEvent): boolean {
+    const data = event as unknown as Record<string, unknown>;
+    if (data.phase === 'cancelled' || data.phase === 'error') return true;
+    if (data.error && typeof data.error === 'string') return true;
+    return false;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Execution Finalization                                             */
+  /* ------------------------------------------------------------------ */
+
+  private finalizeExecution(execution: PipelineExecution, status: PipelineStatus, error?: string): void {
+    if (execution.status !== 'running') return;
+    execution.status = status;
+    execution.endTime = Date.now();
+    execution.durationMs = execution.endTime - execution.startTime;
+    execution.error = error;
+
+    /* Finalize any still-running stages */
+    for (const [, stage] of execution.stages) {
+      if (stage.status === 'running') {
+        stage.exitedAt = execution.endTime;
+        stage.durationMs = stage.exitedAt - stage.enteredAt;
+        stage.status = status === 'completed' ? 'completed' : status;
+        if (stage.durationMs > 0) {
+          this.accumulateStageDuration(stage.name, stage.durationMs);
+        }
+      }
+    }
+
+    switch (status) {
+      case 'completed': this.totalCompleted++; break;
+      case 'failed': this.totalFailed++; break;
+      case 'cancelled': this.totalCancelled++; break;
+      case 'timedOut': this.totalTimedOut++; break;
+    }
+
+    this.emitExecutionCompleted(execution);
+
+    /* Remove from URI tracking */
+    const key = execution.uri;
+    const uriSet = this.executionsByUri.get(key);
+    if (uriSet) {
+      uriSet.delete(execution.id);
+      if (uriSet.size === 0) {
+        this.executionsByUri.delete(key);
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Duplicate Detection                                                */
+  /* ------------------------------------------------------------------ */
 
   private detectDuplicate(event: TelemetryEvent, seq: number): void {
     const key = `${event.type}:${event.traceId}`;
@@ -196,143 +510,169 @@ export class EventPipelineMonitor {
     this.seenKeys.set(key, seq);
   }
 
-  private detectOutOfOrder(event: TelemetryEvent, seq: number): void {
-    if (this.history.length < 2) return;
+  /* ------------------------------------------------------------------ */
+  /*  Stale Execution Cleanup                                            */
+  /* ------------------------------------------------------------------ */
 
-    // Check if this event's timestamp is before the previous event in the same traceId chain
-    for (let i = this.history.length - 2; i >= 0; i--) {
-      const prev = this.history[i];
-      if (prev.event.traceId === event.traceId) {
-        if (event.timestamp < prev.event.timestamp) {
-          const gap = seq - prev.seq;
-      this.reporter.report({
-        type: 'pipeline.outOfOrder',
-        timestamp: Date.now(),
-        traceId: generateTraceId(),
-        source: 'EventPipelineMonitor',
-        eventType: event.type,
-        eventTraceId: event.traceId,
-        expectedType: prev.event.type,
-        sequenceGap: gap,
-      } as any);
-        }
-        break;
-      }
-    }
-  }
-
-  private tryStartPipelines(event: TelemetryEvent, seq: number): void {
-    for (const def of PIPELINES) {
-      if (def.steps.length === 0) continue;
-      if (this.eventTypeMatches(event.type, def.steps[0])) {
-        this.pipelines.push({
-          pipelineName: def.name,
-          startedAt: Date.now(),
-          steps: [...def.steps],
-          matched: [{ stepIndex: 0, event, seq }],
-          windowMs: def.windowMs,
-          complete: false,
-        });
-      }
-    }
-  }
-
-  private eventTypeMatches(actual: string, expected: string): boolean {
-    if (expected.endsWith('.*')) {
-      return actual.startsWith(expected.slice(0, -2));
-    }
-    return actual === expected;
-  }
-
-  private feedPipelines(event: TelemetryEvent, seq: number): void {
-    for (const pipe of this.pipelines) {
-      if (pipe.complete) continue;
-      const lastMatched = pipe.matched[pipe.matched.length - 1];
-      const nextIndex = lastMatched.stepIndex + 1;
-      if (nextIndex >= pipe.steps.length) {
-        pipe.complete = true;
-        this.completedPipelineCount++;
-        continue;
-      }
-      if (this.eventTypeMatches(event.type, pipe.steps[nextIndex])) {
-        pipe.matched.push({ stepIndex: nextIndex, event, seq });
-        if (nextIndex === pipe.steps.length - 1) {
-          pipe.complete = true;
-          this.completedPipelineCount++;
-        }
-      }
-    }
-  }
-
-  private detectMissing(now: number): void {
-    const agedOut: PipelineInstance[] = [];
-    for (const pipe of this.pipelines) {
-      if (pipe.complete) continue;
-      if (now - pipe.startedAt > pipe.windowMs) {
-        agedOut.push(pipe);
-        const lastMatched = pipe.matched[pipe.matched.length - 1];
-        const nextIndex = lastMatched.stepIndex + 1;
-        if (nextIndex < pipe.steps.length) {
-          this.reporter.report({
-            type: 'pipeline.missingEvent',
-            timestamp: now,
-            traceId: generateTraceId(),
-            source: 'EventPipelineMonitor',
-            pipelineName: pipe.pipelineName,
-            missingStep: pipe.steps[nextIndex],
-            afterStep: pipe.steps[nextIndex - 1],
-            windowMs: pipe.windowMs,
-          } as any);
-        }
-      }
-    }
-    for (const pipe of agedOut) {
-      const idx = this.pipelines.indexOf(pipe);
-      if (idx >= 0) this.pipelines.splice(idx, 1);
-    }
-  }
-
-  private checkSnapshot(): void {
+  private cleanupStaleExecutions(): void {
     const now = Date.now();
-    if (now - this.lastSnapshotTime < this.snapshotIntervalMs) return;
-    this.lastSnapshotTime = now;
-    const snapshotStart = performance.now();
+    for (const [, execution] of this.executions) {
+      if (execution.status !== 'running') continue;
+      if (now - execution.lastActivityAt > EXECUTION_TIMEOUT_MS) {
+        this.finalizeExecution(execution, 'timedOut', 'No activity for ' + EXECUTION_TIMEOUT_MS + 'ms');
+      }
+    }
+  }
 
-    const byType: Record<string, number> = {};
-    for (const [k, v] of this.eventCountByType) byType[k] = v;
-    const bySource: Record<string, number> = {};
-    for (const [k, v] of this.eventCountBySource) bySource[k] = v;
+  /* ------------------------------------------------------------------ */
+  /*  Statistics & Helpers                                               */
+  /* ------------------------------------------------------------------ */
 
+  private updatePeakConcurrent(): void {
+    const active = this.getActiveCount();
+    if (active > this.peakConcurrent) {
+      this.peakConcurrent = active;
+    }
+  }
+
+  private accumulateStageDuration(stage: string, durationMs: number): void {
+    let acc = this.stageDurationAccumulators[stage];
+    if (!acc) {
+      acc = { count: 0, totalMs: 0, peakMs: 0 };
+      this.stageDurationAccumulators[stage] = acc;
+    }
+    acc.count++;
+    acc.totalMs += durationMs;
+    if (durationMs > acc.peakMs) acc.peakMs = durationMs;
+  }
+
+  private getActiveCount(): number {
+    let count = 0;
+    for (const [, ex] of this.executions) {
+      if (ex.status === 'running') count++;
+    }
+    return count;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Telemetry Emission                                                 */
+  /* ------------------------------------------------------------------ */
+
+  private emitExecutionStarted(execution: PipelineExecution, trigger: string, provider?: string): void {
     this.reporter.report({
-      type: 'pipeline.snapshot',
-      timestamp: now,
+      type: 'pipeline.execution.started',
+      timestamp: Date.now(),
       traceId: generateTraceId(),
       source: 'EventPipelineMonitor',
-      totalEvents: this.seq,
-      eventsByType: byType,
-      activePipelines: this.pipelines.filter((p) => !p.complete).length,
-      completedPipelines: this.completedPipelineCount,
-      eventsBySource: bySource,
-      executionTimeMs: performance.now() - snapshotStart,
+      pipelineId: execution.id,
+      uri: execution.uri,
+      trigger,
+      provider,
     } as any);
   }
+
+  private emitExecutionCompleted(execution: PipelineExecution): void {
+    this.reporter.report({
+      type: 'pipeline.execution.completed',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'EventPipelineMonitor',
+      pipelineId: execution.id,
+      uri: execution.uri,
+      durationMs: execution.durationMs ?? 0,
+      stageCount: execution.stages.size,
+      eventCount: execution.events.length,
+      status: execution.status,
+      error: execution.error,
+    } as any);
+  }
+
+  private emitStageEvent(execution: PipelineExecution, stage: string, status: StageStatus, durationMs?: number, error?: string): void {
+    this.reporter.report({
+      type: 'pipeline.stage',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'EventPipelineMonitor',
+      pipelineId: execution.id,
+      uri: execution.uri,
+      stage,
+      status,
+      durationMs,
+      error,
+    } as any);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Public API                                                         */
+  /* ------------------------------------------------------------------ */
+
+  getStatistics(): PipelineStatistics {
+    const elapsedSec = (Date.now() - this.statsStarted) / 1000;
+    const active = this.getActiveCount();
+    const total = this.totalCompleted + this.totalFailed + this.totalCancelled + this.totalTimedOut;
+
+    const stageDurations: Record<string, { count: number; totalMs: number; peakMs: number; averageMs: number }> = {};
+    for (const [name, acc] of Object.entries(this.stageDurationAccumulators)) {
+      stageDurations[name] = {
+        ...acc,
+        averageMs: acc.count > 0 ? Math.round(acc.totalMs / acc.count) : 0,
+      };
+    }
+
+    let totalDurationMs = 0;
+    let durationCount = 0;
+    let peakDurationMs = 0;
+    for (const [, ex] of this.executions) {
+      if (ex.durationMs !== undefined && ex.status === 'completed') {
+        totalDurationMs += ex.durationMs;
+        durationCount++;
+        if (ex.durationMs > peakDurationMs) peakDurationMs = ex.durationMs;
+      }
+    }
+
+    return {
+      totalExecutions: this.executions.size,
+      completedExecutions: this.totalCompleted,
+      failedExecutions: this.totalFailed,
+      cancelledExecutions: this.totalCancelled,
+      timedOutExecutions: this.totalTimedOut,
+      totalEvents: this.seq,
+      averagePipelineDurationMs: durationCount > 0 ? Math.round(totalDurationMs / durationCount) : 0,
+      peakPipelineDurationMs: peakDurationMs,
+      stageDurations,
+      concurrentPipelinePeak: this.peakConcurrent,
+      pipelineThroughput: elapsedSec > 0 ? Math.round((total / elapsedSec) * 1000) : 0,
+      activeExecutions: active,
+    };
+  }
+
+  captureSnapshot(): PipelineSnapshot {
+    return {
+      activeExecutions: this.getActiveCount(),
+      totalExecutions: this.executions.size,
+      completedExecutions: this.totalCompleted,
+      failedExecutions: this.totalFailed,
+      statistics: this.getStatistics(),
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Lifecycle                                                          */
+  /* ------------------------------------------------------------------ */
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.subscription?.dispose();
-    this.history.length = 0;
-    this.eventCountByType.clear();
-    this.eventCountBySource.clear();
+    this.subscription.dispose();
+    clearInterval(this.staleTimer);
+    this.executions.clear();
+    this.executionsByUri.clear();
     this.seenKeys.clear();
-    this.pipelines.length = 0;
+    this.allEvents.length = 0;
   }
 }
 
 /** Create an EventPipelineMonitor attached to the given reporter */
-export function createEventPipelineMonitor(
-  reporter: TelemetryReporter,
-  snapshotIntervalMs?: number
-): EventPipelineMonitor {
-  return new EventPipelineMonitor(reporter, snapshotIntervalMs);
+export function createEventPipelineMonitor(reporter: TelemetryReporter): EventPipelineMonitor {
+  return new EventPipelineMonitor(reporter);
 }

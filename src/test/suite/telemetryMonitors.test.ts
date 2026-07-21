@@ -184,7 +184,7 @@ suite('Telemetry Monitors', () => {
     test('detects duplicate events with same traceId and type within window', () => {
       const reporter = new BusTelemetryReporter(config, bus);
       reporter.subscribeAll((e) => collected.push(e));
-      createEventPipelineMonitor(reporter, 10000);
+      createEventPipelineMonitor(reporter);
 
       const traceId = 'dup-test-trace' as any;
       const ts = Date.now();

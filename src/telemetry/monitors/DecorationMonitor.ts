@@ -144,7 +144,6 @@ export class DecorationMonitor {
 
   /* Coalesce observation */
   private _coalesceQueueSize = 0;
-  private _lastRefreshTimestamp = 0;
   private _firstRefreshTimestamp = 0;
   private _pendingFireUris = new Set<string>();
 
@@ -592,8 +591,6 @@ export class DecorationMonitor {
     this.activeRefreshCount++;
     this.stats.totalRefreshes++;
     this.stats.totalUrisRefreshed += uriCount;
-    this._lastRefreshTimestamp = ts;
-
     try {
       const caller = this._getCaller();
 
