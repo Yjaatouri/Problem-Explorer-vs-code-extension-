@@ -145,8 +145,9 @@ export class DecorationMonitor {
   /* Coalesce observation */
   private _coalesceQueueSize = 0;
   private _lastRefreshTimestamp = 0;
+  private _firstRefreshTimestamp = 0;
   private _pendingFireUris = new Set<string>();
-  private _pendingFireIsFull = false;
+
 
   /* Decoration result cache for hit/miss tracking */
   private _lastDecoration = new Map<string, { badge?: string; colorId?: string; tooltip?: string; timestamp: number }>();
@@ -338,7 +339,7 @@ export class DecorationMonitor {
     if (result) return;
     if (this.problemStore) {
       const state = this.problemStore.get(Uri.parse(uriStr));
-      if (state && state.severity > 0 && reasonSkipped && reasonSkipped.startsWith('unknown')) {
+      if (state && state.severity > 0 && reasonSkipped === 'unknown') {
         this._emitAssertion('STATE_WITHOUT_DECORATION',
           `State exists for ${uriStr} but no decoration returned`,
           uriStr, `severity=${state.severity} errors=${state.errorCount} reason=${reasonSkipped}`);
@@ -501,9 +502,13 @@ export class DecorationMonitor {
         this._lastDecoration.delete(uri);
       }
     }
-    /* Cap _decorationLoopCount to 5000 entries */
+    /* Cap _decorationLoopCount to 5000 entries (oldest removed) */
     if (this._decorationLoopCount.size > 5000) {
-      this._decorationLoopCount.clear();
+      const entries = [...this._decorationLoopCount.entries()];
+      const toDelete = entries.slice(0, entries.length - 5000);
+      for (const [key] of toDelete) {
+        this._decorationLoopCount.delete(key);
+      }
     }
   }
 
@@ -541,17 +546,21 @@ export class DecorationMonitor {
     if (uris === undefined) {
       callType = 'full';
       uriCount = 0;
-      this._pendingFireIsFull = true;
+      this._firstRefreshTimestamp = 0; /* reset - all pending fired */
     } else if (Array.isArray(uris)) {
       callType = 'array';
       uriCount = uris.length;
       uriStrs = uris.map((u) => u.toString());
+      const wasEmpty = this._pendingFireUris.size === 0;
       for (const u of uriStrs) { this._pendingFireUris.add(u); }
+      if (wasEmpty) { this._firstRefreshTimestamp = ts; }
     } else {
       callType = 'single';
       uriCount = 1;
       uriStrs = [uris.toString()];
+      const wasEmpty = this._pendingFireUris.size === 0;
       this._pendingFireUris.add(uriStrs[0]);
+      if (wasEmpty) { this._firstRefreshTimestamp = ts; }
     }
 
     this.activeRefreshCount++;
@@ -600,28 +609,33 @@ export class DecorationMonitor {
     let uriCount: number;
     let coalesced: boolean;
 
+    /* Capture queue latency using first refresh timestamp (when pending was empty before adding) */
+    const queueLatencyMs = this._firstRefreshTimestamp > 0 ? Date.now() - this._firstRefreshTimestamp : 0;
+    const now = Date.now();
+
     if (uris === undefined) {
-      uriCount = 0;
-      coalesced = this._pendingFireIsFull;
-      this._pendingFireIsFull = false;
+      /* Full fire - all pending URIs fired */
+      uriCount = this._pendingFireUris.size;
+      coalesced = uriCount > 0;
+      this._pendingFireUris.clear();
     } else if (Array.isArray(uris)) {
       uriStrs = uris.map((u) => u.toString());
       uriCount = uriStrs.length;
-      coalesced = true;
+      /* Batched fire - coalesced if there were other pending items before this batch */
+      coalesced = this._pendingFireUris.size > uriCount;
       /* Remove fired URIs from pending set */
       for (const u of uriStrs) { this._pendingFireUris.delete(u); }
     } else {
       uriStrs = [uris.toString()];
       uriCount = 1;
-      coalesced = !this._pendingFireIsFull; /* single URI fires are typically coalesced */
+      /* Single URI fire - coalesced if there were other pending items */
+      coalesced = this._pendingFireUris.size > 1;
       this._pendingFireUris.delete(uriStrs[0]);
     }
 
     this._coalesceQueueSize = this._pendingFireUris.size;
     this.stats.totalFires++;
     if (coalesced) { this.stats.coalescedBatches++; }
-
-    const queueLatencyMs = this._lastRefreshTimestamp > 0 ? Date.now() - this._lastRefreshTimestamp : 0;
 
     /* Derive correlation ID from fired URIs */
     let correlationId: string | undefined;
@@ -634,7 +648,7 @@ export class DecorationMonitor {
 
     this._emit({
       type: 'decoration.fire',
-      timestamp: Date.now(),
+      timestamp: now,
       traceId: generateTraceId(),
       source: 'DecorationMonitor',
       uris: uriStrs,
@@ -709,20 +723,18 @@ export class DecorationMonitor {
         if (error) {
           reasonSkipped = `exception: ${error}`;
         } else {
-          const wf2 = workspace.getWorkspaceFolder(uri);
-          if (!wf2) {
+          if (!wf) {
             reasonSkipped = 'no workspace folder';
           } else if (this.problemStore) {
-            const state = this.problemStore.get(uri);
-            if (!state) {
+            if (!storeState) {
               reasonSkipped = 'no state in store';
             } else {
-              severity = state.severity;
-              errorCount = state.errorCount;
-              warningCount = state.warningCount;
-              infoCount = state.infoCount;
-              fileCount = state.fileCount;
-              if (state.severity === 0) {
+              severity = storeState.severity;
+              errorCount = storeState.errorCount;
+              warningCount = storeState.warningCount;
+              infoCount = storeState.infoCount;
+              fileCount = storeState.fileCount;
+              if (storeState.severity === 0) {
                 reasonSkipped = 'severity None';
               } else {
                 reasonSkipped = 'unknown (config: disabled/showWarnings/ignored)';
@@ -734,15 +746,12 @@ export class DecorationMonitor {
         }
       } else {
         this.stats.totalDecorationsReturned++;
-        if (this.problemStore) {
-          const state = this.problemStore.get(uri);
-          if (state) {
-            severity = state.severity;
-            errorCount = state.errorCount;
-            warningCount = state.warningCount;
-            infoCount = state.infoCount;
-            fileCount = state.fileCount;
-          }
+        if (storeState) {
+          severity = storeState.severity;
+          errorCount = storeState.errorCount;
+          warningCount = storeState.warningCount;
+          infoCount = storeState.infoCount;
+          fileCount = storeState.fileCount;
         }
       }
 
