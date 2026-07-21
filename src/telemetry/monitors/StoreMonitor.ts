@@ -1262,6 +1262,15 @@ export class StoreMonitor {
   /*  Lifecycle                                                          */
   /* ------------------------------------------------------------------ */
 
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      ownedUris: this.ownedUris.size,
+      ownerCounts: this.ownerCounts.size,
+      batchStateStack: this.batchStateStack.length,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) return;
 

@@ -226,9 +226,6 @@ export class DiagnosticsManager implements DiagnosticProvider {
     }
 
     if (diagnostics.length === 0) {
-      if (!this.delegate.isActiveEditorUri(uri)) {
-        return;
-      }
       if (this._store.delete(uri)) {
         changed.push(uri);
       }

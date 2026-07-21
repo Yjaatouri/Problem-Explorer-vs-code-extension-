@@ -727,6 +727,19 @@ export class PerformanceMonitor {
     this.pendingStoreToFolder.length = 0;
     this.pendingFolderToDecoration.length = 0;
   }
+
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      histories: this.histories.size,
+      providerStats: this.providerStats.size,
+      bottleneckCounts: this.bottleneckCounts.size,
+      pendingSaveToProvider: this.pendingSaveToProvider.length,
+      pendingProviderToStore: this.pendingProviderToStore.length,
+      pendingStoreToFolder: this.pendingStoreToFolder.length,
+      pendingFolderToDecoration: this.pendingFolderToDecoration.length,
+    };
+  }
 }
 
 /** Create a PerformanceMonitor attached to the given reporter */

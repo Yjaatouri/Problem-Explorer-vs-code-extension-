@@ -1082,6 +1082,16 @@ export class TimelineGenerator {
   /*  Lifecycle                                                          */
   /* ------------------------------------------------------------------ */
 
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      timelines: this.timelines.size,
+      timelineOrder: this.timelineOrder.length,
+      eventsByTraceId: this.eventsByTraceId.size,
+      traceOrder: this.traceOrder.length,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

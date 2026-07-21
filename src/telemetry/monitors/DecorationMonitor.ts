@@ -535,6 +535,17 @@ export class DecorationMonitor {
   /*  Dispose                                                             */
   /* ------------------------------------------------------------------ */
 
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      pendingFireUris: this._pendingFireUris.size,
+      lastDecoration: this._lastDecoration.size,
+      decorationLoopCount: this._decorationLoopCount.size,
+      refreshHistory: this._refreshHistory.size,
+      recentChanges: this._recentChanges.size,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

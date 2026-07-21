@@ -84,6 +84,7 @@ export interface SystemOverviewData {
   readonly healthScore: number;
   readonly healthLevel: string;
   readonly totalEventsProcessed: number;
+  readonly telemetryErrorCount: number;
   readonly totalErrors: number;
   readonly memoryMb: number;
 }

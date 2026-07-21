@@ -2,7 +2,7 @@ import { Event, EventEmitter, Uri } from 'vscode';
 import { ProblemStoreChange } from '../models/ProblemStoreChange';
 import { ProblemState, ProblemSeverity } from '../core/types';
 import { normalizeUriKey } from '../core/uriKey';
-import { debugLog } from '../core/debug';/** Remove readonly modifiers from all properties */
+/** Remove readonly modifiers from all properties */
 type Mutable<T> = { -readonly [P in keyof T]: T[P] };
 
 export class ProblemStore {
@@ -36,26 +36,20 @@ export class ProblemStore {
   }
 
   set(uri: Uri, state: ProblemState, providerName?: string): boolean {
-    const ts = Date.now();
     const key = normalizeUriKey(uri);
-    debugLog(`[AUDIT:${ts}] STORE.set() ENTER uri=${uri.fsPath} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
     if (providerName !== undefined) {
       const currentOwner = this.ownerByKey.get(key);
       if (currentOwner !== undefined) {
         const currentPriority = this.providerPriorities.get(currentOwner) ?? -1;
         const newPriority = this.providerPriorities.get(providerName) ?? -1;
         if (newPriority < currentPriority) {
-          debugLog(`[AUDIT:${Date.now()}] STORE.set() REJECTED — lower priority provider="${providerName}" (pri=${newPriority}) < currentOwner="${currentOwner}" (pri=${currentPriority}) key=${key}`);
           return false;
         }
-        debugLog(`[AUDIT:${Date.now()}] STORE.set() priority OK — provider="${providerName}" (pri=${newPriority}) >= currentOwner="${currentOwner}" (pri=${currentPriority})`);
       } else {
-        debugLog(`[AUDIT:${Date.now()}] STORE.set() no current owner for key=${key} — provider="${providerName}" will own it`);
       }
     }
     const old = this.storage.get(key);
     if (old !== undefined && !this.hasChanged(old, state)) {
-      debugLog(`[AUDIT:${Date.now()}] STORE.set() SKIPPED — unchanged state key=${key} oldSeverity=${old.severity} newSeverity=${state.severity} oldErrors=${old.errorCount} newErrors=${state.errorCount}`);
       return false;
     }
     const existed = old !== undefined;
@@ -72,12 +66,9 @@ export class ProblemStore {
       this.ownerByKey.set(key, providerName);
     }
     this.version++;
-    debugLog(`[AUDIT:${Date.now()}] STORE.set() ${existed ? 'UPDATED' : 'ADDED'} key=${key} provider=${providerName ?? 'unknown'} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount}`);
     if (this.batchDepth === 0) {
-      debugLog(`[AUDIT:${Date.now()}] STORE.set() firing _onDidChange(${existed ? 'updated' : 'added'}) uri=${uri.fsPath}`);
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
     } else {
-      debugLog(`[AUDIT:${Date.now()}] STORE.set() _onDidChange DEFERRED — batchDepth=${this.batchDepth}`);
     }
     return true;
   }
@@ -86,16 +77,7 @@ export class ProblemStore {
     const key = normalizeUriKey(uri);
 
     if (state.severity === ProblemSeverity.None) {
-      const had = this.storage.has(key);
-      if (had) {
-        this.storage.delete(key);
-        this.folderKeys.delete(key);
-        this.version++;
-        if (this.batchDepth === 0) {
-          this._onDidChange.fire({ kind: 'removed', uri });
-        }
-      }
-      return had;
+      return this.delete(uri);
     }
 
     const old = this.storage.get(key);
@@ -140,6 +122,10 @@ export class ProblemStore {
   }
 
   clear(): void {
+    // Fire per-entry removed events so downstream caches (decorations, folders) can react
+    for (const key of this.storage.keys()) {
+      this._onDidChange.fire({ kind: 'removed', uri: Uri.parse(key) });
+    }
     this.storage.clear();
     this.folderKeys.clear();
     this.ownerByKey.clear();
@@ -204,6 +190,12 @@ export class ProblemStore {
 
     for (const entry of entriesToMove) {
       const newKey = newPrefix + entry.key.slice(oldPrefix.length);
+
+      // Fire per-entry events so decoration engine / folder status can react
+      if (this.batchDepth === 0) {
+        this._onDidChange.fire({ kind: 'removed', uri: Uri.parse(entry.key) });
+      }
+
       this.storage.delete(entry.key);
       this.folderKeys.delete(entry.key);
       this.storage.set(newKey, entry.state);
@@ -215,6 +207,11 @@ export class ProblemStore {
         this.ownerByKey.delete(entry.key);
         this.ownerByKey.set(newKey, owner);
       }
+
+      if (this.batchDepth === 0) {
+        this._onDidChange.fire({ kind: 'added', uri: Uri.parse(newKey) });
+      }
+
       count++;
     }
 
@@ -243,6 +240,7 @@ export class ProblemStore {
 
   unconfigureProvider(providerName: string): void {
     this.providerPriorities.delete(providerName);
+    this.releaseOwnership(providerName);
   }
 
   releaseOwnership(providerName: string): void {

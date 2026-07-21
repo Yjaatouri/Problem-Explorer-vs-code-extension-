@@ -1,10 +1,15 @@
 import { ConfigurationChangeEvent, Event, EventEmitter, workspace } from 'vscode';
 import { TelemetryEvent, isTelemetryEvent, TraceId, now, generateCorrelationId, generateTraceId } from './TelemetryEvent';
 
+/** Monitoring verbosity level */
+export type MonitoringLevel = 'minimal' | 'full';
+
 /** Configuration shape for the telemetry system */
 export interface TelemetryConfig {
   /** Master switch - when false, all telemetry overhead is near-zero */
   readonly enabled: boolean;
+  /** Monitoring verbosity - 'minimal' skips all monitor/dashboard/assertion creation entirely */
+  readonly monitoring: MonitoringLevel;
   /** Maximum events to buffer in memory before flushing */
   readonly bufferSize: number;
   /** Interval in ms to flush buffered events */
@@ -16,6 +21,7 @@ export interface TelemetryConfig {
 /** Default telemetry configuration */
 export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
   enabled: false,
+  monitoring: 'minimal',
   bufferSize: 1000,
   flushIntervalMs: 5000,
   includeStackTraces: false,
@@ -24,6 +30,7 @@ export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
 /** Settings keys for telemetry configuration */
 export const TELEMETRY_SETTINGS = {
   ENABLED: 'telemetry.enabled',
+  MONITORING: 'monitoring',
   BUFFER_SIZE: 'telemetry.bufferSize',
   FLUSH_INTERVAL_MS: 'telemetry.flushIntervalMs',
   INCLUDE_STACK_TRACES: 'telemetry.includeStackTraces',
@@ -74,6 +81,7 @@ export class TelemetryConfigManager {
     const cfg = this.delegate.getConfiguration('problemExplorer');
     return {
       enabled: cfg.get<boolean>(TELEMETRY_SETTINGS.ENABLED, DEFAULT_TELEMETRY_CONFIG.enabled),
+      monitoring: cfg.get<MonitoringLevel>(TELEMETRY_SETTINGS.MONITORING, DEFAULT_TELEMETRY_CONFIG.monitoring),
       bufferSize: cfg.get<number>(TELEMETRY_SETTINGS.BUFFER_SIZE, DEFAULT_TELEMETRY_CONFIG.bufferSize),
       flushIntervalMs: cfg.get<number>(TELEMETRY_SETTINGS.FLUSH_INTERVAL_MS, DEFAULT_TELEMETRY_CONFIG.flushIntervalMs),
       includeStackTraces: cfg.get<boolean>(TELEMETRY_SETTINGS.INCLUDE_STACK_TRACES, DEFAULT_TELEMETRY_CONFIG.includeStackTraces),

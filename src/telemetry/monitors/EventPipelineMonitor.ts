@@ -1136,6 +1136,20 @@ export class EventPipelineMonitor {
   /*  Lifecycle                                                          */
   /* ------------------------------------------------------------------ */
 
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      executions: this.executions.size,
+      executionsByUri: this.executionsByUri.size,
+      seenKeys: this.seenKeys.size,
+      allEvents: this.allEvents.length,
+      traceIdIndex: this.traceIdIndex.size,
+      pipelineDependencies: this.pipelineDependencies.size,
+      durationSamples: this.durationSamples.length,
+      stageDurationAccumulators: Object.keys(this.stageDurationAccumulators).length,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

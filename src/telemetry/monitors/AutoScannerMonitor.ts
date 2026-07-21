@@ -409,6 +409,15 @@ export class AutoScannerMonitor implements Disposable {
     });
   }
 
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      queuedProviders: this.state.queuedProviders.size,
+      providerTimestamps: this.state.providerTimestamps.size,
+      disposables: this.disposables.length,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

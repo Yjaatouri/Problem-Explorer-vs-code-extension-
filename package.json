@@ -237,6 +237,19 @@
           "default": false,
           "description": "Enable debug logging for diagnostics pipeline"
         },
+        "problemExplorer.monitoring": {
+          "type": "string",
+          "default": "minimal",
+          "enum": [
+            "minimal",
+            "full"
+          ],
+          "enumDescriptions": [
+            "No telemetry monitors, dashboard, or assertions - zero overhead",
+            "Full telemetry monitoring, dashboard, and runtime assertions for debugging"
+          ],
+          "description": "Monitoring verbosity level. Set to 'full' to enable telemetry monitors, dashboard, and runtime assertions"
+        },
         "problemExplorer.typescript.enabled": {
           "type": "boolean",
           "default": true,

@@ -4,8 +4,6 @@ import { DiagnosticProviderManager } from './DiagnosticProviderManager';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState, ProblemSeverity, EslintConfig, ProviderCapabilities, ScanProgress } from '../core/types';
 import { EslintRunner, EslintRunOptions, EslintDiagnostic } from '../typescript/EslintRunner';
-import { chainCounters } from '../forensicLogger';
-import { debugLog } from '../core/debug';
 import * as path from 'path';
 
 export interface EslintScanContext {
@@ -119,10 +117,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     const changed = await this.runScan();
     console.log(`[LOG:ESLINT-init] runScan returned changed.length=${changed.length}`);
     if (changed.length > 0) {
-      chainCounters.providerRunScanReturned++;
       console.log(`[LOG:ESLINT-init] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
       this._onDidUpdate.fire(changed);
-      chainCounters.providerOnDidUpdateFired++;
       console.log(`[LOG:ESLINT-init] AFTER _onDidUpdate.fire()`);
     } else {
       console.log(`[LOG:ESLINT-init] changed.length=0 → SKIPPING _onDidUpdate.fire()`);
@@ -142,36 +138,19 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   async refresh(): Promise<void> {
-    const ts = Date.now();
-    debugLog(`[AUDIT:${ts}] ESLINT.refresh() ENTER name=${this.name} _enabled=${this._enabled} _disposed=${this._disposed} _scanning=${this._scanning} _pendingRefresh=${this._pendingRefresh}`);
-    chainCounters.providerRefreshCalled++;
-    if (this._disposed) { debugLog(`[AUDIT:${Date.now()}] ESLINT.refresh() EARLY RETURN — disposed`); return; }
-    if (!this._enabled) { debugLog(`[AUDIT:${Date.now()}] ESLINT.refresh() EARLY RETURN — disabled`); return; }
-
     this._clearDebounce();
-    debugLog(`[AUDIT:${ts}] ESLINT.refresh() debounce cleared, setting ${this.refreshDebounceMs}ms timer`);
 
     return new Promise<void>((resolve) => {
       this._refreshResolve = resolve;
       this._debounceTimer = setTimeout(async () => {
         this._refreshResolve = undefined;
-        const fireTs = Date.now();
-        debugLog(`[AUDIT:${fireTs}] ESLINT.refresh() debounce FIRED (waited ${fireTs - ts}ms)`);
         this._debounceTimer = undefined;
         try {
           const changed = await this.runScan();
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.refresh() runScan returned changed.length=${changed.length} changed=[${changed.map(u => u.fsPath).join(', ')}]`);
           if (!this._disposed && changed.length > 0) {
-            chainCounters.providerRunScanReturned++;
-            debugLog(`[AUDIT:${Date.now()}] ESLINT.refresh() firing _onDidUpdate with ${changed.length} URIs`);
             this._onDidUpdate.fire(changed);
-            chainCounters.providerOnDidUpdateFired++;
-            debugLog(`[AUDIT:${Date.now()}] ESLINT.refresh() _onDidUpdate fired`);
-          } else {
-            debugLog(`[AUDIT:${Date.now()}] ESLINT.refresh() SKIP _onDidUpdate — changed.length=${changed.length} _disposed=${this._disposed}`);
           }
-        } catch (err) {
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.refresh() runScan THREW: ${err instanceof Error ? err.message : String(err)}`);
+        } catch {
         }
         resolve();
       }, this.refreshDebounceMs);
@@ -202,13 +181,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   async runScan(): Promise<Uri[]> {
-    const ts = Date.now();
-    debugLog(`[AUDIT:${ts}] ESLINT.runScan() ENTER _disposed=${this._disposed} _enabled=${this._enabled} _scanning=${this._scanning}`);
-    if (this._disposed) { debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() EARLY RETURN — disposed`); return []; }
-    if (!this._enabled) { debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() EARLY RETURN — disabled`); return []; }
     if (this._scanning) {
       this._pendingRefresh = true;
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() EARLY RETURN — already scanning, _pendingRefresh set to true`);
       return [];
     }
 
@@ -230,17 +204,14 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     try {
       if (signal.aborted) {
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() EARLY RETURN — signal aborted before resolve`);
         return [];
       }
 
       this._onDidProgressScan.fire({ providerName: this.name, phase: 'resolving', message: 'Resolving ESLint projects...' });
 
       const workspaceFolders = this.getWorkspaceFolders();
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() workspaceFolders=${workspaceFolders.length}`);
       if (workspaceFolders.length === 0) {
         const msg = 'No workspace folders open.';
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() EARLY RETURN — ${msg}`);
         this._lastScanErrors.push({ folder: '', message: msg });
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: msg });
         return [];
@@ -251,21 +222,15 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       const resolveStart = performance.now();
       const foldersWithEslint = await this.findFoldersWithEslint(workspaceFolders);
       timing.resolveFoldersMs = performance.now() - resolveStart;
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() findFoldersWithEslint returned ${foldersWithEslint.length} folders in ${timing.resolveFoldersMs.toFixed(0)}ms`);
       if (signal.aborted) {
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'cancelled', message: 'Scan cancelled' });
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() EARLY RETURN — signal aborted after resolve`);
         return [];
       }
 
-      for (const f of workspaceFolders) {
-        const hasEslint = foldersWithEslint.some(ef => ef.uri.toString() === f.uri.toString());
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() folder "${f.name}" hasEslint=${hasEslint}`);
-      }
+      
 
       if (foldersWithEslint.length === 0) {
         const msg = 'No ESLint configuration found in any workspace folder.';
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() EARLY RETURN — ${msg}`);
         this._lastScanErrors.push({ folder: '', message: msg });
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: msg });
         return [];
@@ -273,9 +238,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
       const eslintStart = performance.now();
       const ownedExts = this._manager?.getOwnedExtensions(this.name) ?? this.capabilities.extensions;
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() ownedExts=[${ownedExts.join(',')}]`);
       const semaphore = this.makeSemaphore(this._maxConcurrentScans);
-      let totalDiagsParsed = 0;
       await Promise.all(foldersWithEslint.map(async (folder) => {
         await semaphore.acquire();
         if (signal.aborted) {
@@ -285,8 +248,6 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: `Scanning ${folder.name}...` });
 
-        const runnerStart = performance.now();
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() Running eslint in folder=${folder.uri.fsPath}`);
         const options: EslintRunOptions = {
           cwd: folder.uri.fsPath,
           ext: [...ownedExts],
@@ -297,10 +258,8 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
         let result;
         try {
           result = await this.runner.run(options);
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() runner.run() completed in ${(performance.now() - runnerStart).toFixed(0)}ms exitCode=${result.exitCode} cancelled=${result.cancelled} timedOut=${result.timedOut} stdout=${result.stdout.length}chars`);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() runner.run() THREW: ${msg}`);
           this._lastScanErrors.push({ folder: folder.name, message: msg });
           semaphore.release();
           return;
@@ -308,25 +267,21 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
         if (result.cancelled || result.timedOut) {
           const msg = result.error ?? (result.timedOut ? 'ESLint timed out' : 'ESLint cancelled');
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() SKIP — ${msg}`);
           this._lastScanErrors.push({ folder: folder.name, message: msg });
           semaphore.release();
           return;
         }
 
         if (result.error) {
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() runner returned error=${result.error}`);
         }
 
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'parsing', message: `Parsing ${folder.name} output...` });
 
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() "${folder.name}" output: ${result.stdout.length} chars`);
 
         const parseStart = performance.now();
         const diagnostics = this.runner.parseOutput(result.stdout);
         const parseMs = performance.now() - parseStart;
         timing.parseMs += parseMs;
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() runner.parseOutput() returned ${diagnostics.length} diagnostics in ${parseMs.toFixed(0)}ms`);
 
         const fileCount = new Set<string>();
         for (const diag of diagnostics) {
@@ -339,12 +294,9 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
             allDiagnostics.set(key, [diag]);
           }
         }
-        totalDiagsParsed += diagnostics.length;
-        debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() aggregated ${diagnostics.length} diags across ${fileCount.size} files for folder=${folder.name}`);
         semaphore.release();
       }));
       timing.eslintRunsMs = performance.now() - eslintStart;
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() all folders done in ${timing.eslintRunsMs.toFixed(0)}ms total parsed=${totalDiagsParsed} total files=${allDiagnostics.size}`);
 
       this.abortController = undefined;
 
@@ -353,30 +305,22 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
       const writeStart = performance.now();
       const changed = this.writeToStore(allDiagnostics);
       timing.storeWriteMs = performance.now() - writeStart;
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() writeToStore returned ${changed.length} changed URIs in ${timing.storeWriteMs.toFixed(0)}ms`);
 
       timing.totalMs = performance.now() - scanStart;
       this._lastScanDurationMs = timing.totalMs;
       this._lastScanTiming = timing;
 
-      if (changed.length === 0 && this._lastScanErrors.length > 0) {
-        for (const e of this._lastScanErrors) {
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() error: ${e.folder || '(workspace)'} — ${e.message}`);
-        }
-      }
+      
 
       this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: `Completed in ${timing.totalMs.toFixed(0)}ms` });
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() RETURN ${changed.length} changed URIs (totalMs=${timing.totalMs.toFixed(0)}ms)`);
 
       return changed;
     } finally {
       this._scanning = false;
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() finally _scanning=false _pendingRefresh=${this._pendingRefresh}`);
       while (this._pendingRefresh) {
         this._pendingRefresh = false;
         const changed = await this.runScan();
         if (!this._disposed && changed.length > 0) {
-          debugLog(`[AUDIT:${Date.now()}] ESLINT.runScan() pending refresh completed: ${changed.length} URIs`);
           this._onDidUpdate.fire(changed);
         }
       }
@@ -445,26 +389,17 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   private writeToStore(diagnostics: Map<string, EslintDiagnostic[]>): Uri[] {
-    const ts = Date.now();
-    debugLog(`[AUDIT:${ts}] ESLINT.writeToStore() ENTER diagFiles=${diagnostics.size} provider="${this.name}"`);
     const changed: Uri[] = [];
-    let accepted = 0;
-    let rejected = 0;
 
     for (const [uriString, fileDiags] of diagnostics) {
       const state = this.aggregateFileState(fileDiags);
       const uri = Uri.parse(uriString);
       const result = this._store.set(uri, state, this.name);
-      debugLog(`[AUDIT:${Date.now()}] ESLINT.writeToStore() uri="${uriString}" diags=${fileDiags.length} severity=${state.severity} errors=${state.errorCount} warnings=${state.warningCount} store.set()=${result}`);
       if (result) {
         changed.push(uri);
-        accepted++;
-      } else {
-        rejected++;
       }
     }
 
-    debugLog(`[AUDIT:${Date.now()}] ESLINT.writeToStore() RETURN accepted=${accepted} rejected=${rejected} changed=${changed.length}`);
     return changed;
   }
 

@@ -71,6 +71,7 @@ export class DashboardStatistics {
       healthScore: 100,
       healthLevel: 'healthy',
       totalEventsProcessed: 0,
+      telemetryErrorCount: 0,
       totalErrors: 0,
       memoryMb: 0,
     };

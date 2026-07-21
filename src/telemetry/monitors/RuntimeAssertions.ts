@@ -154,6 +154,8 @@ export interface AssertionEngine {
   /** Set recovery handlers for executing recovery policies */
   setRecoveryHandlers(handlers: RecoveryContext): void;
   getRecoveryHandlers(): RecoveryContext;
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number>;
   dispose(): void;
 }
 
@@ -491,6 +493,19 @@ export class DefaultAssertionEngine implements AssertionEngine, Disposable {
     this.totalExecutionTimeMs = 0;
     this.peakExecutionTimeMs = 0;
     this.assertionFrequency.clear();
+  }
+
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      rules: this.rules.size,
+      failures: this.failures.length,
+      failureCategoryCount: this.failureCategoryCount.size,
+      failureProviderCount: this.failureProviderCount.size,
+      failureMonitorCount: this.failureMonitorCount.size,
+      failureUriCount: this.failureUriCount.size,
+      assertionFrequency: this.assertionFrequency.size,
+    };
   }
 
   dispose(): void {
@@ -1641,6 +1656,116 @@ export function createFolderImpossibleTransitionRule(manager: FolderStatusManage
 }
 
 /* ------------------------------------------------------------------ */
+/*  System Health Assertions                                           */
+/* ------------------------------------------------------------------ */
+
+const DEFAULT_INTERNAL_STATE_WARN_THRESHOLDS: Record<string, number> = {
+  /* PerformanceMonitor */
+  histories: 500,
+  providerStats: 100,
+  bottleneckCounts: 200,
+  pendingSaveToProvider: 200,
+  pendingProviderToStore: 200,
+  pendingStoreToFolder: 200,
+  pendingFolderToDecoration: 200,
+  /* EventPipelineMonitor */
+  executions: 1000,
+  executionsByUri: 1000,
+  seenKeys: 5000,
+  allEvents: 10000,
+  traceIdIndex: 2000,
+  pipelineDependencies: 500,
+  durationSamples: 5000,
+  stageDurationAccumulators: 20,
+  /* DiagnosticsMonitor */
+  knownUris: 5000,
+  knownOwners: 5000,
+  mappingStartTimes: 500,
+  disposables: 100,
+  /* DecorationMonitor */
+  pendingFireUris: 500,
+  lastDecoration: 2000,
+  decorationLoopCount: 1000,
+  refreshHistory: 500,
+  recentChanges: 500,
+  /* StoreMonitor */
+  ownedUris: 5000,
+  ownerCounts: 100,
+  batchStateStack: 20,
+  /* ProviderMonitor */
+  providers: 100,
+  subscriptions: 100,
+  /* AutoScannerMonitor */
+  queuedProviders: 50,
+  providerTimestamps: 50,
+  /* TimelineGenerator */
+  timelines: 500,
+  timelineOrder: 500,
+  eventsByTraceId: 2000,
+  traceOrder: 2000,
+};
+
+/** Assertion: telemetry bus has caught errors in listeners — signals swallowed exceptions */
+export function createTelemetryErrorRule(getCount: () => number): AssertionRule {
+  return {
+    name: 'telemetry.listenerErrors',
+    description: 'Detect swallowed exceptions in telemetry bus listeners or reporters',
+    category: AssertionCategory.Diagnostics,
+    severity: AssertionSeverity.Warning,
+    enabled: true,
+    recovery: { actions: [RecoveryAction.WarningOnly] },
+    execute: () => {
+      const start = Date.now();
+      const count = getCount();
+      if (count === 0) return passResult(start);
+      return {
+        passed: false,
+        failures: [{
+          assertion: 'telemetry.listenerErrors',
+          category: AssertionCategory.Diagnostics,
+          severity: AssertionSeverity.Warning,
+          timestamp: Date.now(),
+          message: `${count} telemetry error(s) detected — listeners or reporters swallowed exceptions. Inspect dashboard Overview > Telemetry Errors.`,
+        }],
+        executionTimeMs: Date.now() - start,
+      };
+    },
+  };
+}
+
+/** Assertion: monitor internal state structures are within expected bounds */
+export function createInternalStateSizeRule(getSizes: () => Record<string, number>): AssertionRule {
+  const thresholds = { ...DEFAULT_INTERNAL_STATE_WARN_THRESHOLDS };
+  return {
+    name: 'telemetry.internalStateSize',
+    description: 'Detect monitor internal data structures that exceed expected size thresholds — potential memory leak',
+    category: AssertionCategory.Diagnostics,
+    severity: AssertionSeverity.Warning,
+    enabled: true,
+    recovery: { actions: [RecoveryAction.WarningOnly] },
+    execute: () => {
+      const start = Date.now();
+      const sizes = getSizes();
+      const failures: AssertionFailure[] = [];
+      for (const [key, size] of Object.entries(sizes)) {
+        const threshold = thresholds[key];
+        if (threshold !== undefined && size > threshold) {
+          failures.push({
+            assertion: 'telemetry.internalStateSize',
+            category: AssertionCategory.Diagnostics,
+            severity: AssertionSeverity.Warning,
+            timestamp: Date.now(),
+            message: `${key}=${size} exceeds threshold ${threshold} — internal structure may be leaking`,
+          });
+        }
+      }
+      if (failures.length === 0) return passResult(start);
+      return { passed: false, failures, executionTimeMs: Date.now() - start };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  RuntimeAssertions — Main Facade                                    */
 /* ------------------------------------------------------------------ */
 
@@ -1783,6 +1908,22 @@ export class RuntimeAssertions implements Disposable {
       createDiagnosticsNotWrittenRule(monitor),
       createDiagnosticsRejectedNoReasonRule(monitor),
       createDiagnosticsInconsistentTotalsRule(monitor),
+    ];
+    for (const rule of rules) {
+      disposables.push(this.engine.registerRule(rule));
+    }
+    return disposables;
+  }
+
+  /** Register system health assertions that detect invisible failures */
+  registerSystemHealthAssertions(
+    getTelemetryErrorCount: () => number,
+    getInternalSizes: () => Record<string, number>,
+  ): Disposable[] {
+    const disposables: Disposable[] = [];
+    const rules: AssertionRule[] = [
+      createTelemetryErrorRule(getTelemetryErrorCount),
+      createInternalStateSizeRule(getInternalSizes),
     ];
     for (const rule of rules) {
       disposables.push(this.engine.registerRule(rule));

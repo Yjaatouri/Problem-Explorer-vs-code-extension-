@@ -6,7 +6,6 @@ import {
   window,
 } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
-import { debugLog } from '../core/debug';
 
 export class StatusBarManager implements Disposable {
   private readonly item: StatusBarItem;
@@ -24,10 +23,7 @@ export class StatusBarManager implements Disposable {
   }
 
   update(): void {
-    const ts = Date.now();
-    debugLog(`[AUDIT:${ts}] SBM.update() ENTER enabled=${this.enabled} scanning=${this.scanning}`);
     if (!this.enabled) {
-      debugLog(`[AUDIT:${Date.now()}] SBM.update() EARLY RETURN — disabled`);
       this.item.hide();
       return;
     }
@@ -36,16 +32,13 @@ export class StatusBarManager implements Disposable {
       this.item.text = `$(sync~spin) Scanning ${this.scanProvider ? `(${this.scanProvider})` : ''}...`;
       this.item.tooltip = 'Auto-scan in progress';
       this.item.show();
-      debugLog(`[AUDIT:${Date.now()}] SBM.update() scanning — text="${this.item.text}"`);
       return;
     }
 
     const totals = this.store.computeTotals();
     const hasAny = totals.errorCount + totals.warningCount + totals.infoCount > 0;
-    debugLog(`[AUDIT:${Date.now()}] SBM.update() totals=${JSON.stringify(totals)} hasAny=${hasAny}`);
 
     if (!hasAny) {
-      debugLog(`[AUDIT:${Date.now()}] SBM.update() EARLY RETURN — no problems`);
       this.item.hide();
       return;
     }
@@ -63,7 +56,6 @@ export class StatusBarManager implements Disposable {
     this.item.text = parts.join('  ');
     this.item.tooltip = 'Problem Explorer — click to open Problems panel';
     this.item.show();
-    debugLog(`[AUDIT:${Date.now()}] SBM.update() RETURN text="${this.item.text}" elapsed=${Date.now() - ts}ms`);
   }
 
   setScanning(scanning: boolean, providerName?: string): void {

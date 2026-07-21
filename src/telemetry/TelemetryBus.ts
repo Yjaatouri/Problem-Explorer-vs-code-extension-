@@ -15,6 +15,7 @@ export class TelemetryBus implements Disposable {
   private enabled: boolean = false;
   private readonly emitter = new EventEmitter<TelemetryEvent>();
   private subscriberCount: number = 0;
+  private _telemetryErrorCount: number = 0;
 
   /** Enable or disable the telemetry bus. When disabled, publish() is a no-op. */
   setEnabled(enabled: boolean): void {
@@ -31,7 +32,11 @@ export class TelemetryBus implements Disposable {
     if (!this.enabled || this.subscriberCount === 0) {
       return;
     }
-    this.emitter.fire(event);
+    try {
+      this.emitter.fire(event);
+    } catch {
+      this._telemetryErrorCount++;
+    }
   }
 
   /** Subscribe to telemetry events of a specific type */
@@ -39,7 +44,11 @@ export class TelemetryBus implements Disposable {
     this.subscriberCount++;
     const disposable = this.emitter.event((e) => {
       if (e.type === eventType) {
-        listener(e);
+        try {
+          listener(e);
+        } catch {
+          this._telemetryErrorCount++;
+        }
       }
     });
     return {
@@ -54,7 +63,13 @@ export class TelemetryBus implements Disposable {
   /** Subscribe to all telemetry events */
   subscribeAll(listener: (event: TelemetryEvent) => void): TelemetrySubscription {
     this.subscriberCount++;
-    const disposable = this.emitter.event(listener);
+    const disposable = this.emitter.event((e) => {
+      try {
+        listener(e);
+      } catch {
+        this._telemetryErrorCount++;
+      }
+    });
     return {
       eventType: '*',
       dispose: () => {
@@ -74,9 +89,20 @@ export class TelemetryBus implements Disposable {
     return this.subscriberCount;
   }
 
+  /** Number of errors caught in telemetry listeners since last reset */
+  getTelemetryErrorCount(): number {
+    return this._telemetryErrorCount;
+  }
+
+  /** Reset the telemetry error counter to zero */
+  resetTelemetryErrorCount(): void {
+    this._telemetryErrorCount = 0;
+  }
+
   dispose(): void {
     this.emitter.dispose();
     this.subscriberCount = 0;
+    this._telemetryErrorCount = 0;
   }
 }
 

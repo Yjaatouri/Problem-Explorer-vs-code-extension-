@@ -2,14 +2,14 @@ import * as vscode from 'vscode';
 import { workspace } from 'vscode';
 import * as fs from 'fs';
 import { normalizeUriKey } from './core/uriKey';
-import { DecorationEngine, dumpForensicReport } from './decoration/decorationEngine';
+import { DecorationEngine } from './decoration/decorationEngine';
 import { FolderStatusManager } from './folder/folderStatusManager';
 import { ConfigManager } from './config/configManager';
 import { CommandManager } from './commands/commandManager';
 import { WorkspaceManager } from './workspace/workspaceManager';
 import { StatusBarManager } from './statusBar/statusBarManager';
 import { ApiManager, ProblemExplorerAPI } from './api/problemExplorerApi';
-import { initForensicLogger, forensicLog, dumpChainReport, resetChainCounters } from './forensicLogger';
+
 import { TrendTracker, MementoStorageProvider } from './trend/trendTracker';
 import { ProblemStore } from './store/ProblemStore';
 import { DiagnosticProviderManager } from './providers/DiagnosticProviderManager';
@@ -23,6 +23,7 @@ import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
 import { setConfigManager } from './core/debug';
 import { TelemetryConfigManager } from './telemetry/TelemetryConfig';
 import { createTelemetryReporter } from './telemetry/TelemetryReporter';
+import { getTelemetryBus } from './telemetry/TelemetryBus';
 import { createStoreMonitor } from './telemetry/monitors/StoreMonitor';
 import { createProviderMonitor } from './telemetry/monitors/ProviderMonitor';
 import { createAutoScannerMonitor } from './telemetry/monitors/AutoScannerMonitor';
@@ -64,9 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     outputChannel?.appendLine(`[${new Date().toISOString()}] ${msg}`);
   };
 
-  // Initialize forensic logger to route through this log function
-  initForensicLogger(log);
-  forensicLog('===== FORENSIC LOGGER INITIALIZED =====');
+  
 
   try {
     log('Creating core services...');
@@ -97,70 +96,108 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     // Initialize telemetry system
     const telemetryConfig = new TelemetryConfigManager();
     const telemetryReporter = createTelemetryReporter(telemetryConfig);
-    const storeMonitor = createStoreMonitor(problemStore, telemetryReporter);
-    const providerMonitor = createProviderMonitor(diagProviderManager, telemetryReporter);
-    const autoScannerMonitor = createAutoScannerMonitor(diagProviderManager, telemetryReporter);
-    const diagnosticsMonitor = createDiagnosticsMonitor(diagProviderManager, telemetryReporter);
-    const decorationMonitor = createDecorationMonitor(decorationEngine, telemetryReporter, problemStore);
-    const folderMonitor = createFolderMonitor(folderStatusManager, problemStore, telemetryReporter);
-    const pipelineMonitor = createEventPipelineMonitor(telemetryReporter);
-    const timerMonitor = createTimerMonitor(telemetryReporter);
-    const perfMonitor = createPerformanceMonitor(telemetryReporter);
-    const runtimeAssertions = createRuntimeAssertions(telemetryReporter);
-    const timelineGenerator = createTimelineGenerator(telemetryReporter);
-    const snapshotSystem = createSnapshotSystem(
-      telemetryReporter, problemStore, diagProviderManager, telemetryConfig,
-      storeMonitor, providerMonitor, autoScannerMonitor, diagnosticsMonitor,
-      folderMonitor, decorationMonitor, pipelineMonitor, runtimeAssertions,
-      timelineGenerator,
-    );
-    try {
-      const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
-      snapshotSystem.setEnvironmentInfo(vscode.version, context.extension.packageJSON.version ?? 'unknown', wf);
-    } catch { /* non-critical */ }
-    // Legacy file logger for offline forensic analysis
+    const monitoringLevel = telemetryConfig.getConfig().monitoring;
+
+    // Monitors, dashboard, assertions — only created in 'full' mode
+    let storeMonitor: import('./telemetry/monitors/StoreMonitor').StoreMonitor | undefined;
+    let providerMonitor: import('./telemetry/monitors/ProviderMonitor').ProviderMonitor | undefined;
+    let autoScannerMonitor: import('./telemetry/monitors/AutoScannerMonitor').AutoScannerMonitor | undefined;
+    let diagnosticsMonitor: import('./telemetry/monitors/DiagnosticsMonitor').DiagnosticsMonitor | undefined;
+    let decorationMonitor: import('./telemetry/monitors/DecorationMonitor').DecorationMonitor | undefined;
+    let folderMonitor: import('./telemetry/monitors/FolderMonitor').FolderMonitor | undefined;
+    let pipelineMonitor: import('./telemetry/monitors/EventPipelineMonitor').EventPipelineMonitor | undefined;
+    let timerMonitor: import('./telemetry/monitors/TimerMonitor').TimerMonitor | undefined;
+    let perfMonitor: import('./telemetry/monitors/PerformanceMonitor').PerformanceMonitor | undefined;
+    let runtimeAssertions: ReturnType<typeof createRuntimeAssertions> | undefined;
+    let timelineGenerator: ReturnType<typeof createTimelineGenerator> | undefined;
+    let snapshotSystem: ReturnType<typeof createSnapshotSystem> | undefined;
+    let devDashboard: Dashboard | undefined;
     let telemetryFileLogger: import('./telemetry/monitors/TelemetryFileLogger').TelemetryFileLogger | undefined;
     let fileLogger: FileLogger | undefined;
-    try {
-      const logDir = context.logUri.fsPath;
-      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-      telemetryFileLogger = createTelemetryFileLogger(telemetryReporter, logDir);
-      const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)[0];
-      fileLogger = createFileLogger(telemetryReporter, logDir, undefined, undefined, context.extension.packageJSON.version ?? 'unknown', vscode.version, wf);
-      fileLogger.startSession().catch(() => {});
-      fileLogger.cleanupOldSessions(20);
-    } catch (e) {
-      log(`[TELEMETRY] Failed to create file logger: ${e}`);
+
+    if (monitoringLevel === 'full') {
+      const mStoreMonitor = createStoreMonitor(problemStore, telemetryReporter);
+      const mProviderMonitor = createProviderMonitor(diagProviderManager, telemetryReporter);
+      const mAutoScannerMonitor = createAutoScannerMonitor(diagProviderManager, telemetryReporter);
+      const mDiagnosticsMonitor = createDiagnosticsMonitor(diagProviderManager, telemetryReporter);
+      const mDecorationMonitor = createDecorationMonitor(decorationEngine, telemetryReporter, problemStore);
+      const mFolderMonitor = createFolderMonitor(folderStatusManager, problemStore, telemetryReporter);
+      const mPipelineMonitor = createEventPipelineMonitor(telemetryReporter);
+      const mTimerMonitor = createTimerMonitor(telemetryReporter);
+      const mPerfMonitor = createPerformanceMonitor(telemetryReporter);
+      const mRuntimeAssertions = createRuntimeAssertions(telemetryReporter);
+      const mTimelineGenerator = createTimelineGenerator(telemetryReporter);
+      const mSnapshotSystem = createSnapshotSystem(
+        telemetryReporter, problemStore, diagProviderManager, telemetryConfig,
+        mStoreMonitor, mProviderMonitor, mAutoScannerMonitor, mDiagnosticsMonitor,
+        mFolderMonitor, mDecorationMonitor, mPipelineMonitor, mRuntimeAssertions,
+        mTimelineGenerator,
+      );
+      try {
+        const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+        mSnapshotSystem.setEnvironmentInfo(vscode.version, context.extension.packageJSON.version ?? 'unknown', wf);
+      } catch { /* non-critical */ }
+
+      // Legacy file logger for offline forensic analysis
+      try {
+        const logDir = context.logUri.fsPath;
+        if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+        telemetryFileLogger = createTelemetryFileLogger(telemetryReporter, logDir);
+        const wf = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)[0];
+        fileLogger = createFileLogger(telemetryReporter, logDir, undefined, undefined, context.extension.packageJSON.version ?? 'unknown', vscode.version, wf);
+        fileLogger.startSession().catch(() => {});
+        fileLogger.cleanupOldSessions(20);
+      } catch (e) {
+        log(`[TELEMETRY] Failed to create file logger: ${e}`);
+      }
+
+      const mDevDashboard = new Dashboard(
+        context.extensionUri,
+        telemetryReporter,
+        {
+          storeMonitor: mStoreMonitor,
+          providerMonitor: mProviderMonitor,
+          autoScannerMonitor: mAutoScannerMonitor,
+          diagnosticsMonitor: mDiagnosticsMonitor,
+          decorationMonitor: mDecorationMonitor,
+          folderMonitor: mFolderMonitor,
+          pipelineMonitor: mPipelineMonitor,
+          runtimeAssertions: mRuntimeAssertions,
+          snapshotSystem: mSnapshotSystem,
+          timelineGenerator: mTimelineGenerator,
+          fileLogger: fileLogger ?? undefined,
+          performanceMonitor: mPerfMonitor,
+        },
+      );
+      try {
+        const extVersion = context.extension.packageJSON.version ?? 'unknown';
+        mDevDashboard.setVersions(extVersion, vscode.version);
+      } catch { /* non-critical */ }
+
+      // Auto-reveal dashboard on assertion failures for live debugging
+      telemetryReporter.subscribe('assertion.failure', () => {
+        mDevDashboard.notifyAssertion();
+      });
+
+      // Assign to outer variables
+      storeMonitor = mStoreMonitor;
+      providerMonitor = mProviderMonitor;
+      autoScannerMonitor = mAutoScannerMonitor;
+      diagnosticsMonitor = mDiagnosticsMonitor;
+      decorationMonitor = mDecorationMonitor;
+      folderMonitor = mFolderMonitor;
+      pipelineMonitor = mPipelineMonitor;
+      timerMonitor = mTimerMonitor;
+      perfMonitor = mPerfMonitor;
+      runtimeAssertions = mRuntimeAssertions;
+      timelineGenerator = mTimelineGenerator;
+      snapshotSystem = mSnapshotSystem;
+      devDashboard = mDevDashboard;
+
+      log('[TELEMETRY] Full monitoring: all monitors, dashboard, assertions active');
+    } else {
+      log('[TELEMETRY] Minimal monitoring: monitors, dashboard, assertions disabled');
     }
-
-    // Create the new Dashboard with all monitor references
-    const devDashboard = new Dashboard(
-      context.extensionUri,
-      telemetryReporter,
-      {
-        storeMonitor,
-        providerMonitor,
-        autoScannerMonitor,
-        diagnosticsMonitor,
-        decorationMonitor,
-        folderMonitor,
-        pipelineMonitor,
-        runtimeAssertions,
-        snapshotSystem,
-        timelineGenerator,
-        fileLogger: fileLogger ?? undefined,
-        performanceMonitor: perfMonitor,
-      },
-    );
-    try {
-      const extVersion = context.extension.packageJSON.version ?? 'unknown';
-      devDashboard.setVersions(extVersion, vscode.version);
-    } catch { /* non-critical */ }
-
-    // Auto-reveal dashboard on assertion failures for live debugging
-    telemetryReporter.subscribe('assertion.failure', () => {
-      devDashboard.notifyAssertion();
-    });
 
     const tscProvider = new TscDiagnosticProvider(problemStore, {
       timeoutMs: configManager.getConfig().typescript.timeout,
@@ -359,18 +396,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       apiManager,
       { dispose: () => { /* TelemetryConfigManager has no dispose */ } },
       telemetryReporter,
-      storeMonitor,
-      providerMonitor,
-      autoScannerMonitor,
-      diagnosticsMonitor,
-      decorationMonitor,
-      folderMonitor,
-      pipelineMonitor,
-      timerMonitor,
-      perfMonitor,
-      timelineGenerator,
-      snapshotSystem,
-      devDashboard,
+      ...(storeMonitor ? [storeMonitor] : []),
+      ...(providerMonitor ? [providerMonitor] : []),
+      ...(autoScannerMonitor ? [autoScannerMonitor] : []),
+      ...(diagnosticsMonitor ? [diagnosticsMonitor] : []),
+      ...(decorationMonitor ? [decorationMonitor] : []),
+      ...(folderMonitor ? [folderMonitor] : []),
+      ...(pipelineMonitor ? [pipelineMonitor] : []),
+      ...(timerMonitor ? [timerMonitor] : []),
+      ...(perfMonitor ? [perfMonitor] : []),
+      ...(timelineGenerator ? [timelineGenerator] : []),
+      ...(snapshotSystem ? [snapshotSystem] : []),
+      ...(devDashboard ? [devDashboard] : []),
       ...(telemetryFileLogger ? [telemetryFileLogger] : []),
       ...(fileLogger ? [{ dispose: () => { fileLogger.close(); } }] : []),
       { dispose: () => { trendTracker.stop(); } },
@@ -384,107 +421,97 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       }),
     );
 
-    // FORENSIC REPORT COMMAND
-    context.subscriptions.push(
-      vscode.commands.registerCommand('problemExplorer.forensicReport', () => {
-        const report = dumpForensicReport();
-        log(report);
-        log(`[FORENSIC:REPORT] diagEventCount=${vsDiagnosticsProvider.eventCount}`);
-        const chain = dumpChainReport();
-        log(chain);
-        vscode.window.showInformationMessage('Forensic report dumped to console (DevTools)');
-      }),
-    );
-
-    // RESET CHAIN COUNTERS COMMAND
-    context.subscriptions.push(
-      vscode.commands.registerCommand('problemExplorer.resetChainCounters', () => {
-        resetChainCounters();
-        log('[CHAIN:REPORT] Chain counters reset');
-        vscode.window.showInformationMessage('Chain counters reset');
-      }),
-    );
-
-    // DEVELOPER DASHBOARD COMMAND
-    context.subscriptions.push(
-      vscode.commands.registerCommand('problemExplorer.openDeveloperDashboard', () => {
-        devDashboard.show();
-        log('[TELEMETRY] Developer Dashboard opened');
-      }),
-    );
-
-    // TELEMETRY LOG CUSTOM EDITOR
-    context.subscriptions.push(
-      vscode.window.registerCustomEditorProvider(
-        TelemetryLogEditorProvider.viewType,
-        new TelemetryLogEditorProvider(context.extensionUri),
-      ),
-    );
-
     log('===== ACTIVATE COMPLETE =====');
     vscode.window.showInformationMessage('Problem Explorer: ACTIVATED!');
 
-    // Auto-dump forensic report after 15s
-    const forensicTimeout = setTimeout(() => {
-      log('[FORENSIC] Auto-dumping forensic report after 15s...');
-      log(dumpForensicReport());
-      log(`[FORENSIC] diagEventCount=${vsDiagnosticsProvider.eventCount}`);
-    }, 15000);
-    context.subscriptions.push({ dispose: () => clearTimeout(forensicTimeout) });
-
-    // Register all domain assertion rules
-    runtimeAssertions.registerStoreAssertions(problemStore, diagProviderManager);
-    runtimeAssertions.registerProviderAssertions(diagProviderManager, problemStore);
-    runtimeAssertions.registerDiagnosticsAssertions(diagnosticsMonitor, problemStore);
-    runtimeAssertions.registerDecorationAssertions(decorationMonitor, problemStore);
-    runtimeAssertions.registerFolderAssertions(folderStatusManager, problemStore);
-    runtimeAssertions.registerPipelineAssertions(pipelineMonitor);
-
-    // Set up recovery handlers
-    runtimeAssertions.engine.setRecoveryHandlers({
-      notifyDashboard: () => { try { devDashboard.notifyAssertion(); } catch { /* dashboard may be disposed */ } },
-      requestSnapshot: () => {
-        const snapshot = snapshotSystem.captureManual();
-        log(`[ASSERTION] Snapshot ${snapshot.metadata.id} captured with ${Object.keys(snapshot.data).length} data sections`);
-      },
-      stopPipeline: (pipelineId?: string) => {
-        if (pipelineId) {
-          pipelineMonitor.cancelExecution(pipelineId as PipelineId, 'Assertion failure recovery');
-          log(`[ASSERTION] Pipeline ${pipelineId} stopped via recovery`);
-        }
-      },
-      autoRecover: (_rule: string) => {
-        log(`[ASSERTION] Auto-recovery triggered for rule: ${_rule}`);
-      },
-    });
-
-    // Periodic runtime assertions every 30s
-    const assertionInterval = setInterval(async () => {
-      const results = await runtimeAssertions.engine.executeAll();
-      const failed = results.filter((r) => !r.passed);
-      if (failed.length > 0) {
-        log(`[ASSERTION] ${failed.length} assertion(s) failed out of ${results.length} executed`);
+    // Full monitoring only — dashboard command, assertions, telemetry editor
+    if (runtimeAssertions) {
+      // DEVELOPER DASHBOARD COMMAND
+      if (devDashboard) {
+        context.subscriptions.push(
+          vscode.commands.registerCommand('problemExplorer.openDeveloperDashboard', () => {
+            devDashboard.show();
+            log('[TELEMETRY] Developer Dashboard opened');
+          }),
+        );
       }
-    }, 30000);
-    context.subscriptions.push({ dispose: () => clearInterval(assertionInterval) });
 
-    // OFFLINE FORENSIC ANALYSIS COMMAND — run TimelineGenerator against saved telemetry log
-    context.subscriptions.push(
-      vscode.commands.registerCommand('problemExplorer.analyzeTelemetryLog', async () => {
-        const uris = await vscode.window.showOpenDialog({
-          canSelectFiles: true,
-          canSelectMany: false,
-          filters: { 'Telemetry Logs': ['jsonl', 'log', 'txt'] },
-          openLabel: 'Analyze',
-        });
-        if (!uris || uris.length === 0) return;
-        const filePath = uris[0].fsPath;
-        log(`[TELEMETRY] Analyzing log file: ${filePath}`);
-        const report = TimelineGenerator.analyzeLogFile(filePath);
-        log(report);
-        vscode.window.showInformationMessage('Telemetry log analysis complete — see output channel');
-      }),
-    );
+      // Register all domain assertion rules
+      runtimeAssertions.registerStoreAssertions(problemStore, diagProviderManager);
+      runtimeAssertions.registerProviderAssertions(diagProviderManager, problemStore);
+      runtimeAssertions.registerDiagnosticsAssertions(diagnosticsMonitor!, problemStore);
+      runtimeAssertions.registerDecorationAssertions(decorationMonitor!, problemStore);
+      runtimeAssertions.registerFolderAssertions(folderStatusManager, problemStore);
+      runtimeAssertions.registerPipelineAssertions(pipelineMonitor!);
+      runtimeAssertions.registerSystemHealthAssertions(
+        () => getTelemetryBus().getTelemetryErrorCount(),
+        () => ({
+          ...perfMonitor!.getInternalStateSizes(),
+          ...pipelineMonitor!.getInternalStateSizes(),
+          ...diagnosticsMonitor!.getInternalStateSizes(),
+          ...storeMonitor!.getInternalStateSizes(),
+          ...providerMonitor!.getInternalStateSizes(),
+          ...autoScannerMonitor!.getInternalStateSizes(),
+          ...decorationMonitor!.getInternalStateSizes(),
+          ...timelineGenerator!.getInternalStateSizes(),
+          ...runtimeAssertions.engine.getInternalStateSizes(),
+        }),
+      );
+
+      // Set up recovery handlers
+      runtimeAssertions.engine.setRecoveryHandlers({
+        notifyDashboard: () => { try { devDashboard!.notifyAssertion(); } catch { /* dashboard may be disposed */ } },
+        requestSnapshot: () => {
+          const snapshot = snapshotSystem!.captureManual();
+          log(`[ASSERTION] Snapshot ${snapshot.metadata.id} captured with ${Object.keys(snapshot.data).length} data sections`);
+        },
+        stopPipeline: (pipelineId?: string) => {
+          if (pipelineId) {
+            pipelineMonitor!.cancelExecution(pipelineId as PipelineId, 'Assertion failure recovery');
+            log(`[ASSERTION] Pipeline ${pipelineId} stopped via recovery`);
+          }
+        },
+        autoRecover: (_rule: string) => {
+          log(`[ASSERTION] Auto-recovery triggered for rule: ${_rule}`);
+        },
+      });
+
+      // Periodic runtime assertions every 30s
+      const assertionInterval = setInterval(async () => {
+        const results = await runtimeAssertions.engine.executeAll();
+        const failed = results.filter((r) => !r.passed);
+        if (failed.length > 0) {
+          log(`[ASSERTION] ${failed.length} assertion(s) failed out of ${results.length} executed`);
+        }
+      }, 30000);
+      context.subscriptions.push({ dispose: () => clearInterval(assertionInterval) });
+
+      // TELEMETRY LOG CUSTOM EDITOR
+      context.subscriptions.push(
+        vscode.window.registerCustomEditorProvider(
+          TelemetryLogEditorProvider.viewType,
+          new TelemetryLogEditorProvider(context.extensionUri),
+        ),
+      );
+
+      // OFFLINE FORENSIC ANALYSIS COMMAND — run TimelineGenerator against saved telemetry log
+      context.subscriptions.push(
+        vscode.commands.registerCommand('problemExplorer.analyzeTelemetryLog', async () => {
+          const uris = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectMany: false,
+            filters: { 'Telemetry Logs': ['jsonl', 'log', 'txt'] },
+            openLabel: 'Analyze',
+          });
+          if (!uris || uris.length === 0) return;
+          const filePath = uris[0].fsPath;
+          log(`[TELEMETRY] Analyzing log file: ${filePath}`);
+          const report = TimelineGenerator.analyzeLogFile(filePath);
+          log(report);
+          vscode.window.showInformationMessage('Telemetry log analysis complete — see output channel');
+        }),
+      );
+    }
 
     return apiManager;
   } catch (err) {

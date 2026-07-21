@@ -287,6 +287,14 @@ export class ProviderMonitor {
   }
 
   /** Dispose the monitor, restoring all wrapped methods */
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      providers: this.providers.size,
+      subscriptions: this.subscriptions.length,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

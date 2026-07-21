@@ -1,8 +1,7 @@
 import { Event, EventEmitter, Disposable, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ScanProgress } from '../core/types';
-import { chainCounters } from '../forensicLogger';
-import { debugLog } from '../core/debug';
+
 
 export enum ProviderState {
   idle = 'idle',
@@ -74,16 +73,9 @@ export class DiagnosticProviderManager {
     this.entries.set(name, entry);
 
     const updateSub = provider.onDidUpdate((uris: Uri[]) => {
-      const ts = Date.now();
-      chainCounters.dpmOnDidUpdateReceived++;
-      debugLog(`[AUDIT:${ts}] DPM.onDidUpdate handler ENTER provider="${name}" uris=${uris.length} uris=[${uris.map(u => u.fsPath.split('\\').pop() || u.fsPath).join(', ')}]`);
-      debugLog(`[AUDIT:${ts}] DPM.onDidUpdate → firing _onDidUpdateAll with ${uris.length} URIs`);
       this._onDidUpdateAll.fire(uris);
-      debugLog(`[AUDIT:${Date.now()}] DPM.onDidUpdate handler EXIT`);
     });
     const progressSub = provider.onDidProgressScan((progress: ScanProgress) => {
-      chainCounters.dpmOnProgressReceived++;
-      console.log(`[LOG:DPMgr] onDidProgressScan from "${name}" — phase=${progress.phase} msg=${progress.message ?? ''}`);
       this._onDidScanProgress.fire(progress);
     });
     this.providerSubscriptions.set(name, Disposable.from(updateSub, progressSub));

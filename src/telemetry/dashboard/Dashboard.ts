@@ -3,6 +3,7 @@ import { DashboardController } from './DashboardController';
 import { DashboardView } from './DashboardView';
 import { DashboardStatistics } from './DashboardStatistics';
 import type { TelemetryReporter } from '../TelemetryReporter';
+import { getTelemetryBus } from '../TelemetryBus';
 import type {
   DashboardOptions,
   DashboardPanelType,
@@ -214,6 +215,9 @@ export class Dashboard {
       memoryMb = perfStats.resources.memoryMb;
     } catch { /* ok */ }
 
+    let telemetryErrorCount = 0;
+    try { telemetryErrorCount = getTelemetryBus().getTelemetryErrorCount(); } catch { /* ok */ }
+
     return {
       extensionVersion: this.extensionVersion,
       vscodeVersion: this.vscodeVersion,
@@ -226,6 +230,7 @@ export class Dashboard {
       healthScore,
       healthLevel,
       totalEventsProcessed,
+      telemetryErrorCount,
       totalErrors: 0,
       memoryMb,
     };

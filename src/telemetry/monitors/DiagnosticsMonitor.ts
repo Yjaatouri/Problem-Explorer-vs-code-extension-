@@ -688,6 +688,16 @@ export class DiagnosticsMonitor implements Disposable {
     };
   }
 
+  /** Expose internal state structure sizes for diagnostics */
+  getInternalStateSizes(): Record<string, number> {
+    return {
+      knownUris: this.knownUris.size,
+      knownOwners: this.knownOwners.size,
+      mappingStartTimes: this.mappingStartTimes.size,
+      disposables: this.disposables.length,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

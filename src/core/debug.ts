@@ -1,1 +1,1 @@
-export { setConfigManager, getConfigManager, debugLog } from '../config/configHolder';
+export { setConfigManager, getConfigManager } from '../config/configHolder';

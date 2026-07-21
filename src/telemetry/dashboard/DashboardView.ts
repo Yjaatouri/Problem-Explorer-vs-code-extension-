@@ -227,6 +227,7 @@ export class DashboardView implements DashboardViewApi {
       statCard('Active Pipelines', d.activePipelines ?? 0) +
       statCard('Snapshots', d.snapshotCount ?? 0) +
       statCard('Assertion Failures', d.assertionFailures ?? 0) +
+      statCard('Telemetry Errors', d.telemetryErrorCount ?? 0, 'errors in listeners/reporters', d.telemetryErrorCount > 0 ? '#e74c3c' : undefined) +
       statCard('Events Processed', (d.totalEventsProcessed ?? 0).toLocaleString()) +
       statCard('Uptime', formatUptime(d.uptimeSec)) +
     '</div>' +
