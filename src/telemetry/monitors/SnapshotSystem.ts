@@ -297,7 +297,8 @@ export class SnapshotSystem {
     try {
       const id = generateSnapshotId();
       const data = this.captureSystemSnapshot();
-      const sizeBytes = new TextEncoder().encode(JSON.stringify(data)).length;
+      let sizeBytes = 0;
+      try { sizeBytes = new TextEncoder().encode(JSON.stringify(data)).length; } catch { sizeBytes = JSON.stringify(data).length * 2; }
 
       const metadata: SnapshotMetadata = {
         id,
@@ -343,7 +344,7 @@ export class SnapshotSystem {
       const removed = this.snapshots.get(oldest);
       this.snapshots.delete(oldest);
       if (removed) {
-        this.totalSnapshotSizeBytes -= new TextEncoder().encode(JSON.stringify(removed.data)).length;
+        try { this.totalSnapshotSizeBytes -= new TextEncoder().encode(JSON.stringify(removed.data)).length; } catch { this.totalSnapshotSizeBytes -= JSON.stringify(removed.data).length * 2; }
       }
     }
   }
@@ -355,7 +356,7 @@ export class SnapshotSystem {
   deleteSnapshot(id: SnapshotId): boolean {
     const snapshot = this.snapshots.get(id);
     if (!snapshot) return false;
-    this.totalSnapshotSizeBytes -= new TextEncoder().encode(JSON.stringify(snapshot.data)).length;
+    try { this.totalSnapshotSizeBytes = Math.max(0, this.totalSnapshotSizeBytes - new TextEncoder().encode(JSON.stringify(snapshot.data)).length); } catch { /* skip size adjustment */ }
     return this.snapshots.delete(id);
   }
 
@@ -415,6 +416,12 @@ export class SnapshotSystem {
       if (!this.snapshots.has(snapshot.metadata.id)) {
         this.snapshots.set(snapshot.metadata.id, snapshot);
         imported++;
+        this.totalSnapshots++;
+        const triggerKey = snapshot.metadata.trigger as string;
+        this.snapshotsByTrigger.set(triggerKey, (this.snapshotsByTrigger.get(triggerKey) ?? 0) + 1);
+        if (snapshot.metadata.trigger === SnapshotTrigger.Manual) this.totalManual++;
+        if (snapshot.metadata.trigger === SnapshotTrigger.Automatic) this.totalAutomatic++;
+        try { this.totalSnapshotSizeBytes += new TextEncoder().encode(JSON.stringify(snapshot.data)).length; } catch { this.totalSnapshotSizeBytes += JSON.stringify(snapshot.data).length * 2; }
       }
     }
     if (imported > 0) this.evictSnapshots();
@@ -437,16 +444,17 @@ export class SnapshotSystem {
 
   captureSystemSnapshot(): SystemSnapshot {
     const timestamp = now();
+    const monitors = this.captureMonitors();
     return {
       timestamp,
       store: this.captureStore(),
-      folders: this.captureFolders(),
+      folders: this.captureFolders(monitors),
       providers: this.captureProviders(),
       ownership: this.captureOwnership(),
       scans: { active: this.activeScans, queued: this.queuedScans },
       timers: { active: this.activeTimers },
       config: this.captureConfig(),
-      monitors: this.captureMonitors(),
+      monitors,
     };
   }
 
@@ -541,9 +549,12 @@ export class SnapshotSystem {
     };
   }
 
-  private captureFolders(): FolderSnapshot {
+  private captureFolders(monitors?: SnapshotMonitorState): FolderSnapshot {
     let trackedUris = 0;
-    if (this.folderMonitor) {
+    if (monitors?.folder) {
+      const folderData = monitors.folder as Record<string, unknown>;
+      trackedUris = (folderData.indexSize as number) ?? 0;
+    } else if (this.folderMonitor) {
       try {
         const snap = this.folderMonitor.captureSnapshot();
         trackedUris = snap.indexSize;
