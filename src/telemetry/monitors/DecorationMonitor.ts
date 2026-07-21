@@ -189,12 +189,12 @@ export class DecorationMonitor {
 
     /* Subscribe to actual decoration fire events from the engine */
     this._fireSubscription = engine.onDidChangeFileDecorations((uris: Uri | Uri[] | undefined) => {
-      this._onDecorationFire(uris);
+      try { this._onDecorationFire(uris); } catch { /* swallow */ }
     });
 
     /* Subscribe to telemetry events for flow correlation */
     this._correlationSubscription = reporter.subscribeAll((event: TelemetryEvent) => {
-      this._onTelemetryEvent(event);
+      try { this._onTelemetryEvent(event); } catch { /* swallow */ }
     });
 
     /* Periodic cleanup of stale correlation entries (every 5s) */
