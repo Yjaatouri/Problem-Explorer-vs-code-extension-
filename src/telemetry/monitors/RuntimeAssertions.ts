@@ -335,7 +335,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
 
     if (result.passed) {
       this.totalPassed++;
-      this.reporter.report({
+      try { this.reporter.report({
         type: 'assertion.execution',
         timestamp: Date.now(),
         traceId: generateTraceId(),
@@ -346,7 +346,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
         passed: true,
         failureCount: 0,
         executionTimeMs: result.executionTimeMs,
-      } as TelemetryEvent);
+      } as TelemetryEvent); } catch { /* non-critical */ }
       return result;
     }
 
@@ -360,7 +360,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
         stackTrace: f.stackTrace ?? new Error().stack,
       };
       this.storeFailure(enhancedFailure);
-      this.reporter.report({
+      try { this.reporter.report({
         type: 'assertion.failure',
         timestamp: f.timestamp,
         traceId: failureTraceId,
@@ -372,7 +372,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
         uri: f.uri,
         provider: f.provider,
         pipelineId: f.pipelineId,
-      } as TelemetryEvent);
+      } as TelemetryEvent); } catch { /* non-critical */ }
     }
 
     this.applyRecovery(rule, result);

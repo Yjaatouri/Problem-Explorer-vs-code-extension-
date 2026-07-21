@@ -250,7 +250,7 @@ export class DecorationMonitor {
   /* ------------------------------------------------------------------ */
 
   private _emit(event: DecorationTelemetryEvent): void {
-    this.reporter.report(event as TelemetryEvent);
+    try { this.reporter.report(event as TelemetryEvent); } catch { /* non-critical */ }
   }
 
   /** Safely extract the color ID from a FileDecoration */

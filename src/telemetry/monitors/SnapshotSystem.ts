@@ -230,22 +230,24 @@ export class SnapshotSystem {
     protected readonly timelineGenerator?: TimelineGenerator,
   ) {
     this.sub = reporter.subscribeAll((event: TelemetryEvent) => {
-      if (this.disposed) return;
-      if (event.type.startsWith('snapshot.') || event.type.startsWith('perf.') || event.type.startsWith('pipeline.')) return;
+      try {
+        if (this.disposed) return;
+        if (event.type.startsWith('snapshot.') || event.type.startsWith('perf.') || event.type.startsWith('pipeline.')) return;
 
-      const data = event as any;
+        const data = event as any;
 
-      if (event.type === 'provider.scan') {
-        if (data.phase === 'begin') this.activeScans++;
-        else if (data.phase === 'end' || data.phase === 'error' || data.phase === 'cancelled') this.activeScans = Math.max(0, this.activeScans - 1);
-      }
+        if (event.type === 'provider.scan') {
+          if (data.phase === 'begin') this.activeScans++;
+          else if (data.phase === 'end' || data.phase === 'error' || data.phase === 'cancelled') this.activeScans = Math.max(0, this.activeScans - 1);
+        }
 
-      if (event.type === 'autoscan.queue') this.queuedScans++;
-      else if (event.type === 'autoscan.flush') this.queuedScans = Math.max(0, this.queuedScans - (data.queueSize ?? 1));
-      else if (event.type === 'autoscan.cancel') this.queuedScans = Math.max(0, this.queuedScans - 1);
+        if (event.type === 'autoscan.queue') this.queuedScans++;
+        else if (event.type === 'autoscan.flush') this.queuedScans = Math.max(0, this.queuedScans - (data.queueSize ?? 1));
+        else if (event.type === 'autoscan.cancel') this.queuedScans = Math.max(0, this.queuedScans - 1);
 
-      if (event.type === 'timer.setTimeout') this.activeTimers++;
-      else if (event.type === 'timer.clearTimeout' || event.type === 'timer.executed') this.activeTimers = Math.max(0, this.activeTimers - 1);
+        if (event.type === 'timer.setTimeout') this.activeTimers++;
+        else if (event.type === 'timer.clearTimeout' || event.type === 'timer.executed') this.activeTimers = Math.max(0, this.activeTimers - 1);
+      } catch { /* non-critical */ }
     });
 
     this.assertionSub = reporter.subscribe('assertion.failure', () => {
@@ -625,7 +627,7 @@ export class SnapshotSystem {
 
   captureAndReport(trigger?: SnapshotTrigger, extra?: Partial<SnapshotMetadata>): Snapshot {
     const snapshot = this.createSnapshot(trigger ?? SnapshotTrigger.Automatic, extra);
-    this.reporter.report({
+    try { this.reporter.report({
       type: 'snapshot.capture',
       timestamp: snapshot.metadata.timestamp,
       traceId: generateTraceId(),
@@ -640,7 +642,7 @@ export class SnapshotSystem {
       timers: snapshot.data.timers,
       config: snapshot.data.config,
       monitors: snapshot.data.monitors,
-    } as any);
+    } as any); } catch { /* non-critical */ }
     return snapshot;
   }
 

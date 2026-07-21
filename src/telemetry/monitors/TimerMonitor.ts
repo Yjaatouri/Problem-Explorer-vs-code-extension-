@@ -73,13 +73,13 @@ export class TimerMonitor {
 
       timers.set(timerId, { delay, createdAt: start });
 
-      reporter.report({
+      try { reporter.report({
         type: 'timer.setTimeout',
         timestamp: Date.now(),
         traceId: generateTraceId(),
         source: 'TimerMonitor',
         delay,
-      } as any);
+      } as any); } catch { /* non-critical */ }
 
       return timerId;
     }) as typeof globalThis.setTimeout;
@@ -91,13 +91,13 @@ export class TimerMonitor {
 
       const info = timerId !== undefined ? this.timers.get(timerId as NodeJS.Timeout) : undefined;
       if (info) {
-        this.reporter.report({
+        try { this.reporter.report({
           type: 'timer.clearTimeout',
           timestamp: Date.now(),
           traceId: generateTraceId(),
           source: 'TimerMonitor',
           actualDelay: Date.now() - info.createdAt,
-        } as any);
+        } as any); } catch { /* non-critical */ }
         this.timers.delete(timerId as NodeJS.Timeout);
       }
 
@@ -106,14 +106,14 @@ export class TimerMonitor {
   }
 
   private reportExecution(actualDelay: number, callbackDuration: number): void {
-    this.reporter.report({
+    try { this.reporter.report({
       type: 'timer.executed',
       timestamp: Date.now(),
       traceId: generateTraceId(),
       source: 'TimerMonitor',
       actualDelay,
       callbackDuration,
-    } as any);
+    } as any); } catch { /* non-critical */ }
   }
 
   /** Restore original timer functions */

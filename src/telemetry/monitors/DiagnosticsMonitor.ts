@@ -285,7 +285,12 @@ export class DiagnosticsMonitor implements Disposable {
       this.activeMappings++;
     }
 
-    this.reporter.report(event as TelemetryEvent);
+    this.safeReport(event as TelemetryEvent);
+  }
+
+  /* Safely report telemetry — non-critical failures are swallowed */
+  private safeReport(event: import('../TelemetryEvent').TelemetryEvent): void {
+    try { this.reporter.report(event); } catch { /* telemetry failures are non-critical */ }
   }
 
   private attachToProvider(provider: DiagnosticProvider): void {
@@ -352,7 +357,7 @@ export class DiagnosticsMonitor implements Disposable {
         }
       }
 
-      this.reporter.report({
+      this.safeReport({
         type: 'diagnostics.mapping',
         timestamp: nowMs,
         traceId,
@@ -372,7 +377,7 @@ export class DiagnosticsMonitor implements Disposable {
       const store = this.vsDiagProvider?.store;
       const currentOwner = store ? store.getOwningProvider(uri) : undefined;
       if (currentOwner && currentOwner !== 'vscodeDiagnostics') {
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.storeWrite',
           timestamp: nowMs,
           traceId: generateTraceId(),
@@ -391,7 +396,7 @@ export class DiagnosticsMonitor implements Disposable {
         this.stats.totalStoreWrites++;
         this.stats.totalRejectedWrites++;
 
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.ownership',
           timestamp: nowMs,
           traceId,
@@ -402,7 +407,7 @@ export class DiagnosticsMonitor implements Disposable {
         } as TelemetryEvent);
         this.stats.totalOwnershipDisputes++;
 
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.stateChange',
           timestamp: nowMs,
           traceId,
@@ -423,7 +428,7 @@ export class DiagnosticsMonitor implements Disposable {
     this.stats.totalFlushUpdates++;
     this.stats.totalFlushUris += uris.length;
 
-    this.reporter.report({
+    this.safeReport({
       type: 'diagnostics.flush',
       timestamp: Date.now(),
       traceId,
@@ -438,7 +443,7 @@ export class DiagnosticsMonitor implements Disposable {
   /* ------------------------------------------------------------------ */
 
   private handleAssertionEvent(event: TelemetryEvent & { assertion: string; detail: string }): void {
-    this.reporter.report({
+    this.safeReport({
       type: 'diagnostics.assertion',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -478,7 +483,7 @@ export class DiagnosticsMonitor implements Disposable {
         const state = store.get(change.uri);
         const ownerAfter = store.getOwningProvider(change.uri);
 
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.storeWrite',
           timestamp: nowMs,
           traceId: generateTraceId(),
@@ -494,7 +499,7 @@ export class DiagnosticsMonitor implements Disposable {
           writeDurationUs,
         } as TelemetryEvent);
 
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.stateChange',
           timestamp: nowMs,
           traceId: generateTraceId(),
@@ -511,7 +516,7 @@ export class DiagnosticsMonitor implements Disposable {
         if (ownerAfter !== undefined && !this.knownUris.has(uriStr)) {
           /* First ownership seen — URI not previously tracked */
           this.knownOwners.set(uriStr, ownerAfter);
-          this.reporter.report({
+          this.safeReport({
             type: 'diagnostics.ownership',
             timestamp: nowMs,
             traceId: generateTraceId(),
@@ -526,7 +531,7 @@ export class DiagnosticsMonitor implements Disposable {
           if (prevOwner !== undefined && prevOwner !== ownerAfter) {
             this.stats.totalOwnershipTransfers++;
             this.knownOwners.set(uriStr, ownerAfter);
-            this.reporter.report({
+            this.safeReport({
               type: 'diagnostics.ownership',
               timestamp: nowMs,
               traceId: generateTraceId(),
@@ -563,7 +568,7 @@ export class DiagnosticsMonitor implements Disposable {
           }
         }
 
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.storeWrite',
           timestamp: nowMs,
           traceId: generateTraceId(),
@@ -578,7 +583,7 @@ export class DiagnosticsMonitor implements Disposable {
           writeDurationUs,
         } as TelemetryEvent);
 
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.stateChange',
           timestamp: nowMs,
           traceId: generateTraceId(),
@@ -595,7 +600,7 @@ export class DiagnosticsMonitor implements Disposable {
         this.knownUris.delete(uriStr);
         this.knownOwners.delete(uriStr);
 
-        this.reporter.report({
+        this.safeReport({
           type: 'diagnostics.ownership',
           timestamp: nowMs,
           traceId: generateTraceId(),

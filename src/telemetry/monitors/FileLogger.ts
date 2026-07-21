@@ -158,42 +158,44 @@ export class FileLogger {
     }
 
     this.eventSub = reporter.subscribeAll((event: TelemetryEvent) => {
-      if (this.disposed) return;
-      const pipelineId = (event as any).pipelineId as string | undefined;
-      if (pipelineId) {
-        const sessionSet = this.pipelineIndex.get(pipelineId);
-        if (sessionSet) {
-          if (this.currentSession) sessionSet.add(this.currentSession.id);
-        } else {
-          this.pipelineIndex.set(pipelineId, new Set(this.currentSession ? [this.currentSession.id] : []));
+      try {
+        if (this.disposed) return;
+        const pipelineId = (event as any).pipelineId as string | undefined;
+        if (pipelineId) {
+          const sessionSet = this.pipelineIndex.get(pipelineId);
+          if (sessionSet) {
+            if (this.currentSession) sessionSet.add(this.currentSession.id);
+          } else {
+            this.pipelineIndex.set(pipelineId, new Set(this.currentSession ? [this.currentSession.id] : []));
+          }
         }
-      }
-      this.write({
-        level: this.eventLevel(event),
-        source: event.source ?? 'unknown',
-        type: event.type,
-        data: event,
-        traceId: event.traceId,
-        uri: (event as any).uri ?? (event as any).fileUri,
-        provider: (event as any).provider ?? (event as any).providerName,
-        pipelineId,
-        durationMs: (event as any).durationMs,
-      }).catch(() => {});
+        this.write({
+          level: this.eventLevel(event),
+          source: event.source ?? 'unknown',
+          type: event.type,
+          data: event,
+          traceId: event.traceId,
+          uri: (event as any).uri ?? (event as any).fileUri,
+          provider: (event as any).provider ?? (event as any).providerName,
+          pipelineId,
+          durationMs: (event as any).durationMs,
+        }).catch(() => {});
 
-      if (event.type === 'assertion.failure') {
-        if (this.assertionFailures.length < 10000) {
-          this.assertionFailures.push({
-            seq: 0,
-            sessionId: this.currentSession?.id ?? ('' as LogSessionId),
-            timestamp: Date.now(),
-            level: LogLevel.Error,
-            source: event.source ?? 'unknown',
-            type: event.type,
-            data: event,
-            traceId: event.traceId,
-          });
+        if (event.type === 'assertion.failure') {
+          if (this.assertionFailures.length < 10000) {
+            this.assertionFailures.push({
+              seq: 0,
+              sessionId: this.currentSession?.id ?? ('' as LogSessionId),
+              timestamp: Date.now(),
+              level: LogLevel.Error,
+              source: event.source ?? 'unknown',
+              type: event.type,
+              data: event,
+              traceId: event.traceId,
+            });
+          }
         }
-      }
+      } catch { /* non-critical */ }
     });
   }
 

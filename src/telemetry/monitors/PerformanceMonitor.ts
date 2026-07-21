@@ -469,7 +469,7 @@ export class PerformanceMonitor {
       this.slowestTimestamp = Date.now();
     }
 
-    this.reporter.report({
+    try { this.reporter.report({
       type: 'perf.latency',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -479,7 +479,7 @@ export class PerformanceMonitor {
       sourceEvent: metric,
       provider,
       uri,
-    } as any);
+    } as any); } catch { /* non-critical */ }
 
     /* Hotspot detection */
     this.detectHotspot(metric, valueMs, provider, uri);
@@ -533,7 +533,7 @@ export class PerformanceMonitor {
         ? `${metric} took ${valueMs.toFixed(0)}ms (threshold ${thresholdMs}ms) for provider ${provider}`
         : `${metric} took ${valueMs.toFixed(0)}ms (threshold ${thresholdMs}ms)`;
 
-      this.reporter.report({
+      try { this.reporter.report({
         type: 'perf.hotspot',
         timestamp: Date.now(),
         traceId: generateTraceId(),
@@ -544,7 +544,7 @@ export class PerformanceMonitor {
         provider,
         uri,
         detail,
-      } as any);
+      } as any); } catch { /* non-critical */ }
     }
   }
 
@@ -568,7 +568,7 @@ export class PerformanceMonitor {
       snapshotCount: 0,
     };
 
-    this.reporter.report({
+    try { this.reporter.report({
       type: 'perf.resource',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -580,7 +580,7 @@ export class PerformanceMonitor {
       activeScans: 0,
       queuedWrites: 0,
       snapshotCount: 0,
-    } as any);
+    } as any); } catch { /* non-critical */ }
   }
 
   updateResourceCounts(activePipelines: number, activeScans: number, queuedWrites: number, snapshotCount: number): void {

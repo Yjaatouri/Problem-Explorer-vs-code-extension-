@@ -214,8 +214,10 @@ export class TimelineGenerator {
 
   constructor(reporter: TelemetryReporter) {
     this.subscription = reporter.subscribeAll((event: TelemetryEvent) => {
-      if (this.disposed) return;
-      this.processGlobalEvent(event);
+      try {
+        if (this.disposed) return;
+        this.processGlobalEvent(event);
+      } catch { /* non-critical */ }
     });
     this.staleTimer = setInterval(() => {
       this.cleanupStaleTimelines();

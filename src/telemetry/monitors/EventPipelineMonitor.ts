@@ -348,6 +348,10 @@ export class EventPipelineMonitor {
   private totalCancelled = 0;
   private totalTimedOut = 0;
 
+  private safeReport(event: import('../TelemetryEvent').TelemetryEvent): void {
+    try { this.reporter.report(event); } catch { /* non-critical */ }
+  }
+
   constructor(private readonly reporter: TelemetryReporter) {
     this.subscription = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
@@ -728,7 +732,7 @@ export class EventPipelineMonitor {
     const key = `${event.type}:${event.traceId}`;
     const prevSeq = this.seenKeys.get(key);
     if (prevSeq !== undefined) {
-      this.reporter.report({
+      this.safeReport({
         type: 'pipeline.duplicateEvent',
         timestamp: Date.now(),
         traceId: generateTraceId(),
@@ -822,7 +826,7 @@ export class EventPipelineMonitor {
   /* ------------------------------------------------------------------ */
 
   private emitExecutionStarted(execution: PipelineExecution, trigger: string, provider?: string): void {
-    this.reporter.report({
+    this.safeReport({
       type: 'pipeline.execution.started',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -835,7 +839,7 @@ export class EventPipelineMonitor {
   }
 
   private emitExecutionCompleted(execution: PipelineExecution): void {
-    this.reporter.report({
+    this.safeReport({
       type: 'pipeline.execution.completed',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -851,7 +855,7 @@ export class EventPipelineMonitor {
   }
 
   private emitCorrelation(pipelineId: PipelineId, relatedPipelineId: PipelineId, relation: 'parent-child' | 'traceId' | 'causal', traceIds: string[]): void {
-    this.reporter.report({
+    this.safeReport({
       type: 'pipeline.correlation',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -864,7 +868,7 @@ export class EventPipelineMonitor {
   }
 
   private emitStageEvent(execution: PipelineExecution, stage: string, status: StageStatus, durationMs?: number, error?: string): void {
-    this.reporter.report({
+    this.safeReport({
       type: 'pipeline.stage',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -1019,7 +1023,7 @@ export class EventPipelineMonitor {
     ex.pauseCount++;
     ex.lastActivityAt = Date.now();
 
-    this.reporter.report({
+    this.safeReport({
       type: 'pipeline.execution.paused',
       timestamp: Date.now(),
       traceId: generateTraceId(),
@@ -1040,7 +1044,7 @@ export class EventPipelineMonitor {
     ex.status = 'running';
     ex.lastActivityAt = Date.now();
 
-    this.reporter.report({
+    this.safeReport({
       type: 'pipeline.execution.resumed',
       timestamp: Date.now(),
       traceId: generateTraceId(),
