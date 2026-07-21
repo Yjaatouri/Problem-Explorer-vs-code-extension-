@@ -256,6 +256,11 @@ export class DecorationMonitor {
     this.reporter.report(event as TelemetryEvent);
   }
 
+  /** Safely extract the color ID from a FileDecoration */
+  private _getColorId(deco: FileDecoration | undefined): string | undefined {
+    return (deco?.color as any)?.id;
+  }
+
   /** Extract caller info from stack trace (expensive — disabled by default) */
   private _getCaller(): string {
     if (!this._captureCaller) return 'unknown';
@@ -309,8 +314,20 @@ export class DecorationMonitor {
 
   /** Assert: check for duplicate refreshes of the same URI */
   private _assertDuplicateRefresh(uriStrs: string[] | undefined): void {
-    if (!uriStrs) return;
     const now = Date.now();
+
+    /* Track full refresh duplicates */
+    if (!uriStrs) {
+      const lastFull = this._refreshHistory.get('__full_refresh__');
+      if (lastFull !== undefined && (now - lastFull) < 100) {
+        this.stats.duplicateRefreshesDetected++;
+        this._emitAssertion('DUPLICATE_REFRESH', 'Duplicate full refresh',
+          undefined, `lastRefresh=${now - lastFull}ms ago`);
+      }
+      this._refreshHistory.set('__full_refresh__', now);
+      return;
+    }
+
     for (const u of uriStrs) {
       const lastRefresh = this._refreshHistory.get(u);
       if (lastRefresh !== undefined && (now - lastRefresh) < 100) {
@@ -385,12 +402,12 @@ export class DecorationMonitor {
 
   /** Assert: repeated decoration loops (same result returned many times for the same URI) */
   private _assertRepeatedDecoration(uriStr: string, result: FileDecoration | undefined): void {
-    const key = `${uriStr}::${result?.badge ?? 'none'}::${(result?.color as any)?.id ?? 'none'}`;
+    const key = `${uriStr}::${result?.badge ?? 'none'}::${this._getColorId(result) ?? 'none'}`;
     const count = this._decorationLoopCount.get(key) ?? 0;
     this._decorationLoopCount.set(key, count + 1);
     if (count + 1 >= 10) {
       this._emitAssertion('REPEATED_DECORATION', `Decoration loop detected for ${uriStr}: same result ${count + 1} times`,
-        uriStr, `badge=${result?.badge} colorId=${(result?.color as any)?.id}`);
+        uriStr, `badge=${result?.badge} colorId=${this._getColorId(result)}`);
     }
   }
 
@@ -708,6 +725,8 @@ export class DecorationMonitor {
         result = this.originalProvideFileDecoration(uri, token);
         /* Guard against async return values */
         if (result instanceof Promise) {
+          this._emitAssertion('ASYNC_RETURN', 'provideFileDecoration returned a Promise — monitoring skipped',
+            uriStr, 'The underlying engine returned a Promise instead of a synchronous result');
           return result as unknown as FileDecoration | undefined;
         }
         executionTimeMs = Date.now() - ts;
@@ -772,7 +791,7 @@ export class DecorationMonitor {
       /* Decision: decoration result */
       if (result) {
         this._emitDecision(uriStr, 'badgeSelection', `badge=${result.badge ?? 'none'}`, `length=${result.badge?.length ?? 0}`);
-        this._emitDecision(uriStr, 'colorSelection', `colorId=${(result.color as any)?.id ?? 'none'}`);
+        this._emitDecision(uriStr, 'colorSelection', `colorId=${this._getColorId(result) ?? 'none'}`);
         this._emitDecision(uriStr, 'tooltipFormat', `tooltip=${result.tooltip ?? 'none'}`);
       } else {
         this._emitDecision(uriStr, 'decorationResult', 'noDecoration', reasonSkipped);
@@ -792,14 +811,14 @@ export class DecorationMonitor {
       const isFirstTime = prev === undefined;
       const cached = !isFirstTime && (
         prev.badge === result?.badge &&
-        prev.colorId === (result?.color as any)?.id &&
+        prev.colorId === this._getColorId(result) &&
         prev.tooltip === result?.tooltip
       );
       if (isFirstTime) {
         this.stats.totalFirstTimeRequests++;
         this._lastDecoration.set(uriStr, {
           badge: result?.badge,
-          colorId: (result?.color as any)?.id,
+          colorId: this._getColorId(result),
           tooltip: result?.tooltip,
           timestamp: Date.now(),
         });
@@ -809,7 +828,7 @@ export class DecorationMonitor {
         this.stats.totalCacheMisses++;
         this._lastDecoration.set(uriStr, {
           badge: result?.badge,
-          colorId: (result?.color as any)?.id,
+          colorId: this._getColorId(result),
           tooltip: result?.tooltip,
           timestamp: Date.now(),
         });
@@ -831,7 +850,7 @@ export class DecorationMonitor {
         hit: !!result,
         badge: result?.badge,
         badgeLength: result?.badge?.length ?? 0,
-        colorId: (result?.color as any)?.id,
+        colorId: this._getColorId(result),
         tooltip: result?.tooltip,
         severity,
         errorCount,
