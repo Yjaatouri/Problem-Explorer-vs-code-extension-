@@ -364,9 +364,9 @@ export class EventPipelineMonitor {
 
   private processEvent(event: TelemetryEvent): void {
     const seq = ++this.seq;
-    this.detectDuplicate(event, seq);
     const execution = this.routeToExecution(event);
     if (!execution) return;
+    this.detectDuplicate(event, seq);
     this.addEventToExecution(execution, event, seq);
   }
 
@@ -584,7 +584,7 @@ export class EventPipelineMonitor {
     }
 
     /* Track stage */
-    this.updateStage(execution, stage, event);
+    this.updateStage(execution, stage, event, seq);
 
     /* Track provider info */
     const provider = extractProvider(event);
@@ -616,7 +616,7 @@ export class EventPipelineMonitor {
   /*  Stage Tracking                                                     */
   /* ------------------------------------------------------------------ */
 
-  private updateStage(execution: PipelineExecution, stageName: string, event: TelemetryEvent): void {
+  private updateStage(execution: PipelineExecution, stageName: string, event: TelemetryEvent, seq: number): void {
     let stage = execution.stages.get(stageName);
     if (!stage) {
       stage = {
@@ -632,6 +632,7 @@ export class EventPipelineMonitor {
       this.emitStageEvent(execution, stageName, 'running');
     }
 
+    stage.eventSeqs.push(seq);
     if (!stage.eventTypes.includes(event.type)) {
       stage.eventTypes.push(event.type);
     }
@@ -680,7 +681,7 @@ export class EventPipelineMonitor {
         stage.exitedAt = execution.endTime;
         stage.durationMs = stage.exitedAt - stage.enteredAt;
         stage.status = status === 'completed' ? 'completed' : status;
-        if (stage.durationMs > 0) {
+        if (stage.durationMs !== undefined && stage.durationMs >= 0) {
           this.accumulateStageDuration(stage.name, stage.durationMs);
         }
       }
@@ -762,7 +763,7 @@ export class EventPipelineMonitor {
     if (this.executions.size > MAX_EXECUTIONS * 2) {
       const terminated = [...this.executions.entries()]
         .filter(([, e]) => e.status !== 'running' && e.status !== 'paused')
-        .sort(([, a], [, b]) => a.endTime ?? a.createdAt - (b.endTime ?? b.createdAt));
+        .sort(([, a], [, b]) => (a.endTime ?? a.createdAt) - (b.endTime ?? b.createdAt));
       const toRemove = terminated.slice(0, Math.floor(MAX_EXECUTIONS * 0.5));
       for (const [id, ex] of toRemove) {
         for (const pe of ex.events) {
@@ -1096,7 +1097,7 @@ export class EventPipelineMonitor {
   getStageTimeline(pipelineId: PipelineId): PipelineStage[] {
     const ex = this.executions.get(pipelineId);
     if (!ex) return [];
-    return ex.stageOrder.map((name) => ex.stages.get(name)!).filter(Boolean);
+    return ex.stageOrder.map((name) => ex.stages.get(name)!);
   }
 
   getStageSummary(pipelineId: PipelineId): { totalStages: number; completedStages: number; failedStages: number; skippedStages: number; totalDurationMs: number } | undefined {
