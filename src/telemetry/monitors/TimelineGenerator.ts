@@ -129,6 +129,34 @@ export interface TimelineStatistics {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Reconstruction Report                                              */
+/* ------------------------------------------------------------------ */
+
+export interface ReconstructionStep {
+  readonly seq: number;
+  readonly type: string;
+  readonly timestamp: number;
+  readonly category: TimelineEventCategory;
+  readonly uri?: string;
+  readonly provider?: string;
+  readonly pipelineId?: string;
+}
+
+export interface ReconstructionReport {
+  readonly timelineId: TimelineId;
+  readonly status: TimelineStatus | 'unknown';
+  readonly steps: readonly ReconstructionStep[];
+  readonly missingSteps: readonly string[];
+  readonly durationMs: number;
+  readonly concurrentTimelines: readonly TimelineId[];
+  readonly type: string;
+  readonly eventCount: number;
+  readonly hasError: boolean;
+  readonly isPartial: boolean;
+  readonly isConcurrent: boolean;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Known pipeline sequences for missing-event detection               */
 /* ------------------------------------------------------------------ */
 
@@ -555,6 +583,138 @@ export class TimelineGenerator {
     }
 
     return { parents, children, siblings };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Timeline Reconstruction                                            */
+  /* ------------------------------------------------------------------ */
+
+  readonly SAVE_SCAN_STORE_FOLDER_DECORATION = [
+    'autoscan.fileSaved', 'autoscan.queue', 'autoscan.flush', 'provider.scan',
+    'store.set', 'folder.updateAncestors', 'decoration.fireDidChange', 'decoration.provideFileDecoration',
+  ];
+
+  readonly DIAGNOSTICS_PATH = [
+    'diagnostics.change', 'diagnostics.updateUri', 'store.set',
+    'folder.updateAncestors', 'decoration.fireDidChange',
+  ];
+
+  readonly DECORATION_PATH = [
+    'decoration.fireDidChange', 'decoration.provideFileDecoration',
+  ];
+
+  readonly PROVIDER_REFRESH_PATH = [
+    'provider.lifecycle', 'provider.scan', 'store.set',
+  ];
+
+  reconstructTimeline(timelineId: TimelineId): ReconstructionReport {
+    const tl = this.timelines.get(timelineId);
+    if (!tl) {
+      return { timelineId, status: 'unknown', steps: [], missingSteps: [], durationMs: 0, concurrentTimelines: [], type: 'unknown', eventCount: 0, hasError: false, isPartial: false, isConcurrent: false };
+    }
+
+    const sortedEvents = [...tl.events].sort((a, b) => a.event.timestamp - b.event.timestamp);
+    const eventTypes = sortedEvents.map((e) => e.event.type);
+
+    const matchedPath = this.matchExecutionPath(eventTypes);
+    const missingSteps = this.findMissingSteps(eventTypes, matchedPath?.path ?? []);
+    const isPartial = this.isPartialExecution(eventTypes);
+    const hasError = tl.hasAssertionFailure || tl.hasPipelineFailure || tl.hasProviderFailure;
+    const isConcurrent = this.detectConcurrency(tl);
+
+    const concurrentTimelines: TimelineId[] = [];
+    for (const [otherId, other] of this.timelines) {
+      if (otherId === timelineId) continue;
+      if (this.rangesOverlap(tl, other)) {
+        concurrentTimelines.push(otherId);
+      }
+    }
+
+    const durationMs = tl.durationMs ?? (tl.events.length >= 2 ? sortedEvents[sortedEvents.length - 1].event.timestamp - sortedEvents[0].event.timestamp : 0);
+
+    const type = matchedPath?.name ?? (hasError ? 'failed' : 'unknown');
+
+    const steps = sortedEvents.map((ev, i) => ({
+      seq: i + 1,
+      type: ev.event.type,
+      timestamp: ev.event.timestamp,
+      category: ev.category,
+      uri: ev.uri,
+      provider: ev.provider,
+      pipelineId: ev.pipelineId,
+    }));
+
+    return {
+      timelineId,
+      status: tl.status,
+      steps,
+      missingSteps,
+      durationMs,
+      concurrentTimelines,
+      type,
+      eventCount: tl.events.length,
+      hasError,
+      isPartial,
+      isConcurrent: isConcurrent || concurrentTimelines.length > 0,
+    };
+  }
+
+  protected matchExecutionPath(eventTypes: string[]): { name: string; path: readonly string[] } | undefined {
+    const candidates: { name: string; path: readonly string[] }[] = [
+      { name: 'save-scan-store-folder-decoration', path: this.SAVE_SCAN_STORE_FOLDER_DECORATION },
+      { name: 'diagnostics', path: this.DIAGNOSTICS_PATH },
+      { name: 'decoration', path: this.DECORATION_PATH },
+      { name: 'provider-refresh', path: this.PROVIDER_REFRESH_PATH },
+    ];
+
+    for (const candidate of candidates) {
+      let matchedCount = 0;
+      for (const step of candidate.path) {
+        if (eventTypes.includes(step)) matchedCount++;
+      }
+      if (matchedCount >= Math.ceil(candidate.path.length * 0.5)) {
+        return candidate;
+      }
+    }
+    return undefined;
+  }
+
+  protected findMissingSteps(eventTypes: string[], expectedPath: readonly string[]): string[] {
+    const missing: string[] = [];
+    const seen = new Set(eventTypes);
+    for (const step of expectedPath) {
+      if (!seen.has(step)) missing.push(step);
+    }
+    return missing;
+  }
+
+  protected isPartialExecution(eventTypes: string[]): boolean {
+    if (eventTypes.length === 0) return true;
+    const terminalTypes = ['decoration.fire', 'decoration.provideFileDecoration', 'autoscan.cancel', 'pipeline.execution.completed', 'pipeline.execution.failed', 'pipeline.execution.cancelled'];
+    for (const t of terminalTypes) {
+      if (eventTypes.includes(t)) return false;
+    }
+    const nonMeta = eventTypes.filter((t) => !t.startsWith('timeline.') && !t.startsWith('pipeline.'));
+    if (nonMeta.length >= 3) return true;
+    return false;
+  }
+
+  protected detectConcurrency(timeline: Timeline): boolean {
+    const timestamps = timeline.events.map((e) => e.event.timestamp).sort();
+    if (timestamps.length < 4) return false;
+    let clusters = 0;
+    for (let i = 1; i < timestamps.length; i++) {
+      if (timestamps[i] - timestamps[i - 1] > 100) clusters++;
+    }
+    return clusters >= 3;
+  }
+
+  protected rangesOverlap(a: Timeline, b: Timeline): boolean {
+    const aStart = a.startTime;
+    const aEnd = a.endTime ?? a.lastActivityAt;
+    const bStart = b.startTime;
+    const bEnd = b.endTime ?? b.lastActivityAt;
+    return aStart < bEnd && bStart < aEnd;
   }
 
   /* ------------------------------------------------------------------ */
