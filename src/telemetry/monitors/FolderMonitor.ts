@@ -306,15 +306,17 @@ export class FolderMonitor {
         const uriStr = fileUri.toString();
         const indexBefore = this.folderManager.childIndexSize;
 
-      /* Emit start event */
-      this.reporter.report({
-        type: 'folder.updateAncestors.start',
-        timestamp: start,
-        traceId: generateTraceId(),
-        source: 'FolderMonitor',
-        uri: uriStr,
-        indexSizeBefore: indexBefore,
-      } as any);
+      /* Emit start event (non-critical — wrap in try to avoid blocking original) */
+      try {
+        this.reporter.report({
+          type: 'folder.updateAncestors.start',
+          timestamp: start,
+          traceId: generateTraceId(),
+          source: 'FolderMonitor',
+          uri: uriStr,
+          indexSizeBefore: indexBefore,
+        } as any);
+      } catch { /* monitoring only */ }
 
       /* Compute ancestor chain before the call */
       const { ancestors, rootStr } = this.computeAncestorChain(uriStr);
@@ -420,15 +422,17 @@ export class FolderMonitor {
         const start = Date.now();
         const indexSizeBefore = this.folderManager.childIndexSize;
 
-      /* Emit start event */
-      this.reporter.report({
-        type: 'folder.rebuildAll.start',
-        timestamp: start,
-        traceId: generateTraceId(),
-        source: 'FolderMonitor',
-        indexSizeBefore,
-        workspaceFolders: workspace.workspaceFolders?.length ?? 0,
-      } as any);
+      /* Emit start event (non-critical — wrap in try to avoid blocking original) */
+      try {
+        this.reporter.report({
+          type: 'folder.rebuildAll.start',
+          timestamp: start,
+          traceId: generateTraceId(),
+          source: 'FolderMonitor',
+          indexSizeBefore,
+          workspaceFolders: workspace.workspaceFolders?.length ?? 0,
+        } as any);
+      } catch { /* monitoring only */ }
 
       const changed = this.originalRebuildAll();
       const now = Date.now();
