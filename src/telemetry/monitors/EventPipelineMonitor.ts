@@ -34,6 +34,7 @@ export interface PipelineEvent {
 
 export interface PipelineStage {
   readonly name: string;
+  readonly order: number;
   readonly enteredAt: number;
   exitedAt?: number;
   durationMs?: number;
@@ -59,6 +60,7 @@ export interface PipelineExecution {
   durationMs?: number;
   status: PipelineStatus;
   readonly stages: Map<string, PipelineStage>;
+  readonly stageOrder: string[];
   readonly events: PipelineEvent[];
   error?: string;
   readonly createdAt: number;
@@ -380,6 +382,7 @@ export class EventPipelineMonitor {
       startTime: Date.now(),
       status: 'running',
       stages: new Map(),
+      stageOrder: [],
       events: [],
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
@@ -519,12 +522,14 @@ export class EventPipelineMonitor {
     if (!stage) {
       stage = {
         name: stageName,
+        order: execution.stageOrder.length,
         enteredAt: Date.now(),
         status: 'running',
         eventTypes: [],
         eventSeqs: [],
       };
       execution.stages.set(stageName, stage);
+      execution.stageOrder.push(stageName);
       this.emitStageEvent(execution, stageName, 'running');
     }
 
@@ -892,6 +897,25 @@ export class EventPipelineMonitor {
       pauseCount: ex.pauseCount,
     } as any);
     return true;
+  }
+
+  getStageTimeline(pipelineId: PipelineId): PipelineStage[] {
+    const ex = this.executions.get(pipelineId);
+    if (!ex) return [];
+    return ex.stageOrder.map((name) => ex.stages.get(name)!).filter(Boolean);
+  }
+
+  getStageSummary(pipelineId: PipelineId): { totalStages: number; completedStages: number; failedStages: number; skippedStages: number; totalDurationMs: number } | undefined {
+    const ex = this.executions.get(pipelineId);
+    if (!ex) return undefined;
+    let completed = 0, failed = 0, skipped = 0, totalDuration = 0;
+    for (const [, stage] of ex.stages) {
+      if (stage.status === 'completed') completed++;
+      if (stage.status === 'failed') failed++;
+      if (stage.status === 'skipped') skipped++;
+      if (stage.durationMs) totalDuration += stage.durationMs;
+    }
+    return { totalStages: ex.stages.size, completedStages: completed, failedStages: failed, skippedStages: skipped, totalDurationMs: totalDuration };
   }
 
   cancelExecution(pipelineId: PipelineId, reason?: string): boolean {
