@@ -326,6 +326,10 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
 
     const freq = this.assertionFrequency.get(rule.name) ?? 0;
     this.assertionFrequency.set(rule.name, freq + 1);
+    if (this.assertionFrequency.size > 100) {
+      const oldest = this.assertionFrequency.keys().next().value;
+      if (oldest !== undefined) this.assertionFrequency.delete(oldest);
+    }
 
     if (result.passed) {
       this.totalPassed++;
@@ -345,18 +349,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
     }
 
     this.totalFailed++;
-    this.reporter.report({
-      type: 'assertion.execution',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'RuntimeAssertions',
-      rule: rule.name,
-      category: rule.category,
-      severity: rule.severity,
-      passed: false,
-      failureCount: result.failures.length,
-      executionTimeMs: result.executionTimeMs,
-    } as TelemetryEvent);
+    // Only emit assertion.failure events — assertion.execution is redundant for failures
 
     for (const f of result.failures) {
       const enhancedFailure: AssertionFailure = {
@@ -429,6 +422,7 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
         case RecoveryAction.None:
           break;
         case RecoveryAction.WarningOnly:
+          console.warn(`[ASSERTION] Rule "${rule.name}" triggered WarningOnly recovery: ${result.failures[0]?.message ?? 'no details'}`);
           break;
         case RecoveryAction.AutoRecover:
           handlers.autoRecover?.(rule.name);
@@ -663,7 +657,7 @@ export function createStoreStaleOwnershipRule(store: ProblemStore, manager: Diag
         const owner = store.getOwnerForKey(key);
         if (owner) {
           const info = manager.getInfo(owner);
-          if (info && info.state === 'disposed') {
+          if (info && info.state === ProviderState.disposed) {
             failures.push({ assertion: 'store.staleOwnership', category: AssertionCategory.Store, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Key ${key} owned by disposed provider "${owner}"`, uri: key, provider: owner });
           }
         }
