@@ -352,7 +352,11 @@ export class EventPipelineMonitor {
     this.subscription = reporter.subscribeAll((event: TelemetryEvent) => {
       if (this.disposed) return;
       if (event.type.startsWith('pipeline.')) return;
-      this.processEvent(event);
+      try {
+        this.processEvent(event);
+      } catch {
+        /* swallow — prevent crash in telemetry bus */
+      }
     });
 
     this.staleTimer = setInterval(() => {
@@ -674,7 +678,7 @@ export class EventPipelineMonitor {
     if (execution.status !== 'running' && execution.status !== 'paused') return;
     execution.status = status;
     execution.endTime = Date.now();
-    execution.durationMs = execution.endTime - execution.startTime;
+    execution.durationMs = Math.max(0, execution.endTime - execution.startTime);
     execution.error = error;
 
     /* Finalize any still-running stages */
@@ -808,7 +812,7 @@ export class EventPipelineMonitor {
   private getActiveCount(): number {
     let count = 0;
     for (const [, ex] of this.executions) {
-      if (ex.status === 'running') count++;
+      if (ex.status === 'running' || ex.status === 'paused') count++;
     }
     return count;
   }
@@ -957,6 +961,7 @@ export class EventPipelineMonitor {
     const links: CausalChainLink[] = [];
     let currentTraceId: string | undefined = traceId;
     let depth = 0;
+    let rootTraceId = traceId;
     const visited = new Set<string>();
 
     while (currentTraceId && depth < maxDepth) {
@@ -981,11 +986,12 @@ export class EventPipelineMonitor {
         depth,
       });
 
+      if (!parentTraceId) rootTraceId = currentTraceId;
       currentTraceId = parentTraceId;
       depth++;
     }
 
-    return { rootTraceId: traceId, links, depth };
+    return { rootTraceId, links, depth };
   }
 
   getDependencyGraph(): Map<PipelineId, PipelineId[]> {
