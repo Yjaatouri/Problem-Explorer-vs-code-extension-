@@ -115,7 +115,6 @@ export interface AutoScannerStatistics {
   totalDuplicateQueueAttempts: number;
   totalFlushes: number;
   totalProvidersExecuted: number;
-  totalProvidersSkipped: number;
   totalRefreshesStarted: number;
   totalRefreshesCompleted: number;
   totalRefreshesFailed: number;
@@ -166,7 +165,6 @@ interface AutoScannerInternalState {
   totalDuplicateQueueAttempts: number;
   totalFlushes: number;
   totalProvidersExecuted: number;
-  totalProvidersSkipped: number;
   totalRefreshesStarted: number;
   totalRefreshesCompleted: number;
   totalRefreshesFailed: number;
@@ -329,7 +327,7 @@ export class AutoScannerMonitor implements Disposable {
         this.state.activeScans = Math.max(0, this.state.activeScans - 1);
         this.state.totalRefreshesCompleted++;
         this.state.totalRefreshDurationMs += execTime;
-        this.emitRefreshEnd(progress.providerName, execTime, true, 'cancelled');
+        this.emitRefreshEnd(progress.providerName, execTime, false, 'cancelled');
         this.checkFlushEnd(now);
         break;
       }
@@ -364,10 +362,11 @@ export class AutoScannerMonitor implements Disposable {
 
   private checkFlushEnd(now: number): void {
     if (this.state.activeScans !== 0) return;
+    if (this.state.flushStartTime === 0) return;
 
     /* Flush cycle complete */
     this.state.isFlushing = false;
-    const flushDuration = now - this.state.flushStartTime;
+    const flushDuration = Math.max(0, now - this.state.flushStartTime);
     this.state.lastFlushDurationMs = flushDuration;
     this.state.lastFlushTimestamp = now;
     this.state.totalFlushDurationMs += flushDuration;
@@ -427,24 +426,24 @@ export class AutoScannerMonitor implements Disposable {
     this.disposables.push(
       workspace.onDidSaveTextDocument((doc: TextDocument) => {
         if (this.disposed) return;
-        this.handleFileEvent(doc.uri, 'save');
+        try { this.handleFileEvent(doc.uri, 'save'); } catch { /* swallow */ }
       }),
       workspace.onDidCreateFiles((e) => {
         if (this.disposed) return;
         for (const uri of e.files) {
-          this.handleFileEvent(uri, 'create');
+          try { this.handleFileEvent(uri, 'create'); } catch { /* swallow */ }
         }
       }),
       workspace.onDidDeleteFiles((e) => {
         if (this.disposed) return;
         for (const uri of e.files) {
-          this.handleFileEvent(uri, 'delete');
+          try { this.handleFileEvent(uri, 'delete'); } catch { /* swallow */ }
         }
       }),
       workspace.onDidRenameFiles((e) => {
         if (this.disposed) return;
         for (const { newUri } of e.files) {
-          this.handleFileEvent(newUri, 'rename');
+          try { this.handleFileEvent(newUri, 'rename'); } catch { /* swallow */ }
         }
       }),
     );
@@ -572,7 +571,6 @@ export class AutoScannerMonitor implements Disposable {
       totalDuplicateQueueAttempts: 0,
       totalFlushes: 0,
       totalProvidersExecuted: 0,
-      totalProvidersSkipped: 0,
       totalRefreshesStarted: 0,
       totalRefreshesCompleted: 0,
       totalRefreshesFailed: 0,
@@ -601,7 +599,6 @@ export class AutoScannerMonitor implements Disposable {
       totalDuplicateQueueAttempts: s.totalDuplicateQueueAttempts,
       totalFlushes: s.totalFlushes,
       totalProvidersExecuted: s.totalProvidersExecuted,
-      totalProvidersSkipped: s.totalProvidersSkipped,
       totalRefreshesStarted: s.totalRefreshesStarted,
       totalRefreshesCompleted: s.totalRefreshesCompleted,
       totalRefreshesFailed: s.totalRefreshesFailed,
@@ -609,7 +606,7 @@ export class AutoScannerMonitor implements Disposable {
       totalDebounceCancelled: s.totalDebounceCancelled,
       totalDebounceFired: s.totalDebounceFired,
       totalReschedules: s.totalReschedules,
-      averageDebounceDelayMs: s.totalDebounceScheduled > 0 ? Math.round(s.totalDebounceDelayMs / s.totalDebounceScheduled) : 0,
+      averageDebounceDelayMs: s.totalDebounceFired > 0 ? Math.round(s.totalDebounceDelayMs / s.totalDebounceFired) : 0,
       averageFlushDurationMs: s.totalFlushes > 0 ? Math.round(s.totalFlushDurationMs / s.totalFlushes) : 0,
       averageRefreshDurationMs: s.totalRefreshesCompleted > 0 ? Math.round(s.totalRefreshDurationMs / s.totalRefreshesCompleted) : 0,
       longestFlushDurationMs: s.longestFlushDurationMs,
