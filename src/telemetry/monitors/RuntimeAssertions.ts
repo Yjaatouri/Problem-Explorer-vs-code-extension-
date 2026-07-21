@@ -194,7 +194,7 @@ export type RuntimeAssertionMonitorEvent = AssertionEngineEventData | AssertionE
 /*  Default Implementation                                             */
 /* ------------------------------------------------------------------ */
 
-class DefaultAssertionEngine implements AssertionEngine, Disposable {
+export class DefaultAssertionEngine implements AssertionEngine, Disposable {
   private readonly rules = new Map<string, AssertionRule>();
   private readonly failures: AssertionFailure[] = [];
   private disposed = false;
