@@ -520,6 +520,34 @@ function passResult(startTime: number): AssertionResult {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Typed accessors for private monitor fields (M5)                    */
+/* ------------------------------------------------------------------ */
+
+function getPipelineExecutions(monitor: EventPipelineMonitor): Map<PipelineId, unknown> | undefined {
+  return (monitor as any).executions as Map<PipelineId, unknown> | undefined;
+}
+
+function getDiagnosticsKnownUris(monitor: DiagnosticsMonitor): Set<string> | undefined {
+  return (monitor as any).knownUris as Set<string> | undefined;
+}
+
+function getDecorationLastDecoration(monitor: DecorationMonitor): Map<string, unknown> | undefined {
+  return (monitor as any)._lastDecoration as Map<string, unknown> | undefined;
+}
+
+function getDecorationLoopCount(monitor: DecorationMonitor): Map<string, number> | undefined {
+  return (monitor as any)._decorationLoopCount as Map<string, number> | undefined;
+}
+
+function getFolderChildIndex(manager: FolderStatusManager): Map<string, Map<string, unknown>> | undefined {
+  return (manager as any).childIndex as Map<string, Map<string, unknown>> | undefined;
+}
+
+function getFolderLastRebuildTime(manager: FolderStatusManager): number | undefined {
+  return (manager as any)._lastRebuildTime as number | undefined;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Task 3 — Store Assertion Rules                                     */
 /* ------------------------------------------------------------------ */
 
@@ -935,7 +963,7 @@ export function createPipelineDuplicateStageRule(monitor: EventPipelineMonitor):
         const timeline = monitor.getPipelineTimeline(pipelineId);
         if (!timeline.execution) continue;
         const stageNames = new Set<string>();
-        for (const stage of (timeline as any).execution.stageOrder as string[]) {
+        for (const stage of timeline.execution.stageOrder) {
           if (stageNames.has(stage)) {
             failures.push({ assertion: 'pipeline.duplicateStage', category: AssertionCategory.Pipeline, severity: AssertionSeverity.Warning, timestamp: Date.now(), message: `Pipeline ${pipelineId} has duplicate stage "${stage}"`, pipelineId: pipelineId as string });
           }
@@ -962,7 +990,7 @@ export function createPipelineInvalidStageOrderRule(monitor: EventPipelineMonito
       for (const [pipelineId] of depGraph) {
         const timeline = monitor.getPipelineTimeline(pipelineId);
         if (!timeline.execution) continue;
-        const stageOrder = (timeline as any).execution.stageOrder as string[];
+        const stageOrder = timeline.execution.stageOrder;
         let lastIdx = -1;
         for (const stage of stageOrder) {
           const idx = expectedOrder.indexOf(stage);
@@ -1089,8 +1117,7 @@ export function createPipelineDuplicateIdRule(monitor: EventPipelineMonitor): As
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
-      const executions = m.executions as Map<PipelineId, unknown> | undefined;
+      const executions = getPipelineExecutions(monitor);
       if (!executions || executions.size === 0) return passResult(start);
       const seen = new Set<string>();
       const failures: AssertionFailure[] = [];
@@ -1155,8 +1182,7 @@ export function createDiagnosticsStaleRule(monitor: DiagnosticsMonitor, store: P
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
-      const knownUris: Set<string> = m.knownUris;
+      const knownUris = getDiagnosticsKnownUris(monitor);
       if (!knownUris || knownUris.size === 0) return passResult(start);
       const failures: AssertionFailure[] = [];
       for (const uriStr of knownUris) {
@@ -1296,8 +1322,7 @@ export function createDecorationWithoutStateRule(monitor: DecorationMonitor, sto
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
-      const lastDecoration: Map<string, unknown> = m._lastDecoration;
+      const lastDecoration = getDecorationLastDecoration(monitor);
       if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
       const failures: AssertionFailure[] = [];
       for (const uriStr of lastDecoration.keys()) {
@@ -1321,8 +1346,7 @@ export function createDecorationStateWithoutDecorationRule(monitor: DecorationMo
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
-      const lastDecoration: Map<string, unknown> = m._lastDecoration;
+      const lastDecoration = getDecorationLastDecoration(monitor);
       if (!lastDecoration) return passResult(start);
       const decoratedUris = new Set(lastDecoration.keys());
       const failures: AssertionFailure[] = [];
@@ -1347,8 +1371,7 @@ export function createDecorationLoopRule(monitor: DecorationMonitor): AssertionR
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
-      const loopCount: Map<string, number> = m._decorationLoopCount;
+      const loopCount = getDecorationLoopCount(monitor);
       if (!loopCount || loopCount.size === 0) return passResult(start);
       const failures: AssertionFailure[] = [];
       for (const [key, count] of loopCount) {
@@ -1370,8 +1393,7 @@ export function createDecorationInvalidBadgeRule(monitor: DecorationMonitor): As
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
-      const lastDecoration: Map<string, { badge?: string }> = m._lastDecoration;
+      const lastDecoration = getDecorationLastDecoration(monitor) as Map<string, { badge?: string }> | undefined;
       if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
       const failures: AssertionFailure[] = [];
       for (const [uriStr, entry] of lastDecoration) {
@@ -1396,8 +1418,7 @@ export function createDecorationInvalidTooltipRule(monitor: DecorationMonitor): 
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
-      const lastDecoration: Map<string, { tooltip?: string }> = m._lastDecoration;
+      const lastDecoration = getDecorationLastDecoration(monitor) as Map<string, { tooltip?: string }> | undefined;
       if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
       const failures: AssertionFailure[] = [];
       for (const [uriStr, entry] of lastDecoration) {
@@ -1419,9 +1440,8 @@ export function createDecorationInvalidIconRule(monitor: DecorationMonitor): Ass
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = monitor as any;
       // Assumes _lastDecoration stores colorId; based on DecorationMonitor._lastDecoration shape
-      const lastDecoration: Map<string, { colorId?: string }> = m._lastDecoration;
+      const lastDecoration = getDecorationLastDecoration(monitor) as Map<string, { colorId?: string }> | undefined;
       if (!lastDecoration || lastDecoration.size === 0) return passResult(start);
       const failures: AssertionFailure[] = [];
       for (const [uriStr, entry] of lastDecoration) {
@@ -1448,8 +1468,7 @@ export function createFolderOrphanRule(manager: FolderStatusManager, store: Prob
     execute: () => {
       const start = Date.now();
       const failures: AssertionFailure[] = [];
-      const m = manager as any;
-      const childIndex: Map<string, Map<string, unknown>> = m.childIndex;
+      const childIndex = getFolderChildIndex(manager);
       if (!childIndex) return passResult(start);
       store.forEachEntry((key, _state, isFolder) => {
         if (isFolder && !childIndex.has(key)) {
@@ -1471,8 +1490,7 @@ export function createFolderInvalidAggregateRule(manager: FolderStatusManager, s
     execute: () => {
       const start = Date.now();
       const failures: AssertionFailure[] = [];
-      const m = manager as any;
-      const childIndex: Map<string, Map<string, unknown>> = m.childIndex;
+      const childIndex = getFolderChildIndex(manager);
       if (!childIndex) return passResult(start);
       for (const [parentKey] of childIndex) {
         try {
@@ -1526,8 +1544,7 @@ export function createFolderDuplicateRebuildRule(manager: FolderStatusManager): 
     enabled: true, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
-      const m = manager as any;
-      const lastRebuild: number | undefined = m._lastRebuildTime;
+      const lastRebuild = getFolderLastRebuildTime(manager);
       if (lastRebuild !== undefined && (Date.now() - lastRebuild) < 1000) {
         return failResult('folder.duplicateRebuild', AssertionCategory.Folder, AssertionSeverity.Info,
           `rebuildAll called too frequently (${Date.now() - lastRebuild}ms since last)`, start);
@@ -1599,8 +1616,7 @@ export function createFolderImpossibleTransitionRule(manager: FolderStatusManage
     execute: () => {
       const start = Date.now();
       const failures: AssertionFailure[] = [];
-      const m = manager as any;
-      const childIndex: Map<string, Map<string, unknown>> = m.childIndex;
+      const childIndex = getFolderChildIndex(manager);
       if (!childIndex) return passResult(start);
       for (const [parentKey] of childIndex) {
         const stored = store.get(Uri.parse(parentKey));
