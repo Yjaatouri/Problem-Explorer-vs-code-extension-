@@ -469,30 +469,29 @@ export class FolderMonitor {
   }
 
   private wrapRecomputeFolderStatus(): void {
+    const original = this.originalRecomputeFolderStatus;
     this.folderManager.recomputeFolderStatus = (folderUri: Uri): ProblemState => {
-      if (this.disposed) return this.originalRecomputeFolderStatus(folderUri);
+      if (this.disposed) return original(folderUri);
       const start = Date.now();
-      const uriStr = folderUri.toString();
-      const aggregateBefore = this.problemStore.get(folderUri);
-      const result = this.originalRecomputeFolderStatus(folderUri);
-      const now = Date.now();
-      const durationMs = now - start;
-
-      this.stats.totalRecomputes++;
-      this.stats.recomputeDurationSumMs += durationMs;
-
-      this.reporter.report({
-        type: 'folder.recompute',
-        timestamp: now,
-        traceId: generateTraceId(),
-        source: 'FolderMonitor',
-        uri: uriStr,
-        children: result.fileCount,
-        aggregateBefore,
-        aggregateAfter: result,
-        executionTimeMs: durationMs,
-      } as any);
-
+      const result = original(folderUri);
+      const durationMs = Date.now() - start;
+      try {
+        this.stats.totalRecomputes++;
+        const uriStr = folderUri.toString();
+        const aggregateBefore = this.problemStore.get(folderUri);
+        this.stats.recomputeDurationSumMs += durationMs;
+        this.reporter.report({
+          type: 'folder.recompute',
+          timestamp: Date.now(),
+          traceId: generateTraceId(),
+          source: 'FolderMonitor',
+          uri: uriStr,
+          children: result.fileCount,
+          aggregateBefore,
+          aggregateAfter: result,
+          executionTimeMs: durationMs,
+        } as any);
+      } catch { /* monitoring only */ }
       return result;
     };
   }
@@ -514,23 +513,25 @@ export class FolderMonitor {
       case 'unchanged': this.stats.totalAggregatesUnchanged++; break;
     }
 
-    this.reporter.report({
-      type: 'folder.aggregate',
-      timestamp: ts,
-      traceId: generateTraceId(),
-      source: 'FolderMonitor',
-      uri: uriStr,
-      action,
-      aggregateBefore: before,
-      aggregateAfter: after,
-      errorDelta,
-      warningDelta,
-      infoDelta,
-      severityBefore: before?.severity,
-      severityAfter: after?.severity,
-      childCount: after?.fileCount ?? before?.fileCount ?? 0,
-      parentUri: getParentKey(uriStr),
-    } as any);
+    try {
+      this.reporter.report({
+        type: 'folder.aggregate',
+        timestamp: ts,
+        traceId: generateTraceId(),
+        source: 'FolderMonitor',
+        uri: uriStr,
+        action,
+        aggregateBefore: before,
+        aggregateAfter: after,
+        errorDelta,
+        warningDelta,
+        infoDelta,
+        severityBefore: before?.severity,
+        severityAfter: after?.severity,
+        childCount: after?.fileCount ?? before?.fileCount ?? 0,
+        parentUri: getParentKey(uriStr),
+      } as any);
+    } catch { /* monitoring only */ }
 
     if (after) {
       this.checkNegativeCounts(after, uriStr);
@@ -542,16 +543,21 @@ export class FolderMonitor {
   }
 
   private wrapSetFolderAggregate(): void {
+    const original = this.originalSetFolderAggregate;
     this.problemStore.setFolderAggregate = (uri: Uri, state: ProblemState): boolean => {
-      if (this.disposed) return this.originalSetFolderAggregate(uri, state);
-      if (this.reentrant > 0) return this.originalSetFolderAggregate(uri, state);
+      if (this.disposed) return original(uri, state);
+      if (this.reentrant > 0) return original(uri, state);
+      const start = Date.now();
+      const uriStr = uri.toString();
+      let before: ProblemState | undefined;
+      let owner: string | undefined;
+      try {
+        before = this.problemStore.get(uri);
+        owner = this.problemStore.getOwningProvider(uri);
+      } catch { /* monitoring only */ }
       this.reentrant++;
       try {
-        const start = Date.now();
-        const uriStr = uri.toString();
-        const before = this.problemStore.get(uri);
-        const owner = this.problemStore.getOwningProvider(uri);
-        const accepted = this.originalSetFolderAggregate(uri, state);
+        const accepted = original(uri, state);
         const now = Date.now();
         const after = this.problemStore.get(uri);
         const durationMs = now - start;
@@ -593,19 +599,24 @@ export class FolderMonitor {
   }
 
   private wrapStoreDelete(): void {
+    const original = this.originalStoreDelete;
     this.problemStore.delete = (uri: Uri): boolean => {
-      if (this.disposed) return this.originalStoreDelete(uri);
+      if (this.disposed) return original(uri);
       if (!this.problemStore.isFolderAggregate(uri)) {
-        return this.originalStoreDelete(uri);
+        return original(uri);
       }
-      if (this.reentrant > 0) return this.originalStoreDelete(uri);
+      if (this.reentrant > 0) return original(uri);
+      const start = Date.now();
+      const uriStr = uri.toString();
+      let before: ProblemState | undefined;
+      let owner: string | undefined;
+      try {
+        before = this.problemStore.get(uri);
+        owner = this.problemStore.getOwningProvider(uri);
+      } catch { /* monitoring only */ }
       this.reentrant++;
       try {
-        const start = Date.now();
-        const uriStr = uri.toString();
-        const before = this.problemStore.get(uri);
-        const owner = this.problemStore.getOwningProvider(uri);
-        const result = this.originalStoreDelete(uri);
+        const result = original(uri);
         const now = Date.now();
         const durationMs = now - start;
 
@@ -639,7 +650,7 @@ export class FolderMonitor {
     if (!this.problemStore.isFolderAggregate(folderUri)) return;
     const current = this.problemStore.get(folderUri);
     if (!current) return;
-    const recomputed = this.folderManager.recomputeFolderStatus(folderUri);
+    const recomputed = this.originalRecomputeFolderStatus(folderUri);
     if (
       current.errorCount !== recomputed.errorCount ||
       current.warningCount !== recomputed.warningCount ||
