@@ -187,7 +187,7 @@ export class TimelineGenerator {
   /* ------------------------------------------------------------------ */
 
   protected processGlobalEvent(event: TelemetryEvent): void {
-    if (event.type.startsWith('pipeline.') || event.type.startsWith('perf.') || event.type.startsWith('timeline.')) return;
+    if (event.type.startsWith('perf.') || event.type.startsWith('timeline.')) return;
 
     let chain = this.eventsByTraceId.get(event.traceId);
     if (!chain) {
@@ -446,6 +446,11 @@ export class TimelineGenerator {
     tl.status = status;
     if (error) tl.error = error;
     return true;
+  }
+
+  recordEvent(event: TelemetryEvent): void {
+    if (this.disposed) return;
+    this.processGlobalEvent(event);
   }
 
   getLiveTimelines(): readonly Timeline[] {
