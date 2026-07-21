@@ -6,6 +6,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
+import { TelemetrySubscription } from '../../telemetry/TelemetryBus';
+import { TelemetryEvent } from '../../telemetry/TelemetryEvent';
 import { SnapshotSystem } from './SnapshotSystem';
 import { TimelineGenerator } from './TimelineGenerator';
 
@@ -137,6 +139,7 @@ export class FileLogger {
   protected writeStartTime = Date.now();
   protected entriesBySource = new Map<string, number>();
   protected entriesByLevel = new Map<string, number>();
+  protected readonly eventSub: TelemetrySubscription;
 
   constructor(
     protected readonly reporter: TelemetryReporter,
@@ -150,6 +153,21 @@ export class FileLogger {
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
     }
+
+    this.eventSub = reporter.subscribeAll((event: TelemetryEvent) => {
+      if (this.disposed) return;
+      this.write({
+        level: this.eventLevel(event),
+        source: event.source ?? 'unknown',
+        type: event.type,
+        data: event,
+        traceId: event.traceId,
+        uri: (event as any).uri ?? (event as any).fileUri,
+        provider: (event as any).provider ?? (event as any).providerName,
+        pipelineId: (event as any).pipelineId,
+        durationMs: (event as any).durationMs,
+      }).catch(() => {});
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -467,6 +485,14 @@ export class FileLogger {
   /*  Helpers                                                            */
   /* ------------------------------------------------------------------ */
 
+  private eventLevel(event: TelemetryEvent): LogLevel {
+    const data = event as any;
+    if (data.phase === 'error' || event.type === 'assertion.failure' || event.type === 'pipeline.execution.failed') return LogLevel.Error;
+    if (data.phase === 'cancelled' || data.phase === 'warn') return LogLevel.Warn;
+    if (event.type.startsWith('timeline.') || event.type.startsWith('snapshot.')) return LogLevel.Debug;
+    return LogLevel.Info;
+  }
+
   private copyDirSync(src: string, dst: string): void {
     if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
     for (const entry of fs.readdirSync(src)) {
@@ -487,6 +513,7 @@ export class FileLogger {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.eventSub.dispose();
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = undefined;
