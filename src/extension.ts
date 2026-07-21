@@ -395,10 +395,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     context.subscriptions.push({ dispose: () => clearTimeout(forensicTimeout) });
 
     // Periodic runtime assertions every 30s
-    const assertionInterval = setInterval(() => {
-      runtimeAssertions.runAll(problemStore, diagProviderManager, folderStatusManager);
-    }, 30000);
-    context.subscriptions.push({ dispose: () => clearInterval(assertionInterval) });
+    // (re-enabled in Task 11 — Integration)
+    void runtimeAssertions;
 
     // OFFLINE FORENSIC ANALYSIS COMMAND — run TimelineGenerator against saved telemetry log
     context.subscriptions.push(

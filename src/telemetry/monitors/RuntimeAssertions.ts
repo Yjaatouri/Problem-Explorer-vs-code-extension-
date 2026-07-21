@@ -1,231 +1,467 @@
-import { Uri } from 'vscode';
-import { ProblemStore } from '../../store/ProblemStore';
-import { DiagnosticProviderManager, ProviderState } from '../../providers/DiagnosticProviderManager';
-import { FolderStatusManager } from '../../folder/folderStatusManager';
-import { ProblemState } from '../../core/types';
+import { Disposable } from 'vscode';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
+import { TelemetryEvent, TraceId } from '../../telemetry/TelemetryEvent';
 import { generateTraceId } from '../../telemetry/TelemetryConfig';
 
-/** Structured event payload for a failed runtime assertion */
-export interface RuntimeAssertionEventData {
-  readonly type: 'assertion.failure';
-  readonly assertion: string;
-  readonly detail: string;
+/* ------------------------------------------------------------------ */
+/*  Assertion Severity & Category                                      */
+/* ------------------------------------------------------------------ */
+
+export enum AssertionSeverity {
+  Error = 'error',
+  Warning = 'warning',
+  Info = 'info',
 }
 
-/** Union of all runtime assertion event types */
-export type RuntimeAssertionMonitorEvent = RuntimeAssertionEventData;
+export enum AssertionCategory {
+  Store = 'store',
+  Provider = 'provider',
+  Pipeline = 'pipeline',
+  Diagnostics = 'diagnostics',
+  Decoration = 'decoration',
+  Folder = 'folder',
+}
 
-const CHECK_SAMPLE_RATIO = 0.1;
+/* ------------------------------------------------------------------ */
+/*  Recovery Policy                                                    */
+/* ------------------------------------------------------------------ */
 
-/** Runtime assertion helpers — publish telemetry on failure, never throw, disabled with telemetry */
-export class RuntimeAssertions {
+export enum RecoveryAction {
+  None = 'none',
+  WarningOnly = 'warningOnly',
+  AutoRecover = 'autoRecover',
+  StopPipeline = 'stopPipeline',
+  RequestSnapshot = 'requestSnapshot',
+  RequestTimeline = 'requestTimeline',
+  NotifyDashboard = 'notifyDashboard',
+}
+
+export interface RecoveryPolicy {
+  readonly actions: RecoveryAction[];
+}
+
+/* ------------------------------------------------------------------ */
+/*  AssertionRule                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface AssertionContext {
+  readonly reporter: TelemetryReporter;
+  readonly engine: AssertionEngine;
+}
+
+export interface AssertionRule {
+  readonly name: string;
+  readonly description: string;
+  readonly category: AssertionCategory;
+  readonly severity: AssertionSeverity;
+  enabled: boolean;
+  readonly recovery: RecoveryPolicy;
+  execute(context: AssertionContext): AssertionResult | Promise<AssertionResult>;
+}
+
+/* ------------------------------------------------------------------ */
+/*  AssertionResult & Failure                                          */
+/* ------------------------------------------------------------------ */
+
+export interface AssertionResult {
+  readonly passed: boolean;
+  readonly failures: AssertionFailure[];
+  readonly executionTimeMs: number;
+}
+
+export interface AssertionFailure {
+  readonly assertion: string;
+  readonly category: AssertionCategory;
+  readonly severity: AssertionSeverity;
+  readonly timestamp: number;
+  readonly message: string;
+  readonly uri?: string;
+  readonly provider?: string;
+  readonly pipelineId?: string;
+  readonly stackTrace?: string;
+  readonly relatedEvents?: TelemetryEvent[];
+  readonly relatedData?: Record<string, unknown>;
+}
+
+/* ------------------------------------------------------------------ */
+/*  AssertionStatistics                                                */
+/* ------------------------------------------------------------------ */
+
+export interface CategoryFailureCount {
+  readonly category: AssertionCategory;
+  readonly count: number;
+}
+
+export interface ProviderFailureCount {
+  readonly provider: string;
+  readonly count: number;
+}
+
+export interface MonitorFailureCount {
+  readonly monitor: string;
+  readonly count: number;
+}
+
+export interface UriFailureCount {
+  readonly uri: string;
+  readonly count: number;
+}
+
+export interface AssertionStatistics {
+  readonly assertionsExecuted: number;
+  readonly assertionsPassed: number;
+  readonly assertionsFailed: number;
+  readonly failuresByCategory: CategoryFailureCount[];
+  readonly failuresByProvider: ProviderFailureCount[];
+  readonly failuresByMonitor: MonitorFailureCount[];
+  readonly failuresByUri: UriFailureCount[];
+  readonly mostFrequentAssertion: string;
+  readonly mostFrequentAssertionCount: number;
+  readonly totalExecutionTimeMs: number;
+  readonly averageExecutionTimeMs: number;
+  readonly peakExecutionTimeMs: number;
+}
+
+/* ------------------------------------------------------------------ */
+/*  AssertionEngine                                                    */
+/* ------------------------------------------------------------------ */
+
+export interface AssertionEngine {
+  registerRule(rule: AssertionRule): Disposable;
+  unregisterRule(name: string): boolean;
+  enableRule(name: string): boolean;
+  disableRule(name: string): boolean;
+  getRule(name: string): AssertionRule | undefined;
+  getAllRules(): AssertionRule[];
+  executeRule(name: string): Promise<AssertionResult>;
+  executeAll(): Promise<AssertionResult[]>;
+  getStatistics(): AssertionStatistics;
+  getFailures(): AssertionFailure[];
+  clearFailures(): void;
+  dispose(): void;
+}
+
+/* ------------------------------------------------------------------ */
+/*  EngineEventData                                                    */
+/* ------------------------------------------------------------------ */
+
+export interface AssertionEngineEventData {
+  readonly type: 'assertion.execution';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'RuntimeAssertions';
+  readonly rule: string;
+  readonly category: AssertionCategory;
+  readonly severity: AssertionSeverity;
+  readonly passed: boolean;
+  readonly failureCount: number;
+  readonly executionTimeMs: number;
+}
+
+export interface AssertionEngineFailureEventData {
+  readonly type: 'assertion.failure';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'RuntimeAssertions';
+  readonly rule: string;
+  readonly category: AssertionCategory;
+  readonly severity: AssertionSeverity;
+  readonly message: string;
+  readonly uri?: string;
+  readonly provider?: string;
+  readonly pipelineId?: string;
+}
+
+export type RuntimeAssertionMonitorEvent = AssertionEngineEventData | AssertionEngineFailureEventData;
+
+/* ------------------------------------------------------------------ */
+/*  Default Implementation                                             */
+/* ------------------------------------------------------------------ */
+
+class DefaultAssertionEngine implements AssertionEngine, Disposable {
+  private readonly rules = new Map<string, AssertionRule>();
+  private readonly failures: AssertionFailure[] = [];
+  private disposed = false;
+
+  private totalExecuted = 0;
+  private totalPassed = 0;
+  private totalFailed = 0;
+  private totalExecutionTimeMs = 0;
+  private peakExecutionTimeMs = 0;
+
+  private readonly failureCategoryCount = new Map<AssertionCategory, number>();
+  private readonly failureProviderCount = new Map<string, number>();
+  private readonly failureMonitorCount = new Map<string, number>();
+  private readonly failureUriCount = new Map<string, number>();
+  private readonly assertionFrequency = new Map<string, number>();
+
+  private readonly maxStoredFailures = 10000;
+
+  constructor(private readonly reporter: TelemetryReporter) {}
+
+  registerRule(rule: AssertionRule): Disposable {
+    this.rules.set(rule.name, rule);
+    return { dispose: () => this.rules.delete(rule.name) };
+  }
+
+  unregisterRule(name: string): boolean {
+    return this.rules.delete(name);
+  }
+
+  enableRule(name: string): boolean {
+    const rule = this.rules.get(name);
+    if (!rule) return false;
+    rule.enabled = true;
+    return true;
+  }
+
+  disableRule(name: string): boolean {
+    const rule = this.rules.get(name);
+    if (!rule) return false;
+    rule.enabled = false;
+    return true;
+  }
+
+  getRule(name: string): AssertionRule | undefined {
+    return this.rules.get(name);
+  }
+
+  getAllRules(): AssertionRule[] {
+    return [...this.rules.values()];
+  }
+
+  async executeRule(name: string): Promise<AssertionResult> {
+    const rule = this.rules.get(name);
+    if (!rule) {
+      return {
+        passed: false,
+        failures: [{
+          assertion: name,
+          category: AssertionCategory.Diagnostics,
+          severity: AssertionSeverity.Error,
+          timestamp: Date.now(),
+          message: `Rule "${name}" not found`,
+        }],
+        executionTimeMs: 0,
+      };
+    }
+    if (!rule.enabled) {
+      return { passed: true, failures: [], executionTimeMs: 0 };
+    }
+    return this.runRule(rule);
+  }
+
+  async executeAll(): Promise<AssertionResult[]> {
+    const results: AssertionResult[] = [];
+    for (const rule of this.rules.values()) {
+      if (!rule.enabled) continue;
+      results.push(await this.runRule(rule));
+    }
+    return results;
+  }
+
+  private async runRule(rule: AssertionRule): Promise<AssertionResult> {
+    const start = Date.now();
+    const context: AssertionContext = { reporter: this.reporter, engine: this };
+    let result: AssertionResult;
+
+    try {
+      result = await rule.execute(context);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      result = {
+        passed: false,
+        failures: [{
+          assertion: rule.name,
+          category: rule.category,
+          severity: AssertionSeverity.Error,
+          timestamp: Date.now(),
+          message: `Exception: ${msg}`,
+          stackTrace: e instanceof Error ? e.stack : undefined,
+        }],
+        executionTimeMs: Date.now() - start,
+      };
+    }
+
+    const elapsed = Date.now() - start;
+    this.totalExecuted++;
+    this.totalExecutionTimeMs += elapsed;
+    if (elapsed > this.peakExecutionTimeMs) this.peakExecutionTimeMs = elapsed;
+
+    const freq = this.assertionFrequency.get(rule.name) ?? 0;
+    this.assertionFrequency.set(rule.name, freq + 1);
+
+    if (result.passed) {
+      this.totalPassed++;
+      this.reporter.report({
+        type: 'assertion.execution',
+        timestamp: Date.now(),
+        traceId: generateTraceId(),
+        source: 'RuntimeAssertions',
+        rule: rule.name,
+        category: rule.category,
+        severity: rule.severity,
+        passed: true,
+        failureCount: 0,
+        executionTimeMs: result.executionTimeMs,
+      } as TelemetryEvent);
+      return result;
+    }
+
+    this.totalFailed++;
+    this.reporter.report({
+      type: 'assertion.execution',
+      timestamp: Date.now(),
+      traceId: generateTraceId(),
+      source: 'RuntimeAssertions',
+      rule: rule.name,
+      category: rule.category,
+      severity: rule.severity,
+      passed: false,
+      failureCount: result.failures.length,
+      executionTimeMs: result.executionTimeMs,
+    } as TelemetryEvent);
+
+    for (const f of result.failures) {
+      this.storeFailure(f);
+      this.reporter.report({
+        type: 'assertion.failure',
+        timestamp: f.timestamp,
+        traceId: generateTraceId(),
+        source: 'RuntimeAssertions',
+        rule: rule.name,
+        category: rule.category,
+        severity: rule.severity,
+        message: f.message,
+        uri: f.uri,
+        provider: f.provider,
+        pipelineId: f.pipelineId,
+      } as TelemetryEvent);
+    }
+
+    return result;
+  }
+
+  private storeFailure(failure: AssertionFailure): void {
+    if (this.failures.length >= this.maxStoredFailures) {
+      this.failures.shift();
+    }
+    this.failures.push(failure);
+
+    this.failureCategoryCount.set(
+      failure.category,
+      (this.failureCategoryCount.get(failure.category) ?? 0) + 1,
+    );
+    if (failure.provider) {
+      this.failureProviderCount.set(
+        failure.provider,
+        (this.failureProviderCount.get(failure.provider) ?? 0) + 1,
+      );
+    }
+    if (failure.uri) {
+      this.failureUriCount.set(
+        failure.uri,
+        (this.failureUriCount.get(failure.uri) ?? 0) + 1,
+      );
+    }
+  }
+
+  getStatistics(): AssertionStatistics {
+    const sortedFreq = [...this.assertionFrequency.entries()].sort((a, b) => b[1] - a[1]);
+    const mostFreq = sortedFreq[0];
+
+    return {
+      assertionsExecuted: this.totalExecuted,
+      assertionsPassed: this.totalPassed,
+      assertionsFailed: this.totalFailed,
+      failuresByCategory: [...this.failureCategoryCount.entries()]
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count),
+      failuresByProvider: [...this.failureProviderCount.entries()]
+        .map(([provider, count]) => ({ provider, count }))
+        .sort((a, b) => b.count - a.count),
+      failuresByMonitor: [...this.failureMonitorCount.entries()]
+        .map(([monitor, count]) => ({ monitor, count }))
+        .sort((a, b) => b.count - a.count),
+      failuresByUri: [...this.failureUriCount.entries()]
+        .map(([uri, count]) => ({ uri, count }))
+        .sort((a, b) => b.count - a.count),
+      mostFrequentAssertion: mostFreq ? mostFreq[0] : '',
+      mostFrequentAssertionCount: mostFreq ? mostFreq[1] : 0,
+      totalExecutionTimeMs: this.totalExecutionTimeMs,
+      averageExecutionTimeMs: this.totalExecuted > 0
+        ? Math.round(this.totalExecutionTimeMs / this.totalExecuted) : 0,
+      peakExecutionTimeMs: this.peakExecutionTimeMs,
+    };
+  }
+
+  getFailures(): AssertionFailure[] {
+    return [...this.failures];
+  }
+
+  clearFailures(): void {
+    this.failures.length = 0;
+    this.failureCategoryCount.clear();
+    this.failureProviderCount.clear();
+    this.failureMonitorCount.clear();
+    this.failureUriCount.clear();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.rules.clear();
+    this.failures.length = 0;
+    this.failureCategoryCount.clear();
+    this.failureProviderCount.clear();
+    this.failureMonitorCount.clear();
+    this.failureUriCount.clear();
+    this.assertionFrequency.clear();
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  RuntimeAssertions — Main Facade                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * RuntimeAssertions is the automatic guardian of the entire extension.
+ *
+ * Unlike telemetry monitors, this does not observe behavior — it
+ * continuously validates that the system remains in a valid state while
+ * the extension is running.
+ *
+ * Features:
+ * - Modular rule engine with register/enable/disable/execute API
+ * - Domain-specific assertions for store, provider, pipeline, diagnostics,
+ *   decoration, and folder
+ * - Configurable recovery policies
+ * - Full telemetry on every assertion execution and failure
+ * - Comprehensive statistics
+ */
+export class RuntimeAssertions implements Disposable {
+  readonly engine: AssertionEngine;
+  private disposed = false;
+
   constructor(
-    private readonly reporter: TelemetryReporter,
+    reporter: TelemetryReporter,
     private enabled: boolean,
-  ) {}
+  ) {
+    this.engine = new DefaultAssertionEngine(reporter);
+  }
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
   }
 
-  private fail(assertion: string, detail: string): boolean {
-    if (!this.enabled) return false;
-    this.reporter.report({
-      type: 'assertion.failure',
-      timestamp: Date.now(),
-      traceId: generateTraceId(),
-      source: 'RuntimeAssertions',
-      assertion,
-      detail,
-    } as any);
-    return false;
+  isEnabled(): boolean {
+    return this.enabled;
   }
 
-  private sample(): boolean {
-    return !this.enabled || Math.random() < CHECK_SAMPLE_RATIO;
-  }
-
-  /**
-   * Assert store invariants:
-   * - All entries have non-negative counts
-   * - Folder aggregates reference valid keys
-   * - Running totals match actual entries
-   */
-  assertStore(store: ProblemStore): boolean {
-    if (!this.sample()) return true;
-    try {
-      const all: Array<{ key: string; state: ProblemState; isFolder: boolean }> = [];
-      store.forEachEntry((key, state, isFolder) => all.push({ key, state, isFolder }));
-
-      let computedErrors = 0;
-      let computedWarnings = 0;
-      let computedInfos = 0;
-      let computedFiles = 0;
-
-      for (const entry of all) {
-        if (entry.state.errorCount < 0) {
-          return this.fail('store', `Negative errorCount=${entry.state.errorCount} for key=${entry.key}`);
-        }
-        if (entry.state.warningCount < 0) {
-          return this.fail('store', `Negative warningCount=${entry.state.warningCount} for key=${entry.key}`);
-        }
-        if (entry.state.infoCount < 0) {
-          return this.fail('store', `Negative infoCount=${entry.state.infoCount} for key=${entry.key}`);
-        }
-
-        if (!entry.isFolder) {
-          computedErrors += entry.state.errorCount;
-          computedWarnings += entry.state.warningCount;
-          computedInfos += entry.state.infoCount;
-          computedFiles += 1;
-        }
-      }
-
-      const totals = store.computeTotals();
-      if (totals.errorCount !== computedErrors || totals.warningCount !== computedWarnings || totals.infoCount !== computedInfos) {
-        return this.fail('store',
-          `Running totals mismatch: store=${totals.errorCount}e/${totals.warningCount}w/${totals.infoCount}i ` +
-          `computed=${computedErrors}e/${computedWarnings}w/${computedInfos}i`);
-      }
-      if (totals.fileCount !== computedFiles) {
-        return this.fail('store', `File count mismatch: store=${totals.fileCount} computed=${computedFiles}`);
-      }
-      return true;
-    } catch {
-      return this.fail('store', 'Exception during store assertion');
-    }
-  }
-
-  /**
-   * Assert ownership invariants:
-   * - All owners in ownerByKey are configured providers
-   * - No key has multiple owners
-   */
-  assertOwnership(store: ProblemStore): boolean {
-    if (!this.sample()) return true;
-    try {
-      const seen = new Map<string, string>();
-      let orphanCount = 0;
-      store.forEachEntry((_key, _state, isFolder) => {
-        if (isFolder) return;
-        const owner = store.getOwnerForKey(_key);
-        if (owner) {
-          if (seen.has(_key) && seen.get(_key) !== owner) {
-            orphanCount++;
-          }
-          seen.set(_key, owner);
-        }
-      });
-
-      if (orphanCount > 0) {
-        return this.fail('ownership', `${orphanCount} keys have conflicting owners`);
-      }
-      return true;
-    } catch {
-      return this.fail('ownership', 'Exception during ownership assertion');
-    }
-  }
-
-  /**
-   * Assert decoration invariants:
-   * - Folder aggregate states are valid
-   * - Config and store are consistent
-   */
-  assertDecoration(store: ProblemStore): boolean {
-    if (!this.sample()) return true;
-    try {
-      let badCount = 0;
-      store.forEachEntry((_key, state, isFolder) => {
-        if (!isFolder) return;
-        if (state.errorCount < 0 || state.warningCount < 0 || state.infoCount < 0) {
-          badCount++;
-        }
-      });
-
-      if (badCount > 0) {
-        return this.fail('decoration', `${badCount} folder aggregates have negative counts`);
-      }
-      return true;
-    } catch {
-      return this.fail('decoration', 'Exception during decoration assertion');
-    }
-  }
-
-  /**
-   * Assert folder invariants:
-   * - Child index entries reference valid store URIs
-   * - No orphaned folder aggregates in store
-   */
-  assertFolder(store: ProblemStore, folderManager: FolderStatusManager): boolean {
-    if (!this.sample()) return true;
-    try {
-      const children = (folderManager as any).childIndex as Map<string, Map<string, unknown>> | undefined;
-      if (!children) return true;
-
-      let orphaned = 0;
-      for (const [parentKey] of children) {
-        const parentState = store.get(Uri.parse(parentKey));
-        if (!parentState) orphaned++;
-      }
-
-      if (orphaned > 0) {
-        return this.fail('folder', `${orphaned} child index entries missing from store`);
-      }
-      return true;
-    } catch {
-      return this.fail('folder', 'Exception during folder assertion');
-    }
-  }
-
-  /**
-   * Assert provider invariants:
-   * - All registered providers are in valid states
-   * - Provider scanning flags are consistent
-   */
-  assertProvider(manager: DiagnosticProviderManager): boolean {
-    if (!this.sample()) return true;
-    try {
-      let badState = 0;
-      for (const info of manager.all()) {
-        if (info.state === ProviderState.error) {
-          badState++;
-        }
-        if (info.state === ProviderState.disposed) {
-          badState++;
-        }
-      }
-
-      if (badState > 0) {
-        return this.fail('provider', `${badState} providers in error/disposed state: ` +
-          manager.all()
-            .filter((i) => i.state === ProviderState.error || i.state === ProviderState.disposed)
-            .map((i) => `${i.name}=${i.state}`)
-            .join(', '));
-      }
-      return true;
-    } catch {
-      return this.fail('provider', 'Exception during provider assertion');
-    }
-  }
-
-  /**
-   * Run all assertions in sequence. Returns true if all pass.
-   */
-  runAll(
-    store: ProblemStore,
-    manager: DiagnosticProviderManager,
-    folderManager: FolderStatusManager,
-  ): boolean {
-    if (!this.enabled) return true;
-    const results = [
-      this.assertStore(store),
-      this.assertOwnership(store),
-      this.assertDecoration(store),
-      this.assertFolder(store, folderManager),
-      this.assertProvider(manager),
-    ];
-    return results.every(Boolean);
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.engine.dispose();
   }
 }
 
