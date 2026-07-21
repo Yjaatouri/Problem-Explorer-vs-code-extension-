@@ -64,20 +64,20 @@ export interface TimelineEvent {
 
 export interface Timeline {
   readonly id: TimelineId;
-  readonly traceIds: readonly TraceId[];
+  readonly traceIds: TraceId[];
   readonly primaryTraceId: TraceId;
   readonly startTime: number;
   endTime?: number;
   durationMs?: number;
   status: TimelineStatus;
   readonly events: TimelineEvent[];
-  readonly pipelineIds: readonly string[];
-  readonly uris: readonly string[];
-  readonly providers: readonly string[];
-  readonly eventTypeCounts: ReadonlyMap<string, number>;
-  readonly hasAssertionFailure: boolean;
-  readonly hasPipelineFailure: boolean;
-  readonly hasProviderFailure: boolean;
+  readonly pipelineIds: string[];
+  readonly uris: string[];
+  readonly providers: string[];
+  readonly eventTypeCounts: Map<string, number>;
+  hasAssertionFailure: boolean;
+  hasPipelineFailure: boolean;
+  hasProviderFailure: boolean;
   readonly createdAt: number;
   lastActivityAt: number;
   error?: string;
@@ -307,20 +307,19 @@ export class TimelineGenerator {
     timeline.events.push(tlEvent);
     timeline.lastActivityAt = Date.now();
 
-    if (uri && !timeline.uris.includes(uri)) (timeline.uris as string[]).push(uri);
-    if (provider && !timeline.providers.includes(provider)) (timeline.providers as string[]).push(provider);
-    if (tlEvent.pipelineId && !timeline.pipelineIds.includes(tlEvent.pipelineId)) (timeline.pipelineIds as string[]).push(tlEvent.pipelineId);
-    if (!timeline.traceIds.includes(event.traceId)) (timeline.traceIds as TraceId[]).push(event.traceId);
+    if (uri && !timeline.uris.includes(uri)) timeline.uris.push(uri);
+    if (provider && !timeline.providers.includes(provider)) timeline.providers.push(provider);
+    if (tlEvent.pipelineId && !timeline.pipelineIds.includes(tlEvent.pipelineId)) timeline.pipelineIds.push(tlEvent.pipelineId);
+    if (!timeline.traceIds.includes(event.traceId)) timeline.traceIds.push(event.traceId);
 
-    const current = timeline.eventTypeCounts.get(event.type) ?? 0;
-    (timeline.eventTypeCounts as Map<string, number>).set(event.type, current + 1);
+    timeline.eventTypeCounts.set(event.type, (timeline.eventTypeCounts.get(event.type) ?? 0) + 1);
 
-    if (event.type === 'assertion.failure') (timeline as { hasAssertionFailure: boolean }).hasAssertionFailure = true;
-    if (event.type === 'pipeline.execution.failed') (timeline as { hasPipelineFailure: boolean }).hasPipelineFailure = true;
+    if (event.type === 'assertion.failure') timeline.hasAssertionFailure = true;
+    if (event.type === 'pipeline.execution.failed') timeline.hasPipelineFailure = true;
 
     const phase = (event as any).phase;
     if (phase === 'error' || phase === 'cancelled') {
-      if (category === TimelineEventCategory.Provider) (timeline as { hasProviderFailure: boolean }).hasProviderFailure = true;
+      if (category === TimelineEventCategory.Provider) timeline.hasProviderFailure = true;
     }
 
     if (this.isTerminalEvent(event) && timeline.status === TimelineStatus.Live) {
@@ -436,6 +435,25 @@ export class TimelineGenerator {
     const idx = this.timelineOrder.indexOf(id);
     if (idx >= 0) this.timelineOrder.splice(idx, 1);
     return true;
+  }
+
+  finalizeTimeline(id: TimelineId, status: TimelineStatus.Completed | TimelineStatus.Failed | TimelineStatus.Cancelled | TimelineStatus.TimedOut, error?: string): boolean {
+    const tl = this.timelines.get(id);
+    if (!tl) return false;
+    const nowMs = Date.now();
+    tl.endTime = nowMs;
+    tl.durationMs = nowMs - tl.startTime;
+    tl.status = status;
+    if (error) tl.error = error;
+    return true;
+  }
+
+  getLiveTimelines(): readonly Timeline[] {
+    return [...this.timelines.values()].filter((t) => t.status === TimelineStatus.Live);
+  }
+
+  getHistoricalTimelines(): readonly Timeline[] {
+    return [...this.timelines.values()].filter((t) => t.status !== TimelineStatus.Live);
   }
 
   /* ------------------------------------------------------------------ */
