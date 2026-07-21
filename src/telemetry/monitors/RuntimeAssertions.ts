@@ -47,6 +47,15 @@ export interface RecoveryPolicy {
   readonly actions: RecoveryAction[];
 }
 
+/** Context passed to recovery handlers when an assertion fails */
+export interface RecoveryContext {
+  stopPipeline?(pipelineId?: string): void;
+  requestSnapshot?(): void;
+  requestTimeline?(): void;
+  notifyDashboard?(): void;
+  autoRecover?(ruleName: string): void;
+}
+
 /* ------------------------------------------------------------------ */
 /*  AssertionRule                                                      */
 /* ------------------------------------------------------------------ */
@@ -145,6 +154,9 @@ export interface AssertionEngine {
   getStatistics(): AssertionStatistics;
   getFailures(): AssertionFailure[];
   clearFailures(): void;
+  /** Set recovery handlers for executing recovery policies */
+  setRecoveryHandlers(handlers: RecoveryContext): void;
+  getRecoveryHandlers(): RecoveryContext;
   dispose(): void;
 }
 
@@ -203,8 +215,17 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
   private readonly assertionFrequency = new Map<string, number>();
 
   private readonly maxStoredFailures = 10000;
+  private recoveryHandlers: RecoveryContext = {};
 
   constructor(private readonly reporter: TelemetryReporter) {}
+
+  setRecoveryHandlers(handlers: RecoveryContext): void {
+    this.recoveryHandlers = handlers;
+  }
+
+  getRecoveryHandlers(): RecoveryContext {
+    return this.recoveryHandlers;
+  }
 
   registerRule(rule: AssertionRule): Disposable {
     this.rules.set(rule.name, rule);
@@ -330,7 +351,11 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
     } as TelemetryEvent);
 
     for (const f of result.failures) {
-      this.storeFailure(f);
+      const enhancedFailure: AssertionFailure = {
+        ...f,
+        stackTrace: f.stackTrace ?? new Error().stack,
+      };
+      this.storeFailure(enhancedFailure);
       this.reporter.report({
         type: 'assertion.failure',
         timestamp: f.timestamp,
@@ -345,6 +370,8 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
         pipelineId: f.pipelineId,
       } as TelemetryEvent);
     }
+
+    this.applyRecovery(rule, result);
 
     return result;
   }
@@ -370,6 +397,47 @@ class DefaultAssertionEngine implements AssertionEngine, Disposable {
         failure.uri,
         (this.failureUriCount.get(failure.uri) ?? 0) + 1,
       );
+    }
+    const monitor = this.extractMonitor(failure.assertion);
+    if (monitor) {
+      this.failureMonitorCount.set(
+        monitor,
+        (this.failureMonitorCount.get(monitor) ?? 0) + 1,
+      );
+    }
+  }
+
+  private extractMonitor(assertion: string): string | undefined {
+    const dot = assertion.indexOf('.');
+    return dot > 0 ? assertion.slice(0, dot) : undefined;
+  }
+
+  private applyRecovery(rule: AssertionRule, result: AssertionResult): void {
+    if (result.passed) return;
+    const policy = rule.recovery;
+    const handlers = this.recoveryHandlers;
+    for (const action of policy.actions) {
+      switch (action) {
+        case RecoveryAction.None:
+          break;
+        case RecoveryAction.WarningOnly:
+          break;
+        case RecoveryAction.AutoRecover:
+          handlers.autoRecover?.(rule.name);
+          break;
+        case RecoveryAction.StopPipeline:
+          handlers.stopPipeline?.(result.failures[0]?.pipelineId);
+          break;
+        case RecoveryAction.RequestSnapshot:
+          handlers.requestSnapshot?.();
+          break;
+        case RecoveryAction.RequestTimeline:
+          handlers.requestTimeline?.();
+          break;
+        case RecoveryAction.NotifyDashboard:
+          handlers.notifyDashboard?.();
+          break;
+      }
     }
   }
 
