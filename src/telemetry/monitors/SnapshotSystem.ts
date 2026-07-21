@@ -1,3 +1,4 @@
+import { Uri } from 'vscode';
 import { TelemetryReporter } from '../../telemetry/TelemetryReporter';
 import { TelemetrySubscription } from '../../telemetry/TelemetryBus';
 import { TelemetryEvent } from '../../telemetry/TelemetryEvent';
@@ -60,6 +61,16 @@ export interface SnapshotMetadata {
 /*  Snapshot data interfaces (existing + extended)                     */
 /* ------------------------------------------------------------------ */
 
+export interface StoreEntrySnapshot {
+  readonly key: string;
+  readonly severity: number;
+  readonly errorCount: number;
+  readonly warningCount: number;
+  readonly infoCount: number;
+  readonly fileCount: number;
+  readonly provider?: string;
+}
+
 export interface StoreSnapshot {
   readonly version: number;
   readonly entryCount: number;
@@ -69,6 +80,8 @@ export interface StoreSnapshot {
   readonly totalWarnings: number;
   readonly totalInfos: number;
   readonly providerPriorities: Record<string, number>;
+  readonly entries?: readonly StoreEntrySnapshot[];
+  readonly folderAggregates?: readonly StoreEntrySnapshot[];
 }
 
 export interface FolderSnapshot {
@@ -375,8 +388,31 @@ export class SnapshotSystem {
     const totals = this.problemStore.computeTotals();
     let folderCount = 0;
     let fileCount = 0;
-    this.problemStore.forEachEntry((_key: string, _state: import('../../core/types').ProblemState, isFolder: boolean) => {
-      if (isFolder) folderCount++; else fileCount++;
+    const entries: StoreEntrySnapshot[] = [];
+    const folderAggregates: StoreEntrySnapshot[] = [];
+
+    this.problemStore.forEachEntry((key: string, state: import('../../core/types').ProblemState, isFolder: boolean) => {
+      if (isFolder) {
+        folderCount++;
+        if (folderAggregates.length < 500) {
+          folderAggregates.push({
+            key, severity: state.severity,
+            errorCount: state.errorCount, warningCount: state.warningCount,
+            infoCount: state.infoCount, fileCount: state.fileCount,
+            provider: this.problemStore?.getOwningProvider(Uri.parse(key)),
+          });
+        }
+      } else {
+        fileCount++;
+        if (entries.length < 500) {
+          entries.push({
+            key, severity: state.severity,
+            errorCount: state.errorCount, warningCount: state.warningCount,
+            infoCount: state.infoCount, fileCount: state.fileCount,
+            provider: this.problemStore?.getOwningProvider(Uri.parse(key)),
+          });
+        }
+      }
     });
 
     return {
@@ -388,11 +424,20 @@ export class SnapshotSystem {
       totalWarnings: totals.warningCount,
       totalInfos: totals.infoCount,
       providerPriorities: {},
+      entries,
+      folderAggregates,
     };
   }
 
   private captureFolders(): FolderSnapshot {
-    return { trackedUris: 0 };
+    let trackedUris = 0;
+    if (this.folderMonitor) {
+      try {
+        const snap = this.folderMonitor.captureSnapshot();
+        trackedUris = snap.indexSize;
+      } catch { /* skip */ }
+    }
+    return { trackedUris };
   }
 
   private captureProviders(): ProviderSnapshot {
