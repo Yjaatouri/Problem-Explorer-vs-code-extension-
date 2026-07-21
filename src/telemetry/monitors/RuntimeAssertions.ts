@@ -95,8 +95,6 @@ export interface AssertionFailure {
   readonly provider?: string;
   readonly pipelineId?: string;
   readonly stackTrace?: string;
-  readonly relatedEvents?: TelemetryEvent[];
-  readonly relatedData?: Record<string, unknown>;
 }
 
 /* ------------------------------------------------------------------ */

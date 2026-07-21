@@ -29,7 +29,7 @@ import { createAutoScannerMonitor } from './telemetry/monitors/AutoScannerMonito
 import { createDiagnosticsMonitor } from './telemetry/monitors/DiagnosticsMonitor';
 import { createDecorationMonitor } from './telemetry/monitors/DecorationMonitor';
 import { createFolderMonitor } from './telemetry/monitors/FolderMonitor';
-import { createEventPipelineMonitor } from './telemetry/monitors/EventPipelineMonitor';
+import { createEventPipelineMonitor, PipelineId } from './telemetry/monitors/EventPipelineMonitor';
 import { createTimerMonitor } from './telemetry/monitors/TimerMonitor';
 import { createPerformanceMonitor } from './telemetry/monitors/PerformanceMonitor';
 import { createRuntimeAssertions } from './telemetry/monitors/RuntimeAssertions';
@@ -411,7 +411,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       },
       stopPipeline: (pipelineId?: string) => {
         if (pipelineId) {
-          pipelineMonitor.cancelExecution(pipelineId as any, 'Assertion failure recovery');
+          pipelineMonitor.cancelExecution(pipelineId as PipelineId, 'Assertion failure recovery');
           log(`[ASSERTION] Pipeline ${pipelineId} stopped via recovery`);
         }
       },
