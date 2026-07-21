@@ -112,6 +112,7 @@ const DEFAULT_MAX_FILE_SIZE = 5 * 1024 * 1024; /* 5 MB */
 const DEFAULT_MAX_LOG_FILES = 10;
 const DEFAULT_FLUSH_INTERVAL_MS = 2000;
 const MAX_BATCH_WRITE_SIZE = 50;
+const MAX_QUEUE_SIZE = 10000;
 
 /* ------------------------------------------------------------------ */
 /*  FileLogger                                                         */
@@ -180,16 +181,18 @@ export class FileLogger {
       }).catch(() => {});
 
       if (event.type === 'assertion.failure') {
-        this.assertionFailures.push({
-          seq: 0,
-          sessionId: this.currentSession?.id ?? ('' as LogSessionId),
-          timestamp: Date.now(),
-          level: LogLevel.Error,
-          source: event.source ?? 'unknown',
-          type: event.type,
-          data: event,
-          traceId: event.traceId,
-        });
+        if (this.assertionFailures.length < 10000) {
+          this.assertionFailures.push({
+            seq: 0,
+            sessionId: this.currentSession?.id ?? ('' as LogSessionId),
+            timestamp: Date.now(),
+            level: LogLevel.Error,
+            source: event.source ?? 'unknown',
+            type: event.type,
+            data: event,
+            traceId: event.traceId,
+          });
+        }
       }
     });
   }
@@ -226,17 +229,21 @@ export class FileLogger {
 
     /* Write session metadata */
     const metaPath = path.join(sessionDir, 'session.json');
-    fs.writeFileSync(metaPath, JSON.stringify({
-      id, startTime: this.currentSession.startTime,
-      workspaceRoot: this.workspaceRoot,
-      extensionVersion: this.extensionVersion,
-      vscodeVersion: this.vscodeVersion,
-    }, null, 2), 'utf8');
+    try {
+      await fs.promises.writeFile(metaPath, JSON.stringify({
+        id, startTime: this.currentSession.startTime,
+        workspaceRoot: this.workspaceRoot,
+        extensionVersion: this.extensionVersion,
+        vscodeVersion: this.vscodeVersion,
+      }, null, 2), 'utf8');
+    } catch { /* non-critical */ }
 
     /* Write workspace info at top level */
     if (this.workspaceRoot) {
       const infoPath = path.join(this.logDir, 'workspace.json');
-      fs.writeFileSync(infoPath, JSON.stringify({ root: this.workspaceRoot, updatedAt: Date.now() }, null, 2), 'utf8');
+      try {
+        await fs.promises.writeFile(infoPath, JSON.stringify({ root: this.workspaceRoot, updatedAt: Date.now() }, null, 2), 'utf8');
+      } catch { /* non-critical */ }
     }
 
     /* Start flush timer */
@@ -307,8 +314,11 @@ export class FileLogger {
     this.entriesByLevel.set(entry.level, (this.entriesByLevel.get(entry.level) ?? 0) + 1);
 
     if (this.writer) {
+      if (this.writeQueue.length >= MAX_QUEUE_SIZE) {
+        this.writeQueue.shift();
+        this.droppedWrites++;
+      }
       this.writeQueue.push(logEntry);
-      this.checkRotation();
       if (this.writeQueue.length >= MAX_BATCH_WRITE_SIZE) {
         await this.flush();
       }
@@ -348,6 +358,8 @@ export class FileLogger {
     this.totalFlushDurationMs += Date.now() - flushStart;
     this.flushCount++;
     this.flushing = false;
+    this.checkRotation();
+    this.writePipelineIndex();
   }
 
   protected flushSync(): void {
@@ -362,13 +374,15 @@ export class FileLogger {
 
   async rotate(): Promise<void> {
     if (!this.writer) return;
-    const oldPath = this.writer.path;
+    const oldWriter = this.writer;
+    const oldPath = oldWriter.path;
     const dir = path.dirname(oldPath);
     const ext = path.extname(oldPath);
     const base = path.basename(oldPath, ext);
 
     await this.flush();
-    await this.writer.close();
+    this.writer = undefined;
+    await oldWriter.close();
 
     for (let i = this.maxLogFiles - 1; i >= 0; i--) {
       const src = i === 0 ? oldPath : path.join(dir, `${base}.${i}${ext}`);
@@ -414,6 +428,19 @@ export class FileLogger {
     return removed;
   }
 
+  private writePipelineIndex(): void {
+    if (!this.currentSession) return;
+    const indexDir = path.join(this.logDir, `session-${this.currentSession.id}`);
+    if (!fs.existsSync(indexDir)) return;
+    const index: Record<string, string[]> = {};
+    for (const [pid, sessions] of this.pipelineIndex) {
+      index[pid] = [...sessions];
+    }
+    try {
+      fs.writeFileSync(path.join(indexDir, 'pipelines.json'), JSON.stringify(index, null, 2), 'utf8');
+    } catch { /* non-critical */ }
+  }
+
   private createWriter(stream: fs.WriteStream, filePath: string): LogWriter {
     return {
       write: (entry: LogEntry): Promise<void> => {
@@ -453,13 +480,17 @@ export class FileLogger {
     let exported = 0;
 
     /* Copy all log directories */
-    for (const dirEntry of fs.readdirSync(this.logDir)) {
+    const entries = await fs.promises.readdir(this.logDir);
+    for (const dirEntry of entries) {
       const src = path.join(this.logDir, dirEntry);
-      if (fs.statSync(src).isDirectory()) {
-        const dst = path.join(targetDir, dirEntry);
-        this.copyDirSync(src, dst);
-        exported++;
-      }
+      try {
+        const stat = await fs.promises.stat(src);
+        if (stat.isDirectory()) {
+          const dst = path.join(targetDir, dirEntry);
+          await this.copyDir(src, dst);
+          exported++;
+        }
+      } catch { /* skip */ }
     }
 
     return { exported, path: targetDir };
@@ -484,7 +515,7 @@ export class FileLogger {
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     const filePath = path.join(targetDir, 'snapshots.jsonl');
     const stream = fs.createWriteStream(filePath, { flags: 'a' });
-    const stats = (snapshotSystem as any).getStatistics?.();
+    const stats = snapshotSystem.getStatistics();
     stream.write(JSON.stringify({ type: 'snapshot.statistics', stats }) + '\n');
     return new Promise((resolve) => {
       stream.end(() => resolve(filePath));
@@ -599,16 +630,22 @@ export class FileLogger {
     return LogLevel.Info;
   }
 
-  private copyDirSync(src: string, dst: string): void {
-    if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
-    for (const entry of fs.readdirSync(src)) {
+  private async copyDir(src: string, dst: string): Promise<void> {
+    try {
+      await fs.promises.mkdir(dst, { recursive: true });
+    } catch { /* already exists */ }
+    const entries = await fs.promises.readdir(src);
+    for (const entry of entries) {
       const srcPath = path.join(src, entry);
       const dstPath = path.join(dst, entry);
-      if (fs.statSync(srcPath).isDirectory()) {
-        this.copyDirSync(srcPath, dstPath);
-      } else {
-        fs.copyFileSync(srcPath, dstPath);
-      }
+      try {
+        const stat = await fs.promises.stat(srcPath);
+        if (stat.isDirectory()) {
+          await this.copyDir(srcPath, dstPath);
+        } else {
+          await fs.promises.copyFile(srcPath, dstPath);
+        }
+      } catch { /* skip */ }
     }
   }
 
