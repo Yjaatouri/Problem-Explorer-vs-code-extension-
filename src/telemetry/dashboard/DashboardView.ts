@@ -727,23 +727,6 @@ export class DashboardView implements DashboardViewApi {
       sectionsHtml +
       '</div><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:400px\">' + safeJson(snap) + '</pre>';
   };
-    var d = state.data['timeline'];
-    if (!d) return;
-    var all = (d.live || []).concat(d.historical || []).concat(d.failed || []);
-    var tl = null;
-    for (var i = 0; i < all.length; i++) { if (all[i].id === id) { tl = all[i]; break; } }
-    if (!tl) return;
-    var detailEl = document.getElementById('timelineDetail');
-    if (!detailEl) return;
-    detailEl.innerHTML = '<div class=\"section\"><h3>Timeline: ' + esc(id) + '</h3>' +
-      detail('Status', tl.status || '?') +
-      detail('Events', tl.eventCount ?? tl.events?.length ?? 0) +
-      (tl.error ? detail('Error', tl.error) : '') +
-      (tl.durationMs ? detail('Duration', tl.durationMs + 'ms') : '') +
-      (tl.startedAt ? detail('Started', formatTime(tl.startedAt)) : '') +
-      (tl.completedAt ? detail('Completed', formatTime(tl.completedAt)) : '') +
-      '</div><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:300px\">' + safeJson(tl) + '</pre>';
-  };
 
   /* ---- Message Handling ---- */
   window.addEventListener('message', function(event) {
