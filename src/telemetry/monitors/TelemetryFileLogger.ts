@@ -8,7 +8,7 @@ const MAX_LOG_FILES = 3;
 
 /** Writes all telemetry events to a rotating JSON-lines log file for offline forensic analysis */
 export class TelemetryFileLogger {
-  private stream: fs.WriteStream;
+  private stream: fs.WriteStream | null = null;
   private readonly logPath: string;
   private bytesWritten = 0;
   private disposed = false;
@@ -20,13 +20,22 @@ export class TelemetryFileLogger {
     filename: string = 'telemetry.jsonl',
   ) {
     this.logPath = path.join(logDir, filename);
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    this.rotateExisting();
-    this.stream = fs.createWriteStream(this.logPath, { flags: 'a' });
-    this.bytesWritten = fs.statSync(this.logPath).size;
+    try {
+      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+      this.rotateExisting();
+      this.stream = fs.createWriteStream(this.logPath, { flags: 'a' });
+      try {
+        this.bytesWritten = fs.statSync(this.logPath).size;
+      } catch {
+        this.bytesWritten = 0;
+      }
+    } catch {
+      // Log file unavailable — writes will be silently dropped
+      this.stream = null;
+    }
 
     this.sub = reporter.subscribeAll((event: TelemetryEvent) => {
-      if (this.disposed) return;
+      if (this.disposed || !this.stream) return;
       try {
         const line = JSON.stringify(event) + '\n';
         this.stream.write(line);
@@ -55,9 +64,14 @@ export class TelemetryFileLogger {
   }
 
   private rotate(): void {
+    if (!this.stream) return;
     this.stream.end();
     this.rotateExisting();
-    this.stream = fs.createWriteStream(this.logPath, { flags: 'a' });
+    try {
+      this.stream = fs.createWriteStream(this.logPath, { flags: 'a' });
+    } catch {
+      this.stream = null;
+    }
     this.bytesWritten = 0;
   }
 
@@ -65,7 +79,7 @@ export class TelemetryFileLogger {
     if (this.disposed) return;
     this.disposed = true;
     this.sub.dispose();
-    this.stream.end();
+    this.stream?.end();
   }
 }
 

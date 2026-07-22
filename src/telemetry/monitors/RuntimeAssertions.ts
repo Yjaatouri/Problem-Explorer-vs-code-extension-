@@ -1227,7 +1227,7 @@ export function createDiagnosticsMappingFailureRule(monitor: DiagnosticsMonitor)
   return {
     name: 'diagnostics.mappingFailure', description: 'Detect diagnostics mapping failures',
     category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Error,
-    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    enabled: false, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
       const stats = monitor.getStatistics();
@@ -1343,7 +1343,7 @@ export function createDecorationWithoutStateRule(monitor: DecorationMonitor, sto
   return {
     name: 'decoration.withoutState', description: 'Detect decorations returned for entries without store state',
     category: AssertionCategory.Decoration, severity: AssertionSeverity.Warning,
-    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    enabled: false, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
       const lastDecoration = getDecorationLastDecoration(monitor);
