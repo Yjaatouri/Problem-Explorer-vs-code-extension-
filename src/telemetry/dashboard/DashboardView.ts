@@ -38,7 +38,10 @@ export class DashboardView implements DashboardViewApi {
     this.panel.webview.html = this.getHtml();
 
     this.panel.webview.onDidReceiveMessage(
-      (msg: DashboardMessage) => this.messageHandler?.(msg),
+      (msg: DashboardMessage) => {
+        console.log('[Dashboard] Received message from webview:', JSON.stringify(msg));
+        this.messageHandler?.(msg);
+      },
     );
 
     this.panel.onDidDispose(() => {
@@ -67,13 +70,14 @@ export class DashboardView implements DashboardViewApi {
   /* ------------------------------------------------------------------ */
 
   private getHtml(): string {
+    const nonce = getNonce();
     return /* html */`
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <title>Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -164,7 +168,7 @@ export class DashboardView implements DashboardViewApi {
   </div>
 </div>
 
-<script>
+<script nonce="${nonce}">
 (function() {
   const vscode = acquireVsCodeApi();
   let state = { currentPanel: 'overview', data: {}, loading: {}, error: undefined, filter: {} };
@@ -748,8 +752,11 @@ export class DashboardView implements DashboardViewApi {
   });
 
   /* ---- Init ---- */
+  console.log('[Dashboard Webview] Starting init...');
   renderNav();
+  console.log('[Dashboard Webview] renderNav done');
   vscode.postMessage({ type: 'viewReady' });
+  console.log('[Dashboard Webview] viewReady sent');
 })();
 </script>
 </body>

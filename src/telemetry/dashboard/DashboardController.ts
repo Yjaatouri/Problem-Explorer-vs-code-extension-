@@ -57,6 +57,7 @@ export class DashboardController implements DashboardControllerApi {
         this.refreshAll();
         break;
       case 'viewReady':
+        console.log('[Dashboard] viewReady received from webview');
         this.refreshAll();
         break;
       default:

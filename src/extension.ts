@@ -265,6 +265,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     // scan respects enabled/disabled state, timeout, etc.
     const applyConfig = (): void => {
       const config = configManager.getConfig();
+      decorationEngine.setConfig(config);
       diagProvider.setSeverityOverrides(config.severityOverrides);
       diagProvider.setIgnorePatterns(config.ignorePatterns);
       tscProvider.updateConfig(config.typescript);
