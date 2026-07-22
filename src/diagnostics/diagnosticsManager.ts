@@ -220,10 +220,7 @@ export class DiagnosticsManager implements DiagnosticProvider {
       return;
     }
 
-    const ext = uri.fsPath.toLowerCase().slice(uri.fsPath.lastIndexOf('.'));
-    if (!this._ownershipQuery.isRealtimeExtension(ext)) {
-      return;
-    }
+
 
     if (diagnostics.length === 0) {
       if (this._store.delete(uri)) {
