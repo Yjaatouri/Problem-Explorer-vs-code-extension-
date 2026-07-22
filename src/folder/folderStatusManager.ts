@@ -49,10 +49,11 @@ export class FolderStatusManager {
     const changed: Uri[] = [];
     let childKey = normalizeUriKey(fileUri);
     const rootStr = normalizeUriKey(folder.uri);
+    const rootStrLower = rootStr.toLowerCase();
     let parentKey = getParentKey(childKey);
 
     // Walk from the file's parent up to (but not including) the workspace root
-    while (parentKey !== childKey && parentKey !== rootStr) {
+    while (parentKey !== childKey && (process.platform === 'win32' ? parentKey.toLowerCase() !== rootStrLower : parentKey !== rootStr)) {
       let index = this.childIndex.get(parentKey);
 
       const childStatus = this.problemStore.get(Uri.parse(childKey));
@@ -165,13 +166,21 @@ export class FolderStatusManager {
     for (const folder of this.wf.workspaceFolders) {
       const rootStr = normalizeUriKey(folder.uri);
       const rootPrefix = rootStr + '/';
+      const rootStrLower = rootStr.toLowerCase();
+      const rootPrefixLower = rootPrefix.toLowerCase();
 
       // Filter entries for this workspace folder
       const entries: Array<[string, ProblemState, boolean]> = [];
       for (const entry of allEntries) {
         const key = entry[0];
-        if (key === rootStr || key.startsWith(rootPrefix)) {
-          entries.push(entry);
+        if (process.platform === 'win32') {
+          if (key.toLowerCase() === rootStrLower || key.toLowerCase().startsWith(rootPrefixLower)) {
+            entries.push(entry);
+          }
+        } else {
+          if (key === rootStr || key.startsWith(rootPrefix)) {
+            entries.push(entry);
+          }
         }
       }
 

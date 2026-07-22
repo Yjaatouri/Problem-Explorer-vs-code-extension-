@@ -18,17 +18,12 @@ export function normalizeUriKey(uri: Uri): string {
 
   let key = input;
 
-  if (process.platform === 'win32') {
-    key = key.toLowerCase();
-    key = key.replace(/%3a/g, '%3A');
-  } else {
-    // Normalize Windows drive letter casing: file:///C%3A/... or file:///C:/...
-    key = key.replace(
-      /^(file:\/\/\/)([A-Za-z])(%3A|%3a|:)/,
-      (_match, prefix: string, drive: string, colon: string) =>
-        prefix + drive.toLowerCase() + (colon === ':' ? ':' : '%3A'),
-    );
-  }
+  // Normalize Windows drive letter casing: file:///C%3A/... or file:///C:/...
+  key = key.replace(
+    /^(file:\/\/\/)([A-Za-z])(%3A|%3a|:)/,
+    (_match, prefix: string, drive: string, colon: string) =>
+      prefix + drive.toLowerCase() + (colon === ':' ? ':' : '%3A'),
+  );
 
   // Strip trailing slashes (but never the scheme-root slash)
   while (

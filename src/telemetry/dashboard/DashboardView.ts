@@ -1,9 +1,14 @@
 import * as vscode from 'vscode';
 import type { DashboardViewApi, DashboardMessage } from './DashboardTypes';
+import * as crypto from 'crypto';
 
 /* ------------------------------------------------------------------ */
 /*  DashboardView — VS Code Webview Panel                              */
 /* ------------------------------------------------------------------ */
+
+function getNonce(): string {
+  return crypto.randomBytes(16).toString('base64');
+}
 
 export class DashboardView implements DashboardViewApi {
   private panel: vscode.WebviewPanel | undefined;
@@ -24,6 +29,7 @@ export class DashboardView implements DashboardViewApi {
       return;
     }
 
+    console.log('[Dashboard] Creating webview panel...');
     this.panel = vscode.window.createWebviewPanel(
       'problemExplorerDashboard',
       'Problem Explorer Dashboard',
@@ -35,7 +41,9 @@ export class DashboardView implements DashboardViewApi {
       },
     );
 
-    this.panel.webview.html = this.getHtml();
+    const html = this.getHtml();
+    console.log('[Dashboard] HTML length:', html.length, 'contains nonce:', html.includes('nonce'));
+    this.panel.webview.html = html;
 
     this.panel.webview.onDidReceiveMessage(
       (msg: DashboardMessage) => {
@@ -77,7 +85,7 @@ export class DashboardView implements DashboardViewApi {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">  <!-- nonce-based doesn't work; using unsafe-inline for now -->
   <title>Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
