@@ -50,18 +50,18 @@
         "category": "Problem Explorer"
       },
       {
-        "command": "problemExplorer.forensicReport",
-        "title": "Dump Forensic Report",
-        "category": "Problem Explorer"
-      },
-      {
-        "command": "problemExplorer.resetChainCounters",
-        "title": "Reset Chain Counters",
-        "category": "Problem Explorer"
-      },
-      {
         "command": "problemExplorer.scanWorkspace",
         "title": "Scan Workspace",
+        "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.openDeveloperDashboard",
+        "title": "Open Developer Dashboard",
+        "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.analyzeTelemetryLog",
+        "title": "Analyze Telemetry Log",
         "category": "Problem Explorer"
       }
     ],
