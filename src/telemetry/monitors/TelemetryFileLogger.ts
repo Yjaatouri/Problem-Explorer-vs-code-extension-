@@ -20,6 +20,7 @@ export class TelemetryFileLogger {
     filename: string = 'telemetry.jsonl',
   ) {
     this.logPath = path.join(logDir, filename);
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
     this.rotateExisting();
     this.stream = fs.createWriteStream(this.logPath, { flags: 'a' });
     this.bytesWritten = fs.statSync(this.logPath).size;

@@ -481,7 +481,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         const results = await runtimeAssertions.engine.executeAll();
         const failed = results.filter((r) => !r.passed);
         if (failed.length > 0) {
-          log(`[ASSERTION] ${failed.length} assertion(s) failed out of ${results.length} executed`);
+          const names = failed.map((r) => r.failures[0]?.assertion ?? 'unknown').join(', ');
+          log(`[ASSERTION] ${failed.length} assertion(s) failed out of ${results.length} executed: [${names}]`);
         }
       }, 30000);
       context.subscriptions.push({ dispose: () => clearInterval(assertionInterval) });
