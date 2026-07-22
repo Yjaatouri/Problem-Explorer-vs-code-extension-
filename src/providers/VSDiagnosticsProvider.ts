@@ -14,7 +14,7 @@ export class VSDiagnosticsProvider extends BaseProblemProvider {
   private diagEventCount = 0;
   private readonly dirtyUris = new Set<string>();
   private readonly pendingUris = new Set<string>();
-  private flushUpdates: { (): void; cancel(): void } | undefined;
+  private flushUpdates: { (): void; cancel(): void; flush(): void } | undefined;
 
 public get eventCount(): number { return this.diagEventCount; }
 
@@ -83,6 +83,7 @@ public get eventCount(): number { return this.diagEventCount; }
       // Flush any URIs that were queued before flushUpdates was initialized (e.g., from initializeAll scans)
       if (this.pendingUris.size > 0) {
         this.flushUpdates();
+        this.flushUpdates.flush();
       }
 
       const changedFolders = this.folderStatusManager.rebuildAll();
