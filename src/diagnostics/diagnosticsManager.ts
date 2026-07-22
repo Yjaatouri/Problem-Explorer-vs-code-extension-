@@ -140,7 +140,10 @@ export class DiagnosticsManager implements DiagnosticProvider {
       if (diags.length > 0) { hasAny = true; break; }
     }
     if (!hasAny) return;
-    this.fullScan();
+    const changed = this.fullScan();
+    if (changed.length > 0) {
+      this._onDidUpdate.fire(changed);
+    }
   }
 
   start(): void {
