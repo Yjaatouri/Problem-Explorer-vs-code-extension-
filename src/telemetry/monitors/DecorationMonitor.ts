@@ -167,6 +167,7 @@ export class DecorationMonitor {
   private readonly _recentChanges = new Map<string, { correlationId: string; traceId: string; timestamp: number }>();
   private readonly _correlationSubscription: TelemetrySubscription;
   private _correlationCleanupTimer: ReturnType<typeof setInterval> | undefined;
+  private _storeChangeSubscription: { dispose(): void } | undefined;
 
   /* Performance counters */
   private _statsStarted = Date.now();
@@ -201,6 +202,18 @@ export class DecorationMonitor {
     this._correlationCleanupTimer = setInterval(() => {
       this._cleanupStaleCorrelations();
     }, 5000);
+
+    /* Clean up _lastDecoration when store entries are removed */
+    if (problemStore) {
+      this._storeChangeSubscription = problemStore.onDidChange((change) => {
+        if (this.disposed) return;
+        if (change.kind === 'removed') {
+          this._lastDecoration.delete(change.uri.toString());
+        } else if (change.kind === 'cleared') {
+          this._lastDecoration.clear();
+        }
+      });
+    }
 
     this.stats = {
       totalRefreshes: 0,
@@ -563,6 +576,7 @@ export class DecorationMonitor {
     this._refreshHistory.clear();
     this._lastDecoration.clear();
     this._decorationLoopCount.clear();
+    this._storeChangeSubscription?.dispose();
   }
 
   /* ------------------------------------------------------------------ */

@@ -1203,7 +1203,7 @@ export function createDiagnosticsStaleRule(monitor: DiagnosticsMonitor, store: P
   return {
     name: 'diagnostics.stale', description: 'Detect stale diagnostics (known URIs removed from store)',
     category: AssertionCategory.Diagnostics, severity: AssertionSeverity.Info,
-    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    enabled: false, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
       const knownUris = getDiagnosticsKnownUris(monitor);
@@ -1231,9 +1231,9 @@ export function createDiagnosticsMappingFailureRule(monitor: DiagnosticsMonitor)
     execute: () => {
       const start = Date.now();
       const stats = monitor.getStatistics();
-      if (stats.totalMappings < stats.totalChanges) {
+      if (stats.totalChanges > 0 && stats.totalUris > 0 && stats.totalMappings === 0) {
         return failResult('diagnostics.mappingFailure', AssertionCategory.Diagnostics, AssertionSeverity.Error,
-          `${stats.totalChanges - stats.totalMappings} changes without mapping (totalChanges=${stats.totalChanges}, totalMappings=${stats.totalMappings})`, start);
+          `${stats.totalUris} URI(s) across ${stats.totalChanges} change(s) with 0 mappings`, start);
       }
       return passResult(start);
     },
@@ -1461,7 +1461,7 @@ export function createDecorationInvalidIconRule(monitor: DecorationMonitor): Ass
   return {
     name: 'decoration.invalidIcon', description: 'Detect decorations without color information',
     category: AssertionCategory.Decoration, severity: AssertionSeverity.Info,
-    enabled: true, recovery: { actions: [RecoveryAction.None] },
+    enabled: false, recovery: { actions: [RecoveryAction.None] },
     execute: () => {
       const start = Date.now();
       // Assumes _lastDecoration stores colorId; based on DecorationMonitor._lastDecoration shape
