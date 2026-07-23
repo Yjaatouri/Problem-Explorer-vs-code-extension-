@@ -1,10 +1,5 @@
 import * as vscode from 'vscode';
-import * as crypto from 'crypto';
 import type { DashboardViewApi, DashboardMessage } from './DashboardTypes';
-
-function getNonce(): string {
-  return crypto.randomBytes(16).toString('base64');
-}
 
 /* ------------------------------------------------------------------ */
 /*  DashboardView — VS Code Webview Panel                              */
@@ -44,9 +39,8 @@ export class DashboardView implements DashboardViewApi {
     );
     console.log('[Dashboard-F1] panel created, webview:', !!this.panel.webview);
 
-    const nonce = getNonce();
-    const html = this.getHtml(nonce);
-    console.log('[Dashboard-F1] HTML length:', html.length, 'nonce:', nonce, 'contains script:', html.includes('<script>'), 'last 200 chars:', html.slice(-200));
+    const html = this.getHtml();
+    console.log('[Dashboard-F1] HTML length:', html.length, 'contains script tag:', html.includes('<script'), 'last 200 chars:', html.slice(-200));
     this.panel.webview.html = html;
     console.log('[Dashboard-F1] HTML set');
 
@@ -87,14 +81,14 @@ export class DashboardView implements DashboardViewApi {
   /*  HTML Template                                                      */
   /* ------------------------------------------------------------------ */
 
-  private getHtml(nonce: string): string {
+  private getHtml(): string {
     return /* html */`
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
   <title>Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -185,7 +179,7 @@ export class DashboardView implements DashboardViewApi {
   </div>
 </div>
 
-<script nonce="${nonce}">
+<script>
 (function() {
   const vscode = acquireVsCodeApi();
   let state = { currentPanel: 'overview', data: {}, loading: {}, error: undefined, filter: {} };
