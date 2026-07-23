@@ -441,7 +441,7 @@ export class DashboardView implements DashboardViewApi {
     '<div class=\"section\"><h3>Snapshots (' + snaps.length + ')</h3>' +
     (snaps.length === 0 ? '<div class=\"empty-state\">No snapshots</div>' :
     makeTable(['ID','Trigger','Timestamp','Sections','Actions'], snaps, function(s) {
-      return [esc(s.metadata ? s.metadata.id : (s.id || '?')), esc(s.metadata ? s.metadata.trigger : (s.trigger || '?')), formatTime(s.metadata ? s.metadata.timestamp : s.timestamp), s.data ? Object.keys(s.data).length : (s.sections || 0), '<a href=\"#\" onclick=\"viewSnapshotDetails(\'' + esc(s.metadata ? s.metadata.id : (s.id || '')) + '\')\" style=\"color:var(--vscode-textLink-foreground)\">View</a>'];
+      return [esc(s.metadata ? s.metadata.id : (s.id || '?')), esc(s.metadata ? s.metadata.trigger : (s.trigger || '?')), formatTime(s.metadata ? s.metadata.timestamp : s.timestamp), s.data ? Object.keys(s.data).length : (s.sections || 0), '<a href=\"#\" onclick=\"viewSnapshotDetails(\\'' + esc(s.metadata ? s.metadata.id : (s.id || '')) + '\\')\" style=\"color:var(--vscode-textLink-foreground)\">View</a>'];
     })) +
     '</div>' +
     '<div id=\"snapshotDetail\"></div>';
@@ -477,17 +477,17 @@ export class DashboardView implements DashboardViewApi {
     '</div>' +
     '<div class=\"section\"><h3>Live Timelines (' + filteredLive.length + ')</h3>' +
     (filteredLive.length === 0 ? '<div class=\"empty-state\">No live timelines' + (filter.uri || filter.provider || filter.pipelineId ? ' matching filter' : '') + '</div>' : makeTable(['ID','Status','Events','Actions'], filteredLive, function(t) {
-      return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\'' + esc(t.id || '') + '\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
+      return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\\'' + esc(t.id || '') + '\\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
     })) +
     '</div>' +
     '<div class=\"section\"><h3>Historical (' + filteredHistorical.length + ')</h3>' +
     (filteredHistorical.length === 0 ? '<div class=\"empty-state\">No historical timelines' + (filter.uri || filter.provider || filter.pipelineId ? ' matching filter' : '') + '</div>' : makeTable(['ID','Status','Events','Actions'], filteredHistorical, function(t) {
-      return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\'' + esc(t.id || '') + '\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
+      return [esc(t.id || '?'), esc(t.status || '?'), t.eventCount ?? t.events?.length ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\\'' + esc(t.id || '') + '\\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
     })) +
     '</div>' +
     '<div class=\"section\"><h3>Failed (' + filteredFailed.length + ')</h3>' +
     (filteredFailed.length === 0 ? '<div class=\"empty-state\">No failed timelines' + (filter.uri || filter.provider || filter.pipelineId ? ' matching filter' : '') + '</div>' : makeTable(['ID','Error','Events','Actions'], filteredFailed, function(t) {
-      return [esc(t.id || '?'), esc(t.error || t.status || '?'), t.eventCount ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\'' + esc(t.id || '') + '\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
+      return [esc(t.id || '?'), esc(t.error || t.status || '?'), t.eventCount ?? 0, '<a href=\"#\" onclick=\"requestTimelineDetails(\\'' + esc(t.id || '') + '\\')\" style=\"color:var(--vscode-textLink-foreground)\">Details</a>'];
     })) +
     '</div>' +
     '<div id=\"timelineDetail\"></div>';
@@ -604,7 +604,7 @@ export class DashboardView implements DashboardViewApi {
     return '<div class=\"stat-card\"><div class=\"label\">' + esc(label) + '</div><div class=\"value\"' + (color ? ' style=\"color:' + color + '\"' : '') + '>' + esc(value) + '</div>' + (sub ? '<div class=\"sub\">' + esc(sub) + '</div>' : '') + '</div>';
   }
   function clickCard(label, value, sub, scope) {
-    return '<div class=\"stat-card\" style=\"cursor:pointer\" onclick=\"vscode.postMessage({type:\'requestExport\',format:\'json\',scope:\'' + scope + '\'})\"><div class=\"label\">' + label + '</div><div class=\"value\" style=\"font-size:14px\">' + value + '</div><div class=\"sub\">' + sub + '</div></div>';
+    return '<div class=\"stat-card\" style=\"cursor:pointer\" onclick=\"vscode.postMessage({type:\\'requestExport\\',format:\\'json\\',scope:\\'' + scope + '\\'})\"><div class=\"label\">' + label + '</div><div class=\"value\" style=\"font-size:14px\">' + value + '</div><div class=\"sub\">' + sub + '</div></div>';
   }
   function detail(label, value) {
     return '<div class=\"detail-row\"><span class=\"detail-label\">' + esc(label) + '</span><span class=\"detail-value\">' + esc(value) + '</span></div>';
