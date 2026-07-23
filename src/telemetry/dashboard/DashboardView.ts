@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
-import type { DashboardViewApi, DashboardMessage } from './DashboardTypes';
 import * as crypto from 'crypto';
-
-/* ------------------------------------------------------------------ */
-/*  DashboardView — VS Code Webview Panel                              */
-/* ------------------------------------------------------------------ */
+import type { DashboardViewApi, DashboardMessage } from './DashboardTypes';
 
 function getNonce(): string {
   return crypto.randomBytes(16).toString('base64');
 }
+
+/* ------------------------------------------------------------------ */
+/*  DashboardView — VS Code Webview Panel                              */
+/* ------------------------------------------------------------------ */
 
 export class DashboardView implements DashboardViewApi {
   private panel: vscode.WebviewPanel | undefined;
@@ -24,12 +24,14 @@ export class DashboardView implements DashboardViewApi {
   }
 
   show(): void {
+    console.log('[Dashboard-F1] show() ENTER');
     if (this.panel) {
+      console.log('[Dashboard-F1] panel exists, revealing');
       this.panel.reveal(vscode.ViewColumn.Two);
       return;
     }
 
-    console.log('[Dashboard] Creating webview panel...');
+    console.log('[Dashboard-F1] Creating webview panel...');
     this.panel = vscode.window.createWebviewPanel(
       'problemExplorerDashboard',
       'Problem Explorer Dashboard',
@@ -40,29 +42,37 @@ export class DashboardView implements DashboardViewApi {
         localResourceRoots: [this.extensionUri],
       },
     );
+    console.log('[Dashboard-F1] panel created, webview:', !!this.panel.webview);
 
-    const html = this.getHtml();
-    console.log('[Dashboard] HTML length:', html.length, 'contains nonce:', html.includes('nonce'));
+    const nonce = getNonce();
+    const html = this.getHtml(nonce);
+    console.log('[Dashboard-F1] HTML length:', html.length, 'nonce:', nonce, 'contains script:', html.includes('<script>'), 'last 200 chars:', html.slice(-200));
     this.panel.webview.html = html;
+    console.log('[Dashboard-F1] HTML set');
 
     this.panel.webview.onDidReceiveMessage(
       (msg: DashboardMessage) => {
-        console.log('[Dashboard] Received message from webview:', JSON.stringify(msg));
+        console.log('[Dashboard-F1] onDidReceiveMessage:', JSON.stringify(msg), 'handler:', !!this.messageHandler);
         this.messageHandler?.(msg);
       },
     );
+    console.log('[Dashboard-F1] onDidReceiveMessage listener registered');
 
     this.panel.onDidDispose(() => {
+      console.log('[Dashboard-F1] panel disposed');
       this._disposed = true;
       this.panel = undefined;
     });
+    console.log('[Dashboard-F1] show() EXIT');
   }
 
   postMessage(message: DashboardMessage): void {
+    console.log('[Dashboard-F1] postMessage:', message.type, 'panel:', !!this.panel, 'webview:', !!this.panel?.webview);
     this.panel?.webview.postMessage(message);
   }
 
   setMessageHandler(handler: (message: DashboardMessage) => void): void {
+    console.log('[Dashboard-F1] setMessageHandler called');
     this.messageHandler = handler;
   }
 
@@ -77,15 +87,14 @@ export class DashboardView implements DashboardViewApi {
   /*  HTML Template                                                      */
   /* ------------------------------------------------------------------ */
 
-  private getHtml(): string {
-    const nonce = getNonce();
+  private getHtml(nonce: string): string {
     return /* html */`
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">  <!-- nonce-based doesn't work; using unsafe-inline for now -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <title>Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -743,10 +752,12 @@ export class DashboardView implements DashboardViewApi {
   /* ---- Message Handling ---- */
   window.addEventListener('message', function(event) {
     var msg = event.data;
+    console.log('[Dashboard-F3] Received message:', JSON.stringify({ type: msg.type, panel: msg.panel, hasData: msg.data != null }));
     switch (msg.type) {
       case 'dataUpdate':
         state.data[msg.panel] = msg.data;
         state.loading[msg.panel] = false;
+        console.log('[Dashboard-F3] dataUpdate for:', msg.panel, 'currentPanel:', state.currentPanel);
         if (msg.panel === state.currentPanel) content.innerHTML = renderPanel(msg.panel, msg.data);
         if (msg.panel === 'overview' && msg.data) {
           healthBadge.textContent = msg.data.healthLevel || '--';
@@ -760,11 +771,11 @@ export class DashboardView implements DashboardViewApi {
   });
 
   /* ---- Init ---- */
-  console.log('[Dashboard Webview] Starting init...');
+  console.log('[Dashboard-F3] IIFE starting init...');
   renderNav();
-  console.log('[Dashboard Webview] renderNav done');
+  console.log('[Dashboard-F3] renderNav done');
   vscode.postMessage({ type: 'viewReady' });
-  console.log('[Dashboard Webview] viewReady sent');
+  console.log('[Dashboard-F3] viewReady sent');
 })();
 </script>
 </body>

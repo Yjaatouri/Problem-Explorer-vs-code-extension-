@@ -170,7 +170,7 @@ suite('ScannerValidation', () => {
       const tscDelegate = new FakeTscDelegate(project.errors);
       const runner = new TscRunner(tscDelegate);
       const parser = new TscOutputParser();
-      const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+      const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
       const tscCfg: TscConfig = { enabled: true, autoScan: true, scanOnStartup: false, timeout: 120000, useWorkspaceVersion: true, maxConcurrentScans: 1 };
       provider.updateConfig(tscCfg);
 
@@ -224,7 +224,7 @@ suite('ScannerValidation', () => {
     const tscDelegate = new FakeTscDelegate(errors);
     const runner = new TscRunner(tscDelegate);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
     const tscCfg: TscConfig = { enabled: true, autoScan: true, scanOnStartup: false, timeout: 120000, useWorkspaceVersion: true, maxConcurrentScans: 1 };
     provider.updateConfig(tscCfg);
 

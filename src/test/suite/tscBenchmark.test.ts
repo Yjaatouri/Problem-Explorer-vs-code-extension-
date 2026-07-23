@@ -76,7 +76,7 @@ suite('TscBenchmark', () => {
       const resolver = makeResolver([]);
       const runner = makeRunner('');
       const parser = new TscOutputParser();
-      const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+      const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
       provider.dispose();
     }, 1000);
     results.push(formatResult(r));
@@ -93,7 +93,7 @@ suite('TscBenchmark', () => {
     }]);
     const runner = makeRunner(largeOutput(10), 0, 1);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     const r = measure('Scan 10 errors', () => {
       provider.refresh();
@@ -113,7 +113,7 @@ suite('TscBenchmark', () => {
     }]);
     const runner = makeRunner(largeOutput(1000), 0, 5);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     const r = measure('Scan 1000 errors', () => {
       provider.refresh();
@@ -137,7 +137,7 @@ suite('TscBenchmark', () => {
     const resolver = makeResolver(projects);
     const runner = makeRunner(largeOutput(5), 0, 1);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     const r = measure('Scan 5 tsconfigs', () => {
       provider.refresh();
@@ -161,7 +161,7 @@ suite('TscBenchmark', () => {
     const resolver = makeResolver(projects);
     const runner = makeRunner(largeOutput(3), 0, 1);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     const r = measure('Scan 10 tsconfigs', () => {
       provider.refresh();
@@ -176,7 +176,7 @@ suite('TscBenchmark', () => {
     const resolver = makeResolver([]);
     const runner = makeRunner('');
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     const r = measure('No TypeScript (empty projects)', () => {
       provider.refresh();
@@ -196,7 +196,7 @@ suite('TscBenchmark', () => {
     }]);
     const runner = makeRunner(largeOutput(50), 2, 1);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     const r = measure('Compiler errors (exit=2, 50 diags)', () => {
       provider.refresh();
@@ -219,7 +219,7 @@ suite('TscBenchmark', () => {
     };
     const runner = new TscRunner(delegate);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     const r = measure('Invalid tsconfig (throw)', () => {
       provider.refresh();
@@ -245,7 +245,7 @@ suite('TscBenchmark', () => {
       }]);
       const runner = makeRunner(largeOutput(100), 0, 0);
       const parser = new TscOutputParser();
-      const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+      const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
       providers.push(provider);
     }
 

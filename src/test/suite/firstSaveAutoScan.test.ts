@@ -23,6 +23,7 @@ function workspaceFolderDelegate() {
       uri.toString().startsWith(rootUri.toString() + '/')
         ? { uri: rootUri, name: 'workspace', index: 0 }
         : undefined,
+    workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
   };
 }
 
@@ -96,10 +97,6 @@ class TestTscProvider {
     return this._autoScan;
   }
 
-  get onDidProgressScan(): any {
-    return this._onDidProgressScan.event;
-  }
-
   initialize(): void {
     this._runScan();
   }
@@ -167,7 +164,7 @@ suite('FirstSaveAutoScan', () => {
     manager.dispose();
     decorationEngine.dispose();
     statusBarManager.dispose();
-    trendTracker.dispose();
+    trendTracker.stop();
   });
 
   test('First save after reload → auto-scan produces file decoration', async () => {

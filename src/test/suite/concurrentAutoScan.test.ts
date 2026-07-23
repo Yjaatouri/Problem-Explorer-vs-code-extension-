@@ -23,6 +23,7 @@ function workspaceFolderDelegate() {
       uri.toString().startsWith(rootUri.toString() + '/')
         ? { uri: rootUri, name: 'workspace', index: 0 }
         : undefined,
+    workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
   };
 }
 
@@ -135,7 +136,7 @@ suite('ConcurrentAutoScan', () => {
     manager.dispose();
     decorationEngine.dispose();
     statusBarManager.dispose();
-    trendTracker.dispose();
+    trendTracker.stop();
   });
 
   test('Concurrent saves during active scan do not drop providers (regression for _flushing bug)', async () => {
@@ -160,13 +161,13 @@ suite('ConcurrentAutoScan', () => {
     const autoScan = new AutoScanController(manager, statusBarManager, () => {}, 10, true);
     autoScan.start();
 
-    autoScan.onFileChanged(file1);
+    (autoScan as any).onFileChanged(file1);
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    autoScan.onFileChanged(file2);
+    (autoScan as any).onFileChanged(file2);
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    autoScan.onFileChanged(file3);
+    (autoScan as any).onFileChanged(file3);
     await new Promise(resolve => setTimeout(resolve, 10));
 
     await new Promise(resolve => setTimeout(resolve, 350));
@@ -208,13 +209,13 @@ suite('ConcurrentAutoScan', () => {
     const autoScan = new AutoScanController(manager, statusBarManager, () => {}, 5, true);
     autoScan.start();
 
-    autoScan.onFileChanged(file1);
+    (autoScan as any).onFileChanged(file1);
     await new Promise(resolve => setTimeout(resolve, 5));
 
-    autoScan.onFileChanged(file2);
+    (autoScan as any).onFileChanged(file2);
     await new Promise(resolve => setTimeout(resolve, 5));
 
-    autoScan.onFileChanged(file3);
+    (autoScan as any).onFileChanged(file3);
     await new Promise(resolve => setTimeout(resolve, 5));
 
     await new Promise(resolve => setTimeout(resolve, 300));

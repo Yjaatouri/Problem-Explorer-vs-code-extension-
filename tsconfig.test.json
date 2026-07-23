@@ -1,16 +1,16 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
+    "target": "ES2022",
     "module": "commonjs",
-    "moduleResolution": "node10",
+    "moduleResolution": "node",
     "outDir": "./out",
     "rootDir": "./src",
-    "declaration": false,
-    "declarationMap": false,
-    "paths": {
-      "../../*": ["./out/*"]
-    },
-    "baseUrl": "./src/test/suite"
+    "strict": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": ["src/test/**/*"],
   "exclude": ["node_modules", "dist", ".vscode-test"]

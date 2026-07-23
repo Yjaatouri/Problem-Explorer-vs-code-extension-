@@ -53,7 +53,7 @@ function makeProvider(store: ProblemStore, output: string): TscDiagnosticProvide
   const { TscRunner } = require('../../typescript/TscRunner');
   const runner = new TscRunner(runnerDelegate);
   const parser = new TscOutputParser();
-  return new TscDiagnosticProvider(store, resolver, runner, parser);
+  return new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 }
 
 suite('ScanCommand', () => {
@@ -157,7 +157,7 @@ suite('ScanCommand', () => {
     const runner = new TscRunner(failingDelegate);
     const parser = new TscOutputParser();
     const resolver = new FakeProjectResolver() as unknown as ProjectResolver;
-    const provider = new TscDiagnosticProvider(store, resolver, runner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver: resolver, tscRunner: runner, outputParser: parser });
 
     try {
       await provider.refresh();

@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { VSDiagnosticsProvider } from '../../providers/VSDiagnosticsProvider';
 import { DiagnosticProviderManager } from '../../providers/DiagnosticProviderManager';
-import { ProviderManager } from '../../services/ProviderManager';
 import type { FolderStatusManager } from '../../folder/folderStatusManager';
 import type { ApiManager } from '../../api/problemExplorerApi';
 import type { DecorationEngine } from '../../decoration/decorationEngine';
@@ -123,27 +122,27 @@ suite('VSDiagnosticsProvider', () => {
   });
 
   test('register with ProviderManager', () => {
-    const pm = new ProviderManager();
+    const pm = new DiagnosticProviderManager();
     const provider = createProvider();
-    pm.register('vsDiagnostics', provider);
+    pm.register('vsDiagnostics', provider as any);
     assert.strictEqual(pm.size, 1);
     assert.strictEqual(pm.get('vsDiagnostics'), provider);
     pm.dispose();
   });
 
   test('ProviderManager startAll starts the provider', () => {
-    const pm = new ProviderManager();
+    const pm = new DiagnosticProviderManager();
     const provider = createProvider();
-    pm.register('vsDiagnostics', provider);
+    pm.register('vsDiagnostics', provider as any);
     pm.startAll();
     assert.strictEqual(provider.isRunning, true);
     pm.dispose();
   });
 
   test('ProviderManager dispose disposes the provider', () => {
-    const pm = new ProviderManager();
+    const pm = new DiagnosticProviderManager();
     const provider = createProvider();
-    pm.register('vsDiagnostics', provider);
+    pm.register('vsDiagnostics', provider as any);
     pm.dispose();
     assert.strictEqual(provider.isDisposed, true);
   });

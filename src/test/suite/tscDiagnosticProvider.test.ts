@@ -101,7 +101,7 @@ function makeProvider(
   const tscRunner = new TscRunner(fakeDelegate);
   const parser = new TscOutputParser();
 
-  return new TscDiagnosticProvider(store, projectResolver, tscRunner, parser);
+  return new TscDiagnosticProvider(store, { projectResolver, tscRunner, outputParser: parser });
 }
 
 suite('TscDiagnosticProvider', () => {

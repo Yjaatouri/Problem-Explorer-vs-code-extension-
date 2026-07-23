@@ -89,7 +89,9 @@ export class Dashboard {
   /* ------------------------------------------------------------------ */
 
   show(): void {
+    console.log('[Dashboard-F0] Dashboard.show() ENTER');
     this.view.show();
+    console.log('[Dashboard-F0] Dashboard.show() EXIT');
   }
 
   notifyAssertion(): void {

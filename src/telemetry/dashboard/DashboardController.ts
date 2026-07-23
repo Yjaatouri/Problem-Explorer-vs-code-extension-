@@ -38,6 +38,7 @@ export class DashboardController implements DashboardControllerApi {
   }
 
   handleMessage(message: DashboardMessage): void {
+    console.log('[Dashboard-F2] handleMessage ENTER:', message.type, 'disposed:', this.disposed, 'view:', !!this.view);
     if (this.disposed) return;
 
     switch (message.type) {
@@ -57,8 +58,9 @@ export class DashboardController implements DashboardControllerApi {
         this.refreshAll();
         break;
       case 'viewReady':
-        console.log('[Dashboard] viewReady received from webview');
+        console.log('[Dashboard-F2] viewReady received, calling refreshAll');
         this.refreshAll();
+        console.log('[Dashboard-F2] refreshAll returned');
         break;
       default:
         break;
@@ -66,10 +68,17 @@ export class DashboardController implements DashboardControllerApi {
   }
 
   refreshAll(): void {
-    if (!this.view) return;
+    console.log('[Dashboard-F2] refreshAll ENTER, view:', !!this.view, 'providers:', this.dataProviders.size);
+    if (!this.view) {
+      console.log('[Dashboard-F2] refreshAll EXIT early — no view');
+      return;
+    }
+    let sent = 0;
     for (const panel of this.dataProviders.keys()) {
       this.collectAndSend(panel);
+      sent++;
     }
+    console.log('[Dashboard-F2] refreshAll EXIT, sent:', sent);
   }
 
   private onNavigate(panel: DashboardPanelType): void {
@@ -82,15 +91,20 @@ export class DashboardController implements DashboardControllerApi {
 
     try {
       const provider = this.dataProviders.get(panel);
-      if (!provider) return;
+      if (!provider) {
+        console.log('[Dashboard-F2] collectAndSend SKIP — no provider for:', panel);
+        return;
+      }
 
       const raw = provider();
       const filtered = this.applyFilter(raw, this.currentFilter);
       this.dataCache.set(panel, filtered);
 
+      console.log('[Dashboard-F2] collectAndSend — sending dataUpdate for:', panel);
       this.view.postMessage({ type: 'dataUpdate', panel, data: filtered });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.log('[Dashboard-F2] collectAndSend ERROR for:', panel, msg);
       this.view.postMessage({ type: 'error', message: msg });
     }
   }

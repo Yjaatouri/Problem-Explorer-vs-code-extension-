@@ -268,7 +268,7 @@ suite('PerformanceBenchmark', () => {
     const fakeDelegate = new FakeTscRunnerDelegate(output);
     const tscRunner = new TscRunner(fakeDelegate);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, projectResolver, tscRunner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver, tscRunner: tscRunner, outputParser: parser });
 
     const r = measure('tsc small (1p/10f)', () => {
       provider.runScan();
@@ -294,7 +294,7 @@ suite('PerformanceBenchmark', () => {
     const fakeDelegate = new FakeTscRunnerDelegate(output);
     const tscRunner = new TscRunner(fakeDelegate);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, projectResolver, tscRunner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver, tscRunner: tscRunner, outputParser: parser });
 
     const r = measure('tsc medium (3p/100f)', () => {
       provider.runScan();
@@ -321,7 +321,7 @@ suite('PerformanceBenchmark', () => {
     const fakeDelegate = new FakeTscRunnerDelegate(output);
     const tscRunner = new TscRunner(fakeDelegate);
     const parser = new TscOutputParser();
-    const provider = new TscDiagnosticProvider(store, projectResolver, tscRunner, parser);
+    const provider = new TscDiagnosticProvider(store, { projectResolver, tscRunner: tscRunner, outputParser: parser });
 
     const r = measure('tsc large (5p/500f)', () => {
       provider.runScan();

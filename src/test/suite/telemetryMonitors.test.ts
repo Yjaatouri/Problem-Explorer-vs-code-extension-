@@ -240,17 +240,17 @@ suite('Telemetry Monitors', () => {
       store.set(Uri.parse('file:///project/a.ts'), makeState({ errorCount: 3 }));
       store.set(Uri.parse('file:///project/b.ts'), makeState({ warningCount: 2 }));
 
-      const state = snapshot.captureSnapshot();
-      assert.strictEqual(state.store.totalErrors, 3);
-      assert.strictEqual(state.store.totalWarnings, 2);
-      assert.strictEqual(state.store.entryCount, 2);
+      const state = snapshot.captureManual();
+      assert.strictEqual(state.data.store.totalErrors, 3);
+      assert.strictEqual(state.data.store.totalWarnings, 2);
+      assert.strictEqual(state.data.store.entryCount, 2);
     });
 
     test('captures empty state when no ProblemStore linked', () => {
       const reporter = new BusTelemetryReporter(config, bus);
       const snapshot = createSnapshotSystem(reporter);
-      const state = snapshot.captureSnapshot();
-      assert.strictEqual(state.store.entryCount, 0);
+      const state = snapshot.captureManual();
+      assert.strictEqual(state.data.store.entryCount, 0);
     });
   });
 });
