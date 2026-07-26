@@ -3,6 +3,7 @@ import { DiagnosticProvider } from './DiagnosticProvider';
 import { DiagnosticProviderManager } from './DiagnosticProviderManager';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState, ProblemSeverity, EslintConfig, ProviderCapabilities, ScanProgress } from '../core/types';
+import { normalizeUriKey } from '../core/uriKey';
 import { EslintRunner, EslintRunOptions, EslintDiagnostic } from '../typescript/EslintRunner';
 import * as path from 'path';
 
@@ -56,6 +57,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   private _lastScanDurationMs = 0;
   private _lastScanTiming: EslintScanTiming | undefined;
   private _maxConcurrentScans = 2;
+  private _lastScanUris = new Set<string>();
   private _cachedFolders: { folders: WorkspaceFolder[]; timestamp: number } | undefined;
   private _folderCacheTtlMs = 60_000;
   private readonly _manager: DiagnosticProviderManager | undefined;
@@ -390,16 +392,38 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
 
   private writeToStore(diagnostics: Map<string, EslintDiagnostic[]>): Uri[] {
     const changed: Uri[] = [];
+    const scannedUris = new Set<string>();
 
     for (const [uriString, fileDiags] of diagnostics) {
       const state = this.aggregateFileState(fileDiags);
       const uri = Uri.parse(uriString);
+      const key = normalizeUriKey(uri);
+      scannedUris.add(key);
       const result = this._store.set(uri, state, this.name);
       if (result) {
         changed.push(uri);
       }
     }
 
+    // Reconcile: URIs that had problems in the previous scan but absent in this
+    // scan have been fixed. ESLint output only lists files WITH problems.
+    const CLEAN_STATE: ProblemState = {
+      severity: ProblemSeverity.None,
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      fileCount: 0,
+    };
+    for (const key of this._lastScanUris) {
+      if (!scannedUris.has(key)) {
+        const uri = Uri.parse(key);
+        if (this._store.set(uri, CLEAN_STATE, this.name)) {
+          changed.push(uri);
+        }
+      }
+    }
+
+    this._lastScanUris = scannedUris;
     return changed;
   }
 

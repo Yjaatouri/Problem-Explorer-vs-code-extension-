@@ -2,6 +2,7 @@ import { Event, EventEmitter, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { ProblemStore } from '../store/ProblemStore';
 import { ProblemState, ProblemSeverity, TscConfig, ProviderCapabilities, ScanProgress } from '../core/types';
+import { normalizeUriKey } from '../core/uriKey';
 import { ProjectResolver, TypeScriptProject } from '../typescript/ProjectResolver';
 import { TscRunner, TscRunOptions, DEFAULT_TSC_TIMEOUT_MS } from '../typescript/TscRunner';
 import { TscOutputParser, TscDiagnostic } from '../typescript/TscOutputParser';
@@ -60,6 +61,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   private _refreshResolve: (() => void) | undefined;
   private _currentProject: string | undefined;
   private _maxConcurrentScans = 1;
+  private _lastScanUris = new Set<string>();
 
   get store(): ProblemStore {
     return this._store;
@@ -378,16 +380,38 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   private writeToStore(diagnostics: Map<string, TscDiagnostic[]>): Uri[] {
     const changed: Uri[] = [];
+    const scannedUris = new Set<string>();
 
     for (const [filePath, fileDiags] of diagnostics) {
       const state = this.aggregateFileState(fileDiags);
       const uri = Uri.file(filePath);
+      const key = normalizeUriKey(uri);
+      scannedUris.add(key);
       const result = this._store.set(uri, state, this.name);
       if (result) {
         changed.push(uri);
       }
     }
 
+    // Reconcile: URIs that had problems in the previous scan but absent in this
+    // scan have been fixed. TSC output only lists files WITH problems.
+    const CLEAN_STATE: ProblemState = {
+      severity: ProblemSeverity.None,
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      fileCount: 0,
+    };
+    for (const key of this._lastScanUris) {
+      if (!scannedUris.has(key)) {
+        const uri = Uri.parse(key);
+        if (this._store.set(uri, CLEAN_STATE, this.name)) {
+          changed.push(uri);
+        }
+      }
+    }
+
+    this._lastScanUris = scannedUris;
     return changed;
   }
 
