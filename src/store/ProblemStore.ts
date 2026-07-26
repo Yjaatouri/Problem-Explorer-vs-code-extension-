@@ -259,6 +259,53 @@ export class ProblemStore {
     return this.ownerByKey.get(normalizeUriKey(uri));
   }
 
+  /**
+   * Clear a URI's entry by writing `severity:None` ONLY if the named provider
+   * currently owns it. Returns true iff the entry was cleared.
+   *
+   * Unlike `set(uri, noneState, providerName)`, this very deliberately does NOT
+   * pass the priority check — clears must never take ownership away from a
+   * higher-priority scanner (tsc/eslint). A lower-priority provider calling
+   * `set(…, None)` would be rejected by the priority gate on a URI owned by a
+   * higher-priority provider; `clearIfOwner` makes the non-ownership case
+   * explicit and silent instead of relying on the priority gate alone.
+   */
+  clearIfOwner(uri: Uri, providerName: string): boolean {
+    const key = normalizeUriKey(uri);
+    if (this.ownerByKey.get(key) !== providerName) {
+      return false;
+    }
+    const old = this.storage.get(key);
+    if (old === undefined) {
+      // Already absent; nothing to clear, but the entry is effectively gone.
+      return false;
+    }
+    if (old.severity === ProblemSeverity.None) {
+      // Already clean — no change event needed.
+      this.ownerByKey.delete(key);
+      return false;
+    }
+
+    // Subtract old totals, then write the None state and release ownership so
+    // higher-priority scanners can reclaim the URI on a future scan.
+    this._subtractFromTotals(old);
+    const clean: ProblemState = {
+      severity: ProblemSeverity.None,
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      fileCount: 0,
+    };
+    this._addToTotals(clean);
+    this.storage.set(key, clean);
+    this.ownerByKey.delete(key);
+    this.version++;
+    if (this.batchDepth === 0) {
+      this._onDidChange.fire({ kind: 'updated', uri });
+    }
+    return true;
+  }
+
   /** Get the owning provider for a pre-normalized key (used by assertion monitors) */
   getOwnerForKey(normalizedKey: string): string | undefined {
     return this.ownerByKey.get(normalizedKey);

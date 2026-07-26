@@ -66,6 +66,7 @@ private readConfig(): Config {
       autoScanEnabled: cfg.get<boolean>('autoScan.enabled', false),
       autoScanDelay: cfg.get<number>('autoScanDelay', 2000),
       debug: cfg.get<boolean>('debug', false),
+      reconcileIntervalMs: cfg.get<number>('reconcileIntervalMs', 30000),
       typescript: this.readTscConfig(cfg),
       eslint: this.readEslintConfig(cfg),
     };

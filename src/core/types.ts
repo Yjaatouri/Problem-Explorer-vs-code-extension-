@@ -49,6 +49,14 @@ export interface Config {
   readonly autoScanEnabled: boolean;
   readonly autoScanDelay: number;
   readonly debug: boolean;
+  /**
+   * Interval (ms) at which `vscodeDiagnostics` reconciles its tracked URIs
+   * against VS Code's current diagnostic snapshot, clearing stale badges for
+   * files whose problems have disappeared (e.g. fixed by external formatters
+   * or branch switches). 0 disables periodic reconciliation; only the
+   * save-driven path remains. Default: 30000.
+   */
+  readonly reconcileIntervalMs: number;
   readonly typescript: TscConfig;
   readonly eslint: EslintConfig;
 }

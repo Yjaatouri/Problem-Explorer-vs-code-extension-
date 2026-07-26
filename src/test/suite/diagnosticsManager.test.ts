@@ -124,7 +124,37 @@ suite('DiagnosticsManager', () => {
     const changed = manager.processChanges(event);
 
     assert.strictEqual(changed.length, 1);
-    assert.strictEqual(store.get(fileA), undefined);
+    // clearIfOwner writes a None-state entry rather than deleting — keeps the
+    // store shape stable so the decoration engine reports a real "no badge"
+    // transition rather than a no-op.
+    assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.None);
+    // Ownership released: a higher-priority provider can reclaim the URI.
+    assert.strictEqual(store.getOwningProvider(fileA), undefined);
+  });
+
+  test('processChanges skips 0-diagnostic events for non-active editor', () => {
+    // Mirror the original "badge survives when not active" guarantee.
+    let currentDiagnostics: vscode.Diagnostic[] = [
+      diag(vscode.DiagnosticSeverity.Error),
+    ];
+    const delegate: DiagnosticsDelegate = {
+      getAllDiagnostics: () => [[fileA, currentDiagnostics]],
+      getUriDiagnostics: () => currentDiagnostics,
+      getWorkspaceFolder: (uri) =>
+        uri.toString().startsWith(folderUri.toString())
+          ? { uri: folderUri, name: 'workspace', index: 0 }
+          : undefined,
+      isActiveEditorUri: () => false, // not active — must NOT clear
+    };
+    const { store, manager } = makeManagerWithDelegate(delegate);
+    manager.fullScan();
+    assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);
+
+    currentDiagnostics = []; // simulated "lost focus" event
+    const changed = manager.processChanges({ uris: [fileA] });
+    assert.strictEqual(changed.length, 0);
+    assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);
+    assert.strictEqual(store.getOwningProvider(fileA), 'vscodeDiagnostics');
   });
 
   test('getStatus returns status from store', () => {

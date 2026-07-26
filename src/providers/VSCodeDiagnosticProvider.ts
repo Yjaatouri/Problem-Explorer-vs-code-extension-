@@ -84,6 +84,11 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
     this.manager.setIgnorePatterns(patterns);
   }
 
+  /** Configure periodic reconciliation (0 disables). See `DiagnosticsManager.setReconcileInterval`. */
+  setReconcileInterval(intervalMs: number): void {
+    this.manager.setReconcileInterval(intervalMs);
+  }
+
   startInitPoll(): void {
     this.manager.startInitPoll();
   }

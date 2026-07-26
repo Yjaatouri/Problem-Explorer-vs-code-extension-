@@ -267,6 +267,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       decorationEngine.setConfig(config);
       diagProvider.setSeverityOverrides(config.severityOverrides);
       diagProvider.setIgnorePatterns(config.ignorePatterns);
+      diagProvider.setReconcileInterval(config.reconcileIntervalMs);
       tscProvider.updateConfig(config.typescript);
       eslintProvider.updateConfig(config.eslint);
     };

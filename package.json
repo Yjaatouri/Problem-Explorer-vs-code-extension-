@@ -2,7 +2,7 @@
   "name": "problem-explorer",
   "displayName": "Problem Explorer",
   "description": "Highlights files and folders with errors and warnings directly in the Explorer",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "publisher": "Yjaatouri",
   "icon": "icon.png",
   "license": "MIT",
@@ -236,6 +236,12 @@
           "type": "boolean",
           "default": false,
           "description": "Enable debug logging for diagnostics pipeline"
+        },
+        "problemExplorer.reconcileIntervalMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 0,
+          "description": "Interval in ms at which vscodeDiagnostics reconciles tracked URIs and clears stale badges for non-TSC/ESLint files. 0 disables periodic reconciliation (save-driven only). Default: 30000."
         },
         "problemExplorer.monitoring": {
           "type": "string",
