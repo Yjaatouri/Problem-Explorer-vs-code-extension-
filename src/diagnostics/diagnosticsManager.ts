@@ -222,18 +222,20 @@ export class DiagnosticsManager implements DiagnosticProvider {
 
 
     if (diagnostics.length === 0) {
-      // Use store.set with empty state instead of store.delete so the
-      // built-in priority check prevents overwriting higher-priority
-      // providers (tsc=10, eslint=9) with an empty state from the
-      // lower-priority vscodeDiagnostics (5).
-      if (this._store.set(uri, {
-        severity: ProblemSeverity.None,
-        errorCount: 0,
-        warningCount: 0,
-        infoCount: 0,
-        fileCount: 0,
-      }, this.name)) {
-        changed.push(uri);
+      // VS Code fires 0-diagnostics events when a file is closed or focus moves
+      // to another editor — this does NOT mean the file's problems are gone,
+      // only that VS Code is no longer analyzing it. Skip the empty-state write
+      // unless the URI is the actively-open editor, so the badge survives.
+      if (this.delegate.isActiveEditorUri(uri)) {
+        if (this._store.set(uri, {
+          severity: ProblemSeverity.None,
+          errorCount: 0,
+          warningCount: 0,
+          infoCount: 0,
+          fileCount: 0,
+        }, this.name)) {
+          changed.push(uri);
+        }
       }
       return;
     }
