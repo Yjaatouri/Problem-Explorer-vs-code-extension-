@@ -354,6 +354,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       log('[FORENSIC:Step7] fired initial full refresh (undefined)');
     }, 100);
 
+    // Force full decoration refresh when active editor changes — ensures
+    // badges always reflect the current store state even if VS Code's
+    // explorer view has stale cached decorations from virtual list recycling.
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    context.subscriptions.push(
+      vscode.window.onDidChangeActiveTextEditor(() => {
+        if (refreshTimer) { clearTimeout(refreshTimer); }
+        refreshTimer = setTimeout(() => {
+          decorationEngine.fireDidChange(undefined);
+        }, 100);
+      }),
+    );
+
     context.subscriptions.push(
       vscode.workspace.onDidDeleteFiles((e) => {
         for (let i = 0; i < e.files.length; i++) {

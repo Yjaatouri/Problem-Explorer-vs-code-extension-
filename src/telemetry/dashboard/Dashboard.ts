@@ -182,6 +182,8 @@ export class Dashboard {
   /* ------------------------------------------------------------------ */
 
   private collectOverviewData(): SystemOverviewData {
+    const start = Date.now();
+    console.log('[TRACE-C] collectOverviewData ENTER');
     let activeProviders = 0;
     try { activeProviders = this.monitors.providerMonitor.getAllStatistics().size; } catch { /* ok */ }
 
@@ -220,7 +222,7 @@ export class Dashboard {
     let telemetryErrorCount = 0;
     try { telemetryErrorCount = getTelemetryBus().getTelemetryErrorCount(); } catch { /* ok */ }
 
-    return {
+    const result = {
       extensionVersion: this.extensionVersion,
       vscodeVersion: this.vscodeVersion,
       uptimeSec: (Date.now() - this.startedAt) / 1000,
@@ -236,6 +238,8 @@ export class Dashboard {
       totalErrors: 0,
       memoryMb,
     };
+    console.log('[TRACE-C] collectOverviewData EXIT, duration:', Date.now() - start, 'ms');
+    return result;
   }
 
   /* ------------------------------------------------------------------ */
@@ -260,7 +264,16 @@ export class Dashboard {
   }
 
   private collectStoreData(): unknown {
-    try { return this.monitors.storeMonitor.capturePerformanceSnapshot(); } catch { return { error: 'store unavailable' }; }
+    const start = Date.now();
+    console.log('[TRACE-D] collectStoreData ENTER');
+    try {
+      const state = this.monitors.storeMonitor.getStoreState();
+      console.log('[TRACE-D] collectStoreData EXIT, duration:', Date.now() - start, 'ms', 'state:', JSON.stringify(state).substring(0, 200));
+      return state ?? {};
+    } catch (e) {
+      console.log('[TRACE-D] collectStoreData THREW:', e instanceof Error ? e.message : String(e));
+      return { error: 'store unavailable' };
+    }
   }
 
   private collectProviderData(): unknown {

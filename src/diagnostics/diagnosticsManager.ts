@@ -12,7 +12,7 @@ import {
 } from 'vscode';
 import { ProblemStore } from '../store/ProblemStore';
 import { toProblemState, applySeverityOverrides } from './severityMapper';
-import { ProblemState, ProviderCapabilities, ScanProgress } from '../core/types';
+import { ProblemState, ProblemSeverity, ProviderCapabilities, ScanProgress } from '../core/types';
 import { precompilePatterns } from '../performance/ignoreFilter';
 import { DiagnosticProvider } from '../providers/DiagnosticProvider';
 
@@ -222,7 +222,17 @@ export class DiagnosticsManager implements DiagnosticProvider {
 
 
     if (diagnostics.length === 0) {
-      if (this._store.delete(uri)) {
+      // Use store.set with empty state instead of store.delete so the
+      // built-in priority check prevents overwriting higher-priority
+      // providers (tsc=10, eslint=9) with an empty state from the
+      // lower-priority vscodeDiagnostics (5).
+      if (this._store.set(uri, {
+        severity: ProblemSeverity.None,
+        errorCount: 0,
+        warningCount: 0,
+        infoCount: 0,
+        fileCount: 0,
+      }, this.name)) {
         changed.push(uri);
       }
       return;

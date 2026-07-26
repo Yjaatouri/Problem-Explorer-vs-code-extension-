@@ -1258,6 +1258,22 @@ export class StoreMonitor {
     });
   }
 
+  /** Return a snapshot of store state for the dashboard UI */
+  getStoreState(): Record<string, unknown> {
+    const ownerEntries: Array<{ provider: string; count: number }> = [];
+    for (const [provider, count] of this.ownerCounts) {
+      ownerEntries.push({ provider, count });
+    }
+    return {
+      totalWrites: this.totalWrites,
+      totalRejected: this.totalRejected,
+      totalOwnershipConflicts: this.totalOwnershipConflicts,
+      entryCount: this.store.size(),
+      ownerCounts: ownerEntries,
+      ownedUrisCount: this.ownedUris.size,
+    };
+  }
+
   /* ------------------------------------------------------------------ */
   /*  Lifecycle                                                          */
   /* ------------------------------------------------------------------ */

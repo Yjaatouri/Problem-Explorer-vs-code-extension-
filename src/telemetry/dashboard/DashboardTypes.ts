@@ -51,6 +51,9 @@ export interface DashboardFilter {
 export type DashboardMessage =
   /* View → Controller */
   | { readonly type: 'viewReady' }
+  | { readonly type: 'webviewReady'; readonly timestamp: number }
+  | { readonly type: 'webviewError'; readonly message: string; readonly stack?: string }
+  | { readonly type: 'diagStoreData'; readonly hasData: boolean; readonly dataType: string; readonly keys: string[] }
   | { readonly type: 'navigate'; readonly panel: DashboardPanelType }
   | { readonly type: 'setFilter'; readonly filter: DashboardFilter }
   | { readonly type: 'requestData'; readonly panel: DashboardPanelType }
@@ -105,7 +108,7 @@ export interface MonitorDataProvider<TStats, TSnapshot> {
 export interface DashboardViewApi {
   readonly disposed: boolean;
   show(): void;
-  postMessage(message: DashboardMessage): void;
+  postMessage(message: DashboardMessage): boolean;
   setMessageHandler(handler: (message: DashboardMessage) => void): void;
   dispose(): void;
 }

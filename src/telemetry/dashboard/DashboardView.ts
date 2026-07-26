@@ -19,50 +19,80 @@ export class DashboardView implements DashboardViewApi {
   }
 
   show(): void {
-    console.log('[Dashboard-F1] show() ENTER');
+    const start = Date.now();
+    console.log('[TRACE-V1] show() ENTER');
     if (this.panel) {
-      console.log('[Dashboard-F1] panel exists, revealing');
+      console.log('[TRACE-V1] panel exists, revealing');
       this.panel.reveal(vscode.ViewColumn.Two);
+      console.log('[TRACE-V1] show() EXIT (revealed), duration:', Date.now() - start, 'ms');
       return;
     }
 
-    console.log('[Dashboard-F1] Creating webview panel...');
+    console.log('[TRACE-V1] Creating webview panel...');
     this.panel = vscode.window.createWebviewPanel(
       'problemExplorerDashboard',
       'Problem Explorer Dashboard',
       vscode.ViewColumn.Two,
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
+        retainContextWhenHidden: false,
         localResourceRoots: [this.extensionUri],
       },
     );
-    console.log('[Dashboard-F1] panel created, webview:', !!this.panel.webview);
+    const panelCreated = Date.now();
+    console.log('[TRACE-V1] panel created, webview:', !!this.panel.webview, 'panelCreateDuration:', panelCreated - start, 'ms');
 
     const html = this.getHtml();
-    console.log('[Dashboard-F1] HTML length:', html.length, 'contains script tag:', html.includes('<script'), 'last 200 chars:', html.slice(-200));
+    console.log('[TRACE-V1] HTML length:', html.length, 'contains script tag:', html.includes('<script'), 'getHtmlDuration:', Date.now() - panelCreated, 'ms');
     this.panel.webview.html = html;
-    console.log('[Dashboard-F1] HTML set');
+    const htmlSet = Date.now();
+    console.log('[TRACE-V1] HTML set, setDuration:', htmlSet - panelCreated, 'ms');
 
     this.panel.webview.onDidReceiveMessage(
       (msg: DashboardMessage) => {
-        console.log('[Dashboard-F1] onDidReceiveMessage:', JSON.stringify(msg), 'handler:', !!this.messageHandler);
+        const handlerStart = Date.now();
+        console.log('[TRACE-V2] onDidReceiveMessage ENTER:', JSON.stringify(msg), 'handler:', !!this.messageHandler);
         this.messageHandler?.(msg);
+        console.log('[TRACE-V2] onDidReceiveMessage EXIT, duration:', Date.now() - handlerStart, 'ms');
       },
     );
-    console.log('[Dashboard-F1] onDidReceiveMessage listener registered');
+    console.log('[TRACE-V1] onDidReceiveMessage listener registered, duration:', Date.now() - htmlSet, 'ms');
 
     this.panel.onDidDispose(() => {
-      console.log('[Dashboard-F1] panel disposed');
+      console.log('[TRACE-V1] panel disposed');
       this._disposed = true;
       this.panel = undefined;
     });
-    console.log('[Dashboard-F1] show() EXIT');
+    console.log('[TRACE-V1] onDidDispose listener registered');
+    console.log('[TRACE-V1] show() EXIT, total duration:', Date.now() - start, 'ms');
   }
 
-  postMessage(message: DashboardMessage): void {
-    console.log('[Dashboard-F1] postMessage:', message.type, 'panel:', !!this.panel, 'webview:', !!this.panel?.webview);
-    this.panel?.webview.postMessage(message);
+  postMessage(message: DashboardMessage): boolean {
+    const start = Date.now();
+    const hasPanel = !!this.panel;
+    const hasWebview = !!this.panel?.webview;
+    const msgType = message.type;
+    const msgPanel = 'panel' in message ? (message as any).panel : undefined;
+    console.log('[TRACE-E1] postMessage ENTER type:', msgType, 'panel:', msgPanel, 'hasPanel:', hasPanel, 'hasWebview:', hasWebview, 'disposed:', this._disposed);
+    if (!hasPanel || !hasWebview) {
+      console.log('[TRACE-E1] postMessage FAIL — no panel or webview');
+      return false;
+    }
+    try {
+      const thenable = this.panel!.webview.postMessage(message);
+      const isThenable = thenable && typeof (thenable as any).then === 'function';
+      if (isThenable) {
+        (thenable as Thenable<boolean>).then(
+          (delivered) => console.log('[TRACE-E1] postMessage delivered:', delivered, 'type:', msgType),
+          (err) => console.log('[TRACE-E1] postMessage rejected:', err),
+        );
+      }
+      console.log('[TRACE-E1] postMessage EXIT type:', msgType, 'duration:', Date.now() - start, 'ms');
+      return true;
+    } catch (e) {
+      console.log('[TRACE-E1] postMessage THREW:', e instanceof Error ? e.message : String(e));
+      return false;
+    }
   }
 
   setMessageHandler(handler: (message: DashboardMessage) => void): void {
@@ -181,7 +211,11 @@ export class DashboardView implements DashboardViewApi {
 
 <script>
 (function() {
-  const vscode = acquireVsCodeApi();
+  let vscode;
+  try {
+    vscode = acquireVsCodeApi();
+    vscode.postMessage({ type: 'webviewReady', timestamp: Date.now() });
+  } catch (e) {}
   let state = { currentPanel: 'overview', data: {}, loading: {}, error: undefined, filter: {} };
 
   const panels = [
@@ -254,11 +288,13 @@ export class DashboardView implements DashboardViewApi {
 
   /* ---- Store ---- */
   function renderStore(d) {
-    return '<div class=\"section\"><h3>ProblemStore Snapshot</h3>' +
-      detail('Provider Configurations', (d.providers && d.providers.length) || 0) +
-      detail('Owner Configurations', (d.ownerConfig && d.ownerConfig.size) || 0) +
-      '</div><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:400px\">' +
-      safeJson(d) + '</pre>';
+    return '<div class=\"stat-grid\">' +
+      statCard('Total Entries', d.entryCount ?? 0) +
+      statCard('Total Writes', d.totalWrites ?? 0) +
+      statCard('Total Rejected', d.totalRejected ?? 0) +
+    '</div>' +
+    '<div class=\"section\"><h3>Raw Data</h3><pre style=\"font-size:11px;background:var(--vscode-editorWidget-background);padding:8px;border-radius:4px;overflow:auto;max-height:400px\">' +
+    safeJson(d) + '</pre></div>';
   }
 
   /* ---- Provider ---- */
@@ -752,6 +788,10 @@ export class DashboardView implements DashboardViewApi {
         state.data[msg.panel] = msg.data;
         state.loading[msg.panel] = false;
         console.log('[Dashboard-F3] dataUpdate for:', msg.panel, 'currentPanel:', state.currentPanel);
+        // Diagnostic: forward store data receipt to extension host
+        if (msg.panel === 'store') {
+          vscode.postMessage({ type: 'diagStoreData', hasData: msg.data != null, dataType: typeof msg.data, keys: msg.data ? Object.keys(msg.data) : [] });
+        }
         if (msg.panel === state.currentPanel) content.innerHTML = renderPanel(msg.panel, msg.data);
         if (msg.panel === 'overview' && msg.data) {
           healthBadge.textContent = msg.data.healthLevel || '--';
@@ -762,6 +802,14 @@ export class DashboardView implements DashboardViewApi {
         content.innerHTML = '<div class=\"error-banner\">\\u26A0 ' + esc(msg.message) + '</div>';
         break;
     }
+  });
+
+  /* ---- Error Forwarding ---- */
+  window.addEventListener('error', function(e) {
+    vscode.postMessage({ type: 'webviewError', message: e.message, filename: e.filename, lineno: e.lineno, colno: e.colno });
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    vscode.postMessage({ type: 'webviewError', message: e.reason?.message || String(e.reason) });
   });
 
   /* ---- Init ---- */

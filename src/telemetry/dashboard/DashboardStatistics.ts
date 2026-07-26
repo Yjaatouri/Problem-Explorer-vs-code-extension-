@@ -33,12 +33,18 @@ export class DashboardStatistics {
   /* ------------------------------------------------------------------ */
 
   captureSnapshot(): DashboardSnapshot {
+    const start = Date.now();
+    console.log('[TRACE-A1] captureSnapshot ENTER');
     const now = Date.now();
     if (this.snapshotCache && (now - this.lastSnapshotTime) < this.cacheTtlMs) {
+      console.log('[TRACE-A1] captureSnapshot EXIT (cache hit), age:', now - this.lastSnapshotTime, 'ms');
       return this.snapshotCache;
     }
 
+    console.log('[TRACE-A1] cache miss, collecting overview...');
     const overview = this.collectOverview();
+    console.log('[TRACE-A1] overview collected, type:', typeof overview, 'keys:', overview ? Object.keys(overview).join(',') : 'null');
+
     const panels: DashboardSnapshot['panels'] = {};
 
     for (const [panel, provider] of this.panelProviders) {
@@ -51,6 +57,7 @@ export class DashboardStatistics {
 
     this.snapshotCache = { timestamp: now, overview, panels };
     this.lastSnapshotTime = now;
+    console.log('[TRACE-A1] captureSnapshot EXIT, duration:', Date.now() - start, 'ms');
     return this.snapshotCache;
   }
 
@@ -59,6 +66,8 @@ export class DashboardStatistics {
   /* ------------------------------------------------------------------ */
 
   private collectOverview(): SystemOverviewData {
+    const start = Date.now();
+    console.log('[TRACE-A2] collectOverview ENTER, providers:', this.overviewProviders.length);
     const result: SystemOverviewData = {
       extensionVersion: '',
       vscodeVersion: '',
@@ -76,15 +85,19 @@ export class DashboardStatistics {
       memoryMb: 0,
     };
 
-    for (const provider of this.overviewProviders) {
+    for (let i = 0; i < this.overviewProviders.length; i++) {
+      const provider = this.overviewProviders[i];
       try {
+        console.log('[TRACE-A2] calling overview provider', i);
         const data = provider();
+        console.log('[TRACE-A2] provider', i, 'returned, type:', typeof data, 'keys:', data ? Object.keys(data).join(',') : 'null');
         Object.assign(result, data);
-      } catch {
-        /* skip failed providers */
+      } catch (e) {
+        console.log('[TRACE-A2] provider', i, 'THREW:', e instanceof Error ? e.message : String(e));
       }
     }
 
+    console.log('[TRACE-A2] collectOverview EXIT, duration:', Date.now() - start, 'ms');
     return result;
   }
 
