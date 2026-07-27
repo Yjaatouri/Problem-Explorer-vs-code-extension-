@@ -296,6 +296,7 @@ export class DiagnosticProviderManager {
     const sorted = this.sortedEntries();
     for (const [, entry] of sorted) {
       const providerName = entry.provider.name;
+      if (!entry.provider.enabled) continue;
       const caps = entry.provider.capabilities;
       if (caps.realtime) continue;
       const extensions = caps.extensions;

@@ -100,10 +100,17 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   updateConfig(cfg: TscConfig): void {
+    const wasEnabled = this._enabled;
     this._enabled = cfg.enabled;
     this.timeoutMs = cfg.timeout;
     this._maxConcurrentScans = cfg.maxConcurrentScans;
     this.projectResolver.useWorkspaceVersion = cfg.useWorkspaceVersion;
+    // On disable, release ownership of all URIs this provider previously claimed
+    // so vscodeDiagnostics (priority 5) can take over without a window reload.
+    if (wasEnabled && !cfg.enabled) {
+      this._store.releaseOwnership(this.name);
+      this._lastScanUris.clear();
+    }
   }
 
   constructor(
@@ -125,7 +132,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async initialize(): Promise<void> {
-    if (this._disposed) { console.log('[LOG:TSC-init] DISPOSED — returning'); return; }
+    if (this._disposed || !this._enabled) { return; }
     const changed = await this.runScan();
     console.log(`[LOG:TSC-init] runScan returned changed.length=${changed.length}`);
     if (changed.length > 0) {
@@ -149,6 +156,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async refresh(): Promise<void> {
+    if (this._disposed || !this._enabled) { return; }
     this._clearDebounce();
 
     return new Promise<void>((resolve) => {
@@ -193,6 +201,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async runScan(): Promise<Uri[]> {
+    if (!this._enabled || this._disposed) { return []; }
     if (this._scanning) {
       this._pendingRefresh = true;
       return [];

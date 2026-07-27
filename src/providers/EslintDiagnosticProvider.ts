@@ -109,13 +109,22 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   updateConfig(cfg: EslintConfig): void {
+    const wasEnabled = this._enabled;
     this._enabled = cfg.enabled;
     this.timeoutMs = cfg.timeout;
     this._maxConcurrentScans = cfg.maxConcurrentScans;
+    // On disable, release ownership of all URIs this provider previously claimed
+    // so vscodeDiagnostics (priority 5) can take over without a window reload.
+    // The store entries themselves remain — they will be overwritten or cleared
+    // by vscodeDiagnostics once ownership is released.
+    if (wasEnabled && !cfg.enabled) {
+      this._store.releaseOwnership(this.name);
+      this._lastScanUris.clear();
+    }
   }
 
   async initialize(): Promise<void> {
-    if (this._disposed) { console.log('[LOG:ESLINT-init] DISPOSED — returning'); return; }
+    if (this._disposed || !this._enabled) { return; }
     const changed = await this.runScan();
     console.log(`[LOG:ESLINT-init] runScan returned changed.length=${changed.length}`);
     if (changed.length > 0) {
@@ -140,6 +149,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   async refresh(): Promise<void> {
+    if (this._disposed || !this._enabled) { return; }
     this._clearDebounce();
 
     return new Promise<void>((resolve) => {
@@ -183,6 +193,7 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
   }
 
   async runScan(): Promise<Uri[]> {
+    if (!this._enabled || this._disposed) { return []; }
     if (this._scanning) {
       this._pendingRefresh = true;
       return [];
