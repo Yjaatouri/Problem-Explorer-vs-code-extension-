@@ -1,10 +1,10 @@
 import { Disposable, Uri, workspace } from 'vscode';
-import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
+import { ProviderRegistry } from '../providers/ProviderRegistry';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 
 export class AutoScanController implements Disposable {
   private readonly disposables: Disposable[] = [];
-  private readonly manager: DiagnosticProviderManager;
+  private readonly registry: ProviderRegistry;
   private readonly statusBar: StatusBarManager;
   private readonly log: (msg: string) => void;
   private readonly queuedProviders = new Set<string>();
@@ -14,13 +14,13 @@ export class AutoScanController implements Disposable {
   private _flushing = false;
 
   constructor(
-    manager: DiagnosticProviderManager,
+    registry: ProviderRegistry,
     statusBar: StatusBarManager,
     log: (msg: string) => void,
     debounceMs: number = 300,
     enabled: boolean = true,
   ) {
-    this.manager = manager;
+    this.registry = registry;
     this.statusBar = statusBar;
     this.log = log;
     this._debounceMs = debounceMs;
@@ -62,7 +62,7 @@ export class AutoScanController implements Disposable {
       return;
     }
 
-    const ownerName = this.manager.getOwner(ext);
+    const ownerName = this.registry.getOwner(ext);
     if (!ownerName) {
       return;
     }
@@ -76,7 +76,6 @@ export class AutoScanController implements Disposable {
       clearTimeout(this._debounceTimer);
     } else if (!this._flushing) {
       this._cancelActiveScans();
-    } else {
     }
 
     this._debounceTimer = setTimeout(() => {
@@ -87,7 +86,7 @@ export class AutoScanController implements Disposable {
 
   private _cancelActiveScans(): void {
     for (const providerName of this.queuedProviders) {
-      const provider = this.manager.get(providerName);
+      const provider = this.registry.getProvider(providerName);
       if (provider?.scanning) {
         this.log(`[AUTO-SCAN] Cancelling in-progress ${providerName} scan`);
         try {
@@ -116,7 +115,7 @@ export class AutoScanController implements Disposable {
     const promises: Promise<void>[] = [];
 
     for (const name of names) {
-      const provider = this.manager.get(name);
+      const provider = this.registry.getProvider(name);
       if (!provider) {
         continue;
       }

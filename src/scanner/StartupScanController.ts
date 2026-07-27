@@ -1,5 +1,6 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, window } from 'vscode';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
+import { ProviderRegistry } from '../providers/ProviderRegistry';
 
 /**
  * Runs one workspace-wide scan at extension startup using every provider
@@ -9,6 +10,7 @@ import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManage
  *   run() → DiagnosticProviderManager.refreshByNames() → providers → ProblemStore
  */
 export class StartupScanController implements Disposable {
+  private readonly registry: ProviderRegistry;
   private readonly manager: DiagnosticProviderManager;
   private readonly log: (msg: string) => void;
   private readonly statusItem: StatusBarItem;
@@ -20,10 +22,12 @@ export class StartupScanController implements Disposable {
   private _cancelled = false;
 
   constructor(
+    registry: ProviderRegistry,
     manager: DiagnosticProviderManager,
     log: (msg: string) => void,
     skipProvider?: (name: string) => boolean,
   ) {
+    this.registry = registry;
     this.manager = manager;
     this.log = log;
     this.skipProvider = skipProvider;
@@ -44,7 +48,7 @@ export class StartupScanController implements Disposable {
     this._cancelled = false;
 
     const candidates: string[] = [];
-    for (const info of this.manager.all()) {
+    for (const info of this.registry.all()) {
       if (!info.provider.capabilities.startupScan) continue;
       if (!info.provider.enabled) continue;
       if (this.skipProvider?.(info.name)) continue;

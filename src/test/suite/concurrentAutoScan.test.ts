@@ -11,6 +11,7 @@ import { StatusBarManager } from '../../statusBar/statusBarManager';
 import { TrendTracker } from '../../trend/trendTracker';
 import { MementoStorageProvider } from '../../trend/trendTracker';
 import { AutoScanController } from '../../scanner/AutoScanner';
+import { ProviderRegistry } from '../../providers/ProviderRegistry';
 
 const rootUri = Uri.parse('file:///workspace');
 const file1 = Uri.parse('file:///workspace/src/a.ts');
@@ -113,6 +114,7 @@ class MockSlowProvider {
 suite('ConcurrentAutoScan', () => {
   let store: ProblemStore;
   let manager: DiagnosticProviderManager;
+  let registry: ProviderRegistry;
   let folderStatusManager: FolderStatusManager;
   let decorationEngine: DecorationEngine;
   let vsDiagProvider: VSDiagnosticsProvider;
@@ -123,13 +125,12 @@ suite('ConcurrentAutoScan', () => {
   setup(() => {
     store = new ProblemStore();
     manager = new DiagnosticProviderManager();
+    registry = new ProviderRegistry(manager, store);
     folderStatusManager = new FolderStatusManager(store, workspaceFolderDelegate());
     decorationEngine = new DecorationEngine(store, workspaceFolderDelegate());
     apiManager = new ApiManager(store);
     statusBarManager = new StatusBarManager(store);
     trendTracker = new TrendTracker(store, new MementoStorageProvider({} as any));
-
-    store.configureProvider('tsc', 10);
   });
 
   teardown(() => {
@@ -142,7 +143,14 @@ suite('ConcurrentAutoScan', () => {
   test('Concurrent saves during active scan do not drop providers (regression for _flushing bug)', async () => {
     const tscProvider = new MockSlowProvider(store);
     tscProvider.setScanDelay(100);
-    manager.register('tsc', tscProvider, { priority: 10, capabilities: ['diagnostics', 'tsc-scan'] });
+    registry.register(tscProvider, {
+      id: 'tsc',
+      displayName: 'TypeScript (tsc)',
+      priority: 10,
+      type: 'scanner',
+      capabilities: { extensions: ['.ts', '.tsx'], realtime: false, manualScan: true, startupScan: true, fullWorkspace: true },
+      defaultEnabled: true,
+    });
 
     await manager.initializeAll();
     manager.startAll();
@@ -158,7 +166,7 @@ suite('ConcurrentAutoScan', () => {
     );
     vsDiagProvider.start();
 
-    const autoScan = new AutoScanController(manager, statusBarManager, () => {}, 10, true);
+    const autoScan = new AutoScanController(registry, statusBarManager, () => {}, 10, true);
     autoScan.start();
 
     (autoScan as any).onFileChanged(file1);
@@ -190,7 +198,14 @@ suite('ConcurrentAutoScan', () => {
   test('AutoScanController re-schedules flush when new saves arrive during flush', async () => {
     const tscProvider = new MockSlowProvider(store);
     tscProvider.setScanDelay(80);
-    manager.register('tsc', tscProvider, { priority: 10, capabilities: ['diagnostics', 'tsc-scan'] });
+    registry.register(tscProvider, {
+      id: 'tsc',
+      displayName: 'TypeScript (tsc)',
+      priority: 10,
+      type: 'scanner',
+      capabilities: { extensions: ['.ts', '.tsx'], realtime: false, manualScan: true, startupScan: true, fullWorkspace: true },
+      defaultEnabled: true,
+    });
 
     await manager.initializeAll();
     manager.startAll();
@@ -206,7 +221,7 @@ suite('ConcurrentAutoScan', () => {
     );
     vsDiagProvider.start();
 
-    const autoScan = new AutoScanController(manager, statusBarManager, () => {}, 5, true);
+    const autoScan = new AutoScanController(registry, statusBarManager, () => {}, 5, true);
     autoScan.start();
 
     (autoScan as any).onFileChanged(file1);
