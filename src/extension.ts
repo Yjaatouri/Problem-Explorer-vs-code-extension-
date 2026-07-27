@@ -17,6 +17,7 @@ import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
 import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
+import { ProviderRegistry } from './providers/ProviderRegistry';
 import { AutoScanController } from './scanner/AutoScanner';
 import { StartupScanController } from './scanner/StartupScanController';
 import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
@@ -204,20 +205,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const eslintProvider = new EslintDiagnosticProvider(problemStore, diagProviderManager);
     const statusBarManager = new StatusBarManager(problemStore);
 
-    // Provider priorities must match ProblemStore.configureProvider() values below.
-    // DPM uses priority for: (1) ownership routing (non-realtime providers compete by priority),
-    // (2) init/start/stop ordering. ProblemStore uses priority for write-conflict resolution.
-    diagProviderManager.register(diagProvider.name, diagProvider, {
+    // ProviderRegistry is the single source of truth for provider registration,
+    // priority, capabilities, and extension ownership. Both DPM and ProblemStore
+    // are configured from the registry — no duplicated priority values.
+    const providerRegistry = new ProviderRegistry(diagProviderManager, problemStore);
+    providerRegistry.register(diagProvider, {
+      id: 'vscodeDiagnostics',
+      displayName: 'VS Code Diagnostics',
       priority: 5,
-      capabilities: ['diagnostics', 'realtime'],
+      type: 'realtime',
+      capabilities: { extensions: [], realtime: true },
+      defaultEnabled: true,
     });
-    diagProviderManager.register('tsc', tscProvider, {
+    providerRegistry.register(tscProvider, {
+      id: 'tsc',
+      displayName: 'TypeScript (tsc)',
       priority: 10,
-      capabilities: ['diagnostics', 'tsc-scan'],
+      type: 'scanner',
+      capabilities: { extensions: ['.ts', '.tsx'], realtime: false, manualScan: true, startupScan: true, fullWorkspace: true },
+      defaultEnabled: true,
     });
-    diagProviderManager.register('eslint', eslintProvider, {
+    providerRegistry.register(eslintProvider, {
+      id: 'eslint',
+      displayName: 'ESLint',
       priority: 9,
-      capabilities: ['diagnostics', 'eslint-scan'],
+      type: 'scanner',
+      capabilities: { extensions: ['.js', '.jsx', '.vue', '.svelte'], realtime: false, manualScan: true, startupScan: true, fullWorkspace: true },
+      defaultEnabled: true,
     });
 
     const commandManager = new CommandManager(
@@ -241,14 +255,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       folderStatusManager,
       decorationEngine,
     );
-
-    // Provider ownership priorities in ProblemStore (must match DPM register() priorities above).
-    // Compiler (tsc) is authoritative — it performs full project compilation.
-    // Linter (eslint) is next — cross-file linting rules.
-    // Language server (vscodeDiagnostics) is least authoritative — editor-scoped, incremental.
-    problemStore.configureProvider('tsc', 10);
-    problemStore.configureProvider('eslint', 9);
-    problemStore.configureProvider('vscodeDiagnostics', 5);
 
     const vsDiagnosticsProvider = new VSDiagnosticsProvider(
       diagProviderManager,
