@@ -46,17 +46,10 @@ export type ProviderRegisterFn = (registry: ProviderRegistry, ctx: ProviderRegis
  * glob/scandir would also work, but a static list keeps startup fast, keeps
  * tree-shaking effective, and surfaces new providers in code review.
  */
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const vsCodeProviderModule = require('./VSCodeDiagnosticProvider.module');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const tscProviderModule = require('./TscDiagnosticProvider.module');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const eslintProviderModule = require('./EslintDiagnosticProvider.module');
-
 export const ALL_PROVIDER_MODULES: readonly ProviderRegisterFn[] = [
-  vsCodeProviderModule.register,
-  tscProviderModule.register,
-  eslintProviderModule.register,
+  require('./VSCodeDiagnosticProvider.module').register,
+  require('./TscDiagnosticProvider.module').register,
+  require('./EslintDiagnosticProvider.module').register,
 ];
 
 /**
