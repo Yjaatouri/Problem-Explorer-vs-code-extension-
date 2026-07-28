@@ -32,6 +32,28 @@ export interface EslintConfig {
   readonly maxConcurrentScans: number;
 }
 
+/**
+ * Unified configuration shape that every provider SHOULD expose. The common
+ * fields give the registry a generic dispatch surface; provider-specific fields
+ * live on the concrete config interfaces (TscConfig, EslintConfig, etc.).
+ *
+ * Each provider's descriptor declares a `configSection` string (e.g.
+ * 'typescript', 'eslint') so the registry can read its section generically.
+ */
+export interface ProviderConfig {
+  /** Master switch for this provider. When false, no scans run and ownership
+   * is released so vscodeDiagnostics can take over. */
+  readonly enabled: boolean;
+  /** Whether this provider participates in save-triggered auto-scans. */
+  readonly autoScan: boolean;
+  /** Whether this provider runs a scan at extension startup. */
+  readonly scanOnStartup: boolean;
+  /** Max time in ms for a single scan before it's killed. */
+  readonly timeout: number;
+  /** Max concurrent scan processes for this provider. */
+  readonly maxConcurrentScans: number;
+}
+
 export interface Config {
   readonly enabled: boolean;
   readonly showWarnings: boolean;
@@ -57,8 +79,18 @@ export interface Config {
    * save-driven path remains. Default: 30000.
    */
   readonly reconcileIntervalMs: number;
+  /** Per-provider provider config sections (typed for known providers). */
   readonly typescript: TscConfig;
   readonly eslint: EslintConfig;
+  /**
+   * Generic per-provider config map — key is the provider id (matching its
+   * descriptor.id and configSection). Used by the registry to dispatch config
+   * changes to providers generically. For the existing typescript/eslint
+   * providers, the entries are also available via the typed `Config.typescript`
+   * and `Config.eslint` fields above (same data, two access paths for
+   * back-compat). New providers should be read ONLY from this map.
+   */
+  readonly providers: Record<string, ProviderConfig>;
 }
 
 /**

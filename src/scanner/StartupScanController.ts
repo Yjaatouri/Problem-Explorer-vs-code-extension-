@@ -15,9 +15,6 @@ export class StartupScanController implements Disposable {
   private readonly log: (msg: string) => void;
   private readonly statusItem: StatusBarItem;
 
-  /** Called with each candidate provider name; return true to skip it */
-  private readonly skipProvider?: (name: string) => boolean;
-
   private _running = false;
   private _cancelled = false;
 
@@ -25,12 +22,10 @@ export class StartupScanController implements Disposable {
     registry: ProviderRegistry,
     manager: DiagnosticProviderManager,
     log: (msg: string) => void,
-    skipProvider?: (name: string) => boolean,
   ) {
     this.registry = registry;
     this.manager = manager;
     this.log = log;
-    this.skipProvider = skipProvider;
     this.statusItem = window.createStatusBarItem(StatusBarAlignment.Left, 0);
     this.statusItem.name = 'Problem Explorer Startup Scan';
     this.statusItem.text = '$(sync~spin) Initial scan...';
@@ -51,7 +46,11 @@ export class StartupScanController implements Disposable {
     for (const info of this.registry.all()) {
       if (!info.provider.capabilities.startupScan) continue;
       if (!info.provider.enabled) continue;
-      if (this.skipProvider?.(info.name)) continue;
+      // Per-provider config gate: users can disable scan-on-startup for individual
+      // providers via the config section (e.g. typescript.scanOnStartup: false).
+      // Falls back to descriptor defaultEnabled if no config section exists.
+      const providerCfg = this.registry.getProviderConfig(info.name);
+      if (providerCfg && !providerCfg.scanOnStartup) continue;
       candidates.push(info.name);
     }
 

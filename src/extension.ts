@@ -210,10 +210,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     // collected in src/providers/index.ts. extension.ts is unaware of any
     // specific provider — adding a provider requires only creating a module
     // file and appending it to ALL_PROVIDER_MODULES.
-    const providerRegistry = new ProviderRegistry(diagProviderManager, problemStore);
+    const providerRegistry = new ProviderRegistry(
+      diagProviderManager,
+      problemStore,
+      () => configManager.getConfig().providers,
+    );
     const providerHandles = registerAllProviders(providerRegistry, {
       store: problemStore,
-      config: configManager.getConfig(),
       log,
       manager: diagProviderManager,
       vscodeLanguagesDelegate,
@@ -291,7 +294,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       providerRegistry,
       diagProviderManager,
       log,
-      (name) => name === 'tsc' && !tscCfg.scanOnStartup,
     );
     startupController.run();
     context.subscriptions.push(startupController);

@@ -1,6 +1,5 @@
 import { DiagnosticProviderManager } from './DiagnosticProviderManager';
 import { ProblemStore } from '../store/ProblemStore';
-import { Config } from '../core/types';
 import { ProviderRegistry } from './ProviderRegistry';
 import { DiagnosticsDelegate } from '../diagnostics/diagnosticsManager';
 
@@ -21,10 +20,8 @@ import { register as registerEslint } from './EslintDiagnosticProvider.module';
  */
 export interface ProviderRegistrationContext {
   readonly store: ProblemStore;
-  readonly config: Config;
   readonly log: (msg: string) => void;
-  /** The DPM is needed by EslintDiagnosticProvider's constructor (legacy design
-   * — kept until T0.7 separates the factory pattern cleanly). */
+  /** The DPM is needed by EslintDiagnosticProvider's constructor (legacy design). */
   readonly manager: DiagnosticProviderManager;
   /** Constructed once in extension.ts from the vscode API; the realtime
    * provider subscribes to it. */
@@ -63,8 +60,8 @@ export const ALL_PROVIDER_MODULES: readonly ProviderRegisterFn[] = [
  * during activate(), after constructing the ProviderRegistry.
  *
  * Returns a map of provider id → DiagnosticProvider instance so the caller can
- * pass typed handles to per-provider config setters (T0.7 will replace the
- * setters with a generic config dispatch).
+ * pass typed handles to per-provider config setters (pre-T0.8 compat — new
+ * providers should read config via registry.getProviderConfig() instead).
  */
 export function registerAllProviders(
   registry: ProviderRegistry,

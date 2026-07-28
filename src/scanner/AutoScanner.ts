@@ -67,6 +67,13 @@ export class AutoScanController implements Disposable {
       return;
     }
 
+    // Per-provider autoScan gate — user may have disabled auto-scan for specific
+    // providers while keeping the global autoScanEnabled flag on.
+    const providerCfg = this.registry.getProviderConfig(ownerName);
+    if (providerCfg && !providerCfg.autoScan) {
+      return;
+    }
+
     this.queuedProviders.add(ownerName);
     this._schedule();
   }

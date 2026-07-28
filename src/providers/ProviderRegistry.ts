@@ -2,7 +2,7 @@ import { Disposable, Event, EventEmitter, Uri } from 'vscode';
 import { DiagnosticProvider } from './DiagnosticProvider';
 import { DiagnosticProviderManager, ProviderInfo, ProviderState } from './DiagnosticProviderManager';
 import { ProblemStore } from '../store/ProblemStore';
-import { ProviderCapabilities, ScanProgress } from '../core/types';
+import { ProviderCapabilities, ScanProgress, ProviderConfig } from '../core/types';
 
 /**
  * Provider type discriminator.
@@ -33,6 +33,12 @@ export interface ProviderDescriptor {
   readonly capabilities: ProviderCapabilities;
   /** Default enabled state — used when user config does not override. */
   readonly defaultEnabled: boolean;
+  /**
+   * VS Code config section key (e.g. 'typescript', 'eslint'). The registry
+   * uses this to read the provider's section from Config.providers generically.
+   * For the vscodeDiagnostics realtime provider, this is 'vscodeDiagnostics'.
+   */
+  readonly configSection?: string;
 }
 
 /**
@@ -68,13 +74,22 @@ export class ProviderRegistry implements Disposable {
   private readonly _onDidUnregister = new EventEmitter<{ id: string }>();
   readonly onDidUnregister: Event<{ id: string }> = this._onDidUnregister.event;
 
-  constructor(dpm: DiagnosticProviderManager, store: ProblemStore) {
+  constructor(
+    dpm: DiagnosticProviderManager,
+    store: ProblemStore,
+    /** Optional callback to read the current Config.providers map. If provided,
+     * getProviderConfig(id) will read from it. */
+    configProvider?: () => Record<string, ProviderConfig> | undefined,
+  ) {
     this._dpm = dpm;
     this._store = store;
+    this._configProvider = configProvider;
     // Re-publish DPM events for consumers that want a unified surface.
     // We don't re-emit `onDidRegister` from DPM because the registry's own
     // event carries the richer RegisteredProvider (with descriptor).
   }
+
+  private _configProvider?: () => Record<string, ProviderConfig> | undefined;
 
   /**
    * Register a provider. Single source of truth for priority and capabilities:
@@ -183,6 +198,19 @@ export class ProviderRegistry implements Disposable {
   /** Get the type for a provider id. */
   getType(id: string): ProviderType | undefined {
     return this._descriptors.get(id)?.type;
+  }
+
+  /**
+   * Get the unified provider config for a provider id.
+   * Reads from Config.providers[configSection] where configSection is
+   * the provider's descriptor.configSection (defaults to id).
+   * Returns undefined if no config section exists or configProvider not set.
+   */
+  getProviderConfig(id: string): ProviderConfig | undefined {
+    const desc = this._descriptors.get(id);
+    if (!desc) return undefined;
+    const section = desc.configSection ?? desc.id;
+    return this._configProvider?.()?.[section];
   }
 
   /**

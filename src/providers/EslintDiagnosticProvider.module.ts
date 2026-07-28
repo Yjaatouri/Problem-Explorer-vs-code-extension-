@@ -15,6 +15,7 @@ const DESCRIPTOR = {
     fullWorkspace: true,
   },
   defaultEnabled: true,
+  configSection: 'eslint',
 };
 
 export function register(registry: ProviderRegistry, ctx: ProviderRegistrationContext): void {

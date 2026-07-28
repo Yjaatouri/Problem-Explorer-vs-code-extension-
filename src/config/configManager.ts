@@ -5,7 +5,7 @@ import {
   EventEmitter,
   workspace,
 } from 'vscode';
-import { Config, EslintConfig, TscConfig } from '../core/types';
+import { Config, EslintConfig, ProviderConfig, TscConfig } from '../core/types';
 import { SETTINGS_SECTION } from '../core/constants';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
@@ -69,6 +69,11 @@ private readConfig(): Config {
       reconcileIntervalMs: cfg.get<number>('reconcileIntervalMs', 30000),
       typescript: this.readTscConfig(cfg),
       eslint: this.readEslintConfig(cfg),
+      providers: {
+        typescript: this.readProviderConfig(cfg, 'typescript'),
+        eslint: this.readProviderConfig(cfg, 'eslint'),
+        vscodeDiagnostics: this.readProviderConfig(cfg, 'vscodeDiagnostics'),
+      },
     };
   }
 
@@ -89,6 +94,16 @@ private readConfig(): Config {
       autoScan: cfg.get<boolean>('eslint.autoScan', false),
       timeout: cfg.get<number>('eslint.timeout', 120000),
       maxConcurrentScans: cfg.get<number>('eslint.maxConcurrentScans', 2),
+    };
+  }
+
+  private readProviderConfig(cfg: { get<T>(key: string, defaultValue?: T): T }, section: string): ProviderConfig {
+    return {
+      enabled: cfg.get<boolean>(`${section}.enabled`, true),
+      autoScan: cfg.get<boolean>(`${section}.autoScan`, false),
+      scanOnStartup: cfg.get<boolean>(`${section}.scanOnStartup`, false),
+      timeout: cfg.get<number>(`${section}.timeout`, 120000),
+      maxConcurrentScans: cfg.get<number>(`${section}.maxConcurrentScans`, 1),
     };
   }
 }

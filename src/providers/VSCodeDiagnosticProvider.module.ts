@@ -9,6 +9,7 @@ const DESCRIPTOR = {
   type: 'realtime' as const,
   capabilities: { extensions: [], realtime: true, manualScan: false, startupScan: false },
   defaultEnabled: true,
+  configSection: 'vscodeDiagnostics',
 };
 
 export function register(registry: ProviderRegistry, ctx: ProviderRegistrationContext): void {
