@@ -1,10 +1,12 @@
 import { Disposable, Uri, workspace } from 'vscode';
 import { ProviderRegistry } from '../providers/ProviderRegistry';
+import { ScanScheduler, ScanSource } from './ScanScheduler';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 
 export class AutoScanController implements Disposable {
   private readonly disposables: Disposable[] = [];
   private readonly registry: ProviderRegistry;
+  private readonly scheduler: ScanScheduler;
   private readonly statusBar: StatusBarManager;
   private readonly log: (msg: string) => void;
   private readonly queuedProviders = new Set<string>();
@@ -15,12 +17,14 @@ export class AutoScanController implements Disposable {
 
   constructor(
     registry: ProviderRegistry,
+    scheduler: ScanScheduler,
     statusBar: StatusBarManager,
     log: (msg: string) => void,
     debounceMs: number = 300,
     enabled: boolean = true,
   ) {
     this.registry = registry;
+    this.scheduler = scheduler;
     this.statusBar = statusBar;
     this.log = log;
     this._debounceMs = debounceMs;
@@ -119,33 +123,18 @@ export class AutoScanController implements Disposable {
 
     this.statusBar.setScanning(true, names[0]);
 
-    const promises: Promise<void>[] = [];
-
-    for (const name of names) {
-      const provider = this.registry.getProvider(name);
-      if (!provider) {
-        continue;
-      }
-
-      this.log(`[AUTO-SCAN] Triggering ${name} auto-scan...`);
-      const result = provider.refresh();
-      if (result instanceof Promise) {
-        promises.push(
-          result.then(() => {
-            this.log(`[AUTO-SCAN] ${name} scan completed`);
-            this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
-          }).catch((err: Error) => {
-            this.log(`[AUTO-SCAN] ${name} scan failed: ${err.message ?? String(err)}`);
-          }),
-        );
-      } else {
-        this.log(`[AUTO-SCAN] ${name} scan completed`);
-        this.log(`[VERIFY] Store entries after auto-scan (${name}): ${provider.store.size()}`);
-      }
-    }
+    this.log(`[AUTO-SCAN] Triggering scan for [${names.join(', ')}] via scheduler...`);
 
     try {
-      await Promise.all(promises);
+      await this.scheduler.submit({
+        providerNames: names,
+        reason: 'auto-scan on file change',
+        source: 'autoscan' as ScanSource,
+      });
+      this.log(`[AUTO-SCAN] Scan completed for [${names.join(', ')}]`);
+      this.log(`[VERIFY] Store entries after auto-scan: ${this.registry.store.size()}`);
+    } catch (err) {
+      this.log(`[AUTO-SCAN] Scan failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       this.statusBar.setScanning(false);
       this._flushing = false;

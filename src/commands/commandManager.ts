@@ -1,6 +1,6 @@
 import { commands, ExtensionContext } from 'vscode';
 import { ConfigManager } from '../config/configManager';
-import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
+import { ScanScheduler } from '../scanner/ScanScheduler';
 import { VSCodeDiagnosticProvider } from '../providers/VSCodeDiagnosticProvider';
 import { DecorationEngine } from '../decoration/decorationEngine';
 import { FolderStatusManager } from '../folder/folderStatusManager';
@@ -12,13 +12,13 @@ import { COMMANDS } from '../core/constants';
 
 export class CommandManager {
   constructor(
-    private readonly diagProviderManager: DiagnosticProviderManager,
     private readonly diagProvider: VSCodeDiagnosticProvider,
     private readonly decorationEngine: DecorationEngine,
     private readonly folderStatusManager: FolderStatusManager,
     private readonly configManager: ConfigManager,
-    private readonly statusBarManager?: StatusBarManager,
-    private readonly log?: (msg: string) => void,
+    private readonly statusBarManager: StatusBarManager | undefined,
+    private readonly log: ((msg: string) => void) | undefined,
+    private readonly scheduler: ScanScheduler,
   ) {}
 
   register(context: ExtensionContext): void {
@@ -50,7 +50,7 @@ export class CommandManager {
         commands.registerCommand(
           COMMANDS.SCAN_WORKSPACE,
           createScanWorkspaceHandler(
-            this.diagProviderManager,
+            this.scheduler,
             this.folderStatusManager,
             this.decorationEngine,
             this.statusBarManager,

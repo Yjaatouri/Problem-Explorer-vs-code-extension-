@@ -1,11 +1,11 @@
 import { ProgressLocation, window } from 'vscode';
-import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
+import { ScanScheduler } from '../scanner/ScanScheduler';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { DecorationEngine } from '../decoration/decorationEngine';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 
 export function createScanWorkspaceHandler(
-  manager: DiagnosticProviderManager,
+  scheduler: ScanScheduler,
   folderStatusManager: FolderStatusManager,
   decorationEngine: DecorationEngine,
   statusBarManager: StatusBarManager,
@@ -15,8 +15,7 @@ export function createScanWorkspaceHandler(
     log('[SCAN-WORKSPACE] Starting workspace scan...');
     const startTime = performance.now();
 
-    // Refresh every registered provider
-    const names = manager.all().map((info) => info.name);
+    const names = scheduler.registry.all().map((rp) => rp.descriptor.id);
     if (names.length === 0) {
       log('[SCAN-WORKSPACE] No providers registered — nothing to scan');
       return;
@@ -33,11 +32,15 @@ export function createScanWorkspaceHandler(
       async (_progress, token) => {
         token.onCancellationRequested(() => {
           log('[SCAN-WORKSPACE] Cancelled by user.');
-          manager.stopAll();
+          scheduler.manager.stopAll();
         });
 
         try {
-          await manager.refreshByNames(names);
+          await scheduler.submit({
+            providerNames: names,
+            reason: 'manual scan workspace',
+            source: 'manual',
+          });
         } catch (e) {
           log(`[SCAN-WORKSPACE] Scan error: ${e instanceof Error ? e.message : String(e)}`);
         }

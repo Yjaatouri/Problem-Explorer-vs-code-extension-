@@ -1,17 +1,17 @@
 import { Disposable, StatusBarAlignment, StatusBarItem, window } from 'vscode';
-import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import { ProviderRegistry } from '../providers/ProviderRegistry';
+import { ScanScheduler } from './ScanScheduler';
 
 /**
  * Runs one workspace-wide scan at extension startup using every provider
  * with `startupScan: true`. Non-blocking, cancellable, with status bar feedback.
  *
  * Flow:
- *   run() → DiagnosticProviderManager.refreshByNames() → providers → ProblemStore
+ *   run() → ScanScheduler.submit() → providers → ProblemStore
  */
 export class StartupScanController implements Disposable {
   private readonly registry: ProviderRegistry;
-  private readonly manager: DiagnosticProviderManager;
+  private readonly scheduler: ScanScheduler;
   private readonly log: (msg: string) => void;
   private readonly statusItem: StatusBarItem;
 
@@ -20,11 +20,11 @@ export class StartupScanController implements Disposable {
 
   constructor(
     registry: ProviderRegistry,
-    manager: DiagnosticProviderManager,
+    scheduler: ScanScheduler,
     log: (msg: string) => void,
   ) {
     this.registry = registry;
-    this.manager = manager;
+    this.scheduler = scheduler;
     this.log = log;
     this.statusItem = window.createStatusBarItem(StatusBarAlignment.Left, 0);
     this.statusItem.name = 'Problem Explorer Startup Scan';
@@ -73,7 +73,7 @@ export class StartupScanController implements Disposable {
     if (!this._running) return;
     this._cancelled = true;
     this.log('[STARTUP-SCAN] Cancelling initial scan');
-    this.manager.stopAll();
+    this.scheduler.manager.stopAll();
     this.statusItem.hide();
     this._running = false;
   }
@@ -85,7 +85,11 @@ export class StartupScanController implements Disposable {
 
   private async execute(names: string[]): Promise<void> {
     try {
-      await this.manager.refreshByNames(names);
+      await this.scheduler.submit({
+        providerNames: names,
+        reason: 'startup scan',
+        source: 'startup',
+      });
       if (!this._cancelled) {
         this.log('[STARTUP-SCAN] Initial scan completed');
       }

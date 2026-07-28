@@ -23,6 +23,7 @@ import { registerAllProviders } from './providers/index';
 import { AutoScanController } from './scanner/AutoScanner';
 import { StartupScanController } from './scanner/StartupScanController';
 import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
+import { ScanScheduler } from './scanner/ScanScheduler';
 import { setConfigManager } from './core/debug';
 import { TelemetryConfigManager } from './telemetry/TelemetryConfig';
 import { createTelemetryReporter } from './telemetry/TelemetryReporter';
@@ -221,18 +222,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       manager: diagProviderManager,
       vscodeLanguagesDelegate,
     });
+    const scanScheduler = new ScanScheduler(providerRegistry, diagProviderManager, log);
     const diagProvider = providerHandles['vscodeDiagnostics'] as VSCodeDiagnosticProvider;
     const tscProvider = providerHandles['tsc'] as TscDiagnosticProvider;
     const eslintProvider = providerHandles['eslint'] as EslintDiagnosticProvider;
 
     const commandManager = new CommandManager(
-      diagProviderManager,
       diagProvider,
       decorationEngine,
       folderStatusManager,
       configManager,
       statusBarManager,
       log,
+      scanScheduler,
     );
     const apiManager = new ApiManager(problemStore);
     const trendTracker = new TrendTracker(
@@ -295,7 +297,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     // Start all providers with startupScan capability (non-blocking)
     const startupController = new StartupScanController(
       providerRegistry,
-      diagProviderManager,
+      scanScheduler,
       log,
     );
     startupController.run();
@@ -305,7 +307,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const autoScannerCfg = configManager.getConfig();
     let autoScanController: AutoScanController | undefined;
     if (autoScannerCfg.autoScanEnabled) {
-      autoScanController = new AutoScanController(providerRegistry, statusBarManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
+      autoScanController = new AutoScanController(providerRegistry, scanScheduler, statusBarManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
       autoScanController.start();
       context.subscriptions.push(autoScanController);
       log('[VERIFY] AutoScanController created (feature flag enabled)');
@@ -333,11 +335,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         autoScanController?.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
-          tscProvider.refresh();
+          void scanScheduler.submit({ providerNames: ['tsc'], reason: 'config re-enable', source: 'config-change' });
         }
         if (currEslint.enabled && !prevEslint) {
           log('[ESLINT] Scan enabled via config change — triggering scan');
-          eslintProvider.refresh();
+          void scanScheduler.submit({ providerNames: ['eslint'], reason: 'config re-enable', source: 'config-change' });
         }
       }),
     );
