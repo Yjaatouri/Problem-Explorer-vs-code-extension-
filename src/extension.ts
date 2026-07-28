@@ -18,6 +18,8 @@ import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
 import { ProviderRegistry } from './providers/ProviderRegistry';
+import { DiagnosticsDelegate } from './diagnostics/diagnosticsManager';
+import { registerAllProviders } from './providers/index';
 import { AutoScanController } from './scanner/AutoScanner';
 import { StartupScanController } from './scanner/StartupScanController';
 import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
@@ -73,22 +75,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 
     const problemStore = new ProblemStore();
     const diagProviderManager = new DiagnosticProviderManager();
-    const diagProvider = new VSCodeDiagnosticProvider(
-      problemStore,
-      {
-        getAllDiagnostics: () => vscode.languages.getDiagnostics(),
-        getUriDiagnostics: (uri) => vscode.languages.getDiagnostics(uri),
-        getWorkspaceFolder: (uri) => vscode.workspace.getWorkspaceFolder(uri),
-        isActiveEditorUri: (uri) => {
-          const editor = vscode.window.activeTextEditor;
-          return editor ? editor.document.uri.toString() === uri.toString() : false;
-        },
+
+    // Construct the VS Code diagnostics delegate once — it wraps
+    // vscode.languages.getDiagnostics / getWorkspaceFolder / active-editor APIs.
+    // The realtime provider subscribes to it via the registry.
+    const vscodeLanguagesDelegate: DiagnosticsDelegate = {
+      getAllDiagnostics: () => vscode.languages.getDiagnostics(),
+      getUriDiagnostics: (uri) => vscode.languages.getDiagnostics(uri),
+      getWorkspaceFolder: (uri) => vscode.workspace.getWorkspaceFolder(uri),
+      isActiveEditorUri: (uri) => {
+        const editor = vscode.window.activeTextEditor;
+        return editor ? editor.document.uri.toString() === uri.toString() : false;
       },
-      log,
-    );
+    };
+
     const decorationEngine = new DecorationEngine(problemStore, {
-  getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
-});
+      getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
+    });
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
     setConfigManager(configManager);
@@ -199,40 +202,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       log('[TELEMETRY] Minimal monitoring: monitors, dashboard, assertions disabled');
     }
 
-    const tscProvider = new TscDiagnosticProvider(problemStore, {
-      timeoutMs: configManager.getConfig().typescript.timeout,
-    });
-    const eslintProvider = new EslintDiagnosticProvider(problemStore, diagProviderManager);
     const statusBarManager = new StatusBarManager(problemStore);
 
     // ProviderRegistry is the single source of truth for provider registration,
-    // priority, capabilities, and extension ownership. Both DPM and ProblemStore
-    // are configured from the registry — no duplicated priority values.
+    // priority, capabilities, and extension ownership. Auto-discovery: each
+    // provider module under src/providers/ exports a register() function
+    // collected in src/providers/index.ts. extension.ts is unaware of any
+    // specific provider — adding a provider requires only creating a module
+    // file and appending it to ALL_PROVIDER_MODULES.
     const providerRegistry = new ProviderRegistry(diagProviderManager, problemStore);
-    providerRegistry.register(diagProvider, {
-      id: 'vscodeDiagnostics',
-      displayName: 'VS Code Diagnostics',
-      priority: 5,
-      type: 'realtime',
-      capabilities: { extensions: [], realtime: true },
-      defaultEnabled: true,
+    const providerHandles = registerAllProviders(providerRegistry, {
+      store: problemStore,
+      config: configManager.getConfig(),
+      log,
+      manager: diagProviderManager,
+      vscodeLanguagesDelegate,
     });
-    providerRegistry.register(tscProvider, {
-      id: 'tsc',
-      displayName: 'TypeScript (tsc)',
-      priority: 10,
-      type: 'scanner',
-      capabilities: { extensions: ['.ts', '.tsx'], realtime: false, manualScan: true, startupScan: true, fullWorkspace: true },
-      defaultEnabled: true,
-    });
-    providerRegistry.register(eslintProvider, {
-      id: 'eslint',
-      displayName: 'ESLint',
-      priority: 9,
-      type: 'scanner',
-      capabilities: { extensions: ['.js', '.jsx', '.vue', '.svelte'], realtime: false, manualScan: true, startupScan: true, fullWorkspace: true },
-      defaultEnabled: true,
-    });
+    const diagProvider = providerHandles['vscodeDiagnostics'] as VSCodeDiagnosticProvider;
+    const tscProvider = providerHandles['tsc'] as TscDiagnosticProvider;
+    const eslintProvider = providerHandles['eslint'] as EslintDiagnosticProvider;
 
     const commandManager = new CommandManager(
       diagProviderManager,
