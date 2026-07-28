@@ -1,55 +1,15 @@
-import { Disposable } from 'vscode';
+import { Disposable, Uri } from 'vscode';
 import { ProviderRegistry } from '../providers/ProviderRegistry';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
-
-/**
- * Identifies who requested the scan and why. Every scan request flowing
- * through the scheduler carries this metadata so that downstream
- * consumers (telemetry, logging, future prioritisation logic) can reason
- * about the source without inspecting call stacks.
- */
-export type ScanSource =
-  | 'autoscan'
-  | 'startup'
-  | 'manual'
-  | 'config-change'
-  | 'realtime';
-
-/**
- * The single, structured entry point for all scan requests.
- *
- * Every scan in the system — save-triggered auto-scans, startup scans,
- * manual "Scan Workspace" invocations, config-change re-enable triggers,
- * and realtime-driven refreshes — must go through `ScanScheduler.submit()`.
- *
- * No subsystem should call `provider.refresh()` or
- * `manager.refreshByNames()` directly. The scheduler is the only funnel.
- *
- * **Task 1 scope:** The scheduler is a pure pass-through. It delegates to
- * the existing `DiagnosticProviderManager.refreshByNames()` code path with
- * zero changes to timing, ordering, cancellation, or debouncing. The
- * purpose is to establish the single entry point and migrate all callers;
- * the actual scheduling algorithm will be built in subsequent tasks.
- */
-export interface ScanRequest {
-  /** Provider ids to scan. Must match `descriptor.id` / `provider.name`. */
-  readonly providerNames: readonly string[];
-  /** Why the scan was requested — short human-readable string for logs. */
-  readonly reason: string;
-  /** Which subsystem initiated the request. */
-  readonly source: ScanSource;
-}
-
-/**
- * Result of attempting to schedule a scan. Distinguishes between
- * "submitted for execution" and "suppressed because no providers matched."
- */
-export interface ScanSubmitResult {
-  readonly submitted: boolean;
-  readonly providerNames: readonly string[];
-  readonly reason: string;
-  readonly source: ScanSource;
-}
+import {
+  ScanSource,
+  ScanJobRequest,
+  ScanJobResult,
+  ScanJob,
+  ScanPriority,
+  computeScanPriority,
+  generateJobId,
+} from './ScanJob';
 
 /**
  * The central `ScanScheduler` is the single entry point for all scan
@@ -58,10 +18,10 @@ export interface ScanSubmitResult {
  * `StartupScanController`, `ScanWorkspaceButton`, `CommandManager`, and
  * `extension.ts` config-change handlers — routes through one funnel.
  *
- * **Current behaviour (Task 1):** The scheduler delegates directly to
- * `manager.refreshByNames()` with no additional debounce, queue, or
- * cancellation logic. This preserves exact current behaviour while
- * establishing the single choke point that future tasks will build on.
+ * **Task 2 scope:** The scheduler now creates a `ScanJob` for each request,
+ * computes priority from event tier + provider priority, and delegates to
+ * `DiagnosticProviderManager.refreshByNames()`. Still a pass-through for
+ * execution; the job model is established for Task 3 scheduling logic.
  */
 export class ScanScheduler implements Disposable {
   private readonly _registry: ProviderRegistry;
@@ -80,72 +40,84 @@ export class ScanScheduler implements Disposable {
   }
 
   /**
-   * Submit a scan request for specific providers.
-   *
-   * Delegates to `DiagnosticProviderManager.refreshByNames()` — the same
-   * code path that all callers used before the scheduler existed.
-   *
-   * Providers that are not registered or not enabled are silently filtered
-   * out by `refreshByNames()` (it skips entries it can't find). The
-   * scheduler does not add any additional filtering in Task 1.
+   * Submit a scan request. Creates a ScanJob, computes priority,
+   * and delegates to `DiagnosticProviderManager.refreshByNames()`.
    */
-  async submit(request: ScanRequest): Promise<ScanSubmitResult> {
+  async submit(request: ScanJobRequest): Promise<ScanJobResult> {
     this.ensureNotDisposed();
-    const { providerNames, reason, source } = request;
+    const { providerNames, reason, source, uris = [], signal } = request;
 
     if (providerNames.length === 0) {
       this._log(`[SCAN-SCHEDULER] ${source}: empty provider list — skipping (${reason})`);
-      return { submitted: false, providerNames: [], reason, source };
+      return { submitted: false, providerNames: [], reason, source, skipReason: 'no providers' };
     }
 
-    this._log(`[SCAN-SCHEDULER] ${source}: requesting scan for [${providerNames.join(', ')}] (${reason})`);
+    // Compute priority: event tier + provider base priority
+    const eventTier = this.sourceToTier(source);
+    const basePriority = providerNames.length === 1
+      ? this._registry.getPriority(providerNames[0]) ?? 0
+      : 0;
+    const priority = computeScanPriority(eventTier, basePriority);
+
+    const job: ScanJob = {
+      provider: providerNames[0], // primary provider
+      reason,
+      uris,
+      priority,
+      timestamp: Date.now(),
+      signal,
+      jobId: generateJobId(),
+    };
+
+    this._log(`[SCAN-SCHEDULER] ${source}: job ${job.jobId} for [${providerNames.join(', ')}] pri=${priority} (${reason})`);
 
     await this._manager.refreshByNames([...providerNames]);
 
-    return { submitted: true, providerNames, reason, source };
+    return { submitted: true, providerNames, reason, source, job };
   }
 
   /**
    * Submit a scan for all registered providers.
-   *
-   * Equivalent to the old `manager.refreshAll()` path, but routed through
-   * `refreshByNames()` for consistency (both call `provider.refresh()`
-   * and collect promises).
    */
-  async submitAll(source: ScanSource, reason: string): Promise<ScanSubmitResult> {
+  async submitAll(source: ScanSource, reason: string, uris: readonly Uri[] = []): Promise<ScanJobResult> {
     this.ensureNotDisposed();
     const names = this._registry.all()
       .filter((rp) => rp.provider.enabled)
       .map((rp) => rp.descriptor.id);
-    return this.submit({ providerNames: names, reason, source });
+    return this.submit({ providerNames: names, reason, source, uris });
   }
 
   /**
    * Look up the owner of a file extension and submit a scan for that
    * provider. Returns the provider id that was scheduled, or `undefined`
-   * if no scanner owns the extension (e.g., it falls through to the
-   * realtime provider).
-   *
-   * This replaces the pattern that `AutoScanController` used:
-   * ```
-   * const owner = registry.getOwner(ext);
-   * if (!owner) return;
-   * provider.refresh();
-   * ```
+   * if no scanner owns the extension.
    */
   submitForExtension(
     ext: string,
     source: ScanSource,
     reason: string,
-  ): ScanSubmitResult {
+    uris: readonly Uri[] = [],
+  ): ScanJobResult {
     this.ensureNotDisposed();
     const ownerName = this._registry.getOwner(ext);
     if (!ownerName) {
-      return { submitted: false, providerNames: [], reason, source };
+      return { submitted: false, providerNames: [], reason, source, skipReason: 'no owner for extension' };
     }
     // Fire-and-forget — callers that need to await should use submit().
-    void this.submit({ providerNames: [ownerName], reason, source });
+    void this.submit({ providerNames: [ownerName], reason, source, uris });
     return { submitted: true, providerNames: [ownerName], reason, source };
+  }
+
+  /** Map a ScanSource to its ScanPriority tier. */
+  private sourceToTier(source: ScanSource): ScanPriority {
+    switch (source) {
+      case 'manual': return ScanPriority.Manual;
+      case 'config-change': return ScanPriority.ConfigChange;
+      case 'startup': return ScanPriority.Startup;
+      case 'autoscan': return ScanPriority.Save; // save is the primary autoscan trigger
+      case 'realtime': return ScanPriority.Realtime;
+      default: return ScanPriority.Save;
+    }
   }
 
   /** The wrapped DiagnosticProviderManager (for back-compat). */

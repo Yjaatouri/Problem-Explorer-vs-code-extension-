@@ -1,6 +1,7 @@
 import { Disposable, Uri, workspace } from 'vscode';
 import { ProviderRegistry } from '../providers/ProviderRegistry';
-import { ScanScheduler, ScanSource } from './ScanScheduler';
+import { ScanScheduler } from './ScanScheduler';
+import { ScanSource } from './ScanJob';
 import { StatusBarManager } from '../statusBar/statusBarManager';
 
 export class AutoScanController implements Disposable {
