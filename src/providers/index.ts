@@ -4,6 +4,12 @@ import { Config } from '../core/types';
 import { ProviderRegistry } from './ProviderRegistry';
 import { DiagnosticsDelegate } from '../diagnostics/diagnosticsManager';
 
+// Provider module register functions — each module exports `register()`.
+// Adding a new provider = create a *.module.ts file + append its register fn here.
+import { register as registerVsCodeDiagnostics } from './VSCodeDiagnosticProvider.module';
+import { register as registerTsc } from './TscDiagnosticProvider.module';
+import { register as registerEslint } from './EslintDiagnosticProvider.module';
+
 /**
  * Context handed to every provider's `register()` function. Carries everything
  * a provider module needs to construct and register itself — extension.ts no
@@ -47,9 +53,9 @@ export type ProviderRegisterFn = (registry: ProviderRegistry, ctx: ProviderRegis
  * tree-shaking effective, and surfaces new providers in code review.
  */
 export const ALL_PROVIDER_MODULES: readonly ProviderRegisterFn[] = [
-  require('./VSCodeDiagnosticProvider.module').register,
-  require('./TscDiagnosticProvider.module').register,
-  require('./EslintDiagnosticProvider.module').register,
+  registerVsCodeDiagnostics,
+  registerTsc,
+  registerEslint,
 ];
 
 /**

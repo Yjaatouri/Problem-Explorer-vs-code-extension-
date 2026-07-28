@@ -186,6 +186,38 @@ export class ProviderRegistry implements Disposable {
   }
 
   /**
+   * Get the typed ProviderCapabilities for a provider id. Single source of
+   * truth for capabilities — the free-form `ProviderMetadata.capabilities`
+   * string[] is derived from this and should not be read directly by new code.
+   */
+  getCapabilities(id: string): ProviderCapabilities | undefined {
+    return this._descriptors.get(id)?.capabilities;
+  }
+
+  /**
+   * Check if a provider has a capability by tag name. Tags are derived from the
+   * typed ProviderCapabilities via `deriveCapabilityTags()`. Supported tags:
+   * 'diagnostics' (always), 'realtime', 'manual-scan', 'startup-scan',
+   * 'full-workspace'.
+   */
+  hasCapability(id: string, tag: string): boolean {
+    const desc = this._descriptors.get(id);
+    if (!desc) return false;
+    return deriveCapabilityTags(desc.capabilities, desc.type ?? (desc.capabilities.realtime ? 'realtime' : 'scanner')).includes(tag);
+  }
+
+  /**
+   * Enumerate providers that advertise a capability tag. Tags are derived from
+   * typed ProviderCapabilities — there is exactly one capability surface.
+   */
+  getByCapability(tag: string): readonly RegisteredProvider[] {
+    return this.all().filter((rp) => {
+      const tags = deriveCapabilityTags(rp.descriptor.capabilities, rp.descriptor.type ?? (rp.descriptor.capabilities.realtime ? 'realtime' : 'scanner'));
+      return tags.includes(tag);
+    });
+  }
+
+  /**
    * Get the owning provider id for a file extension. Returns `undefined` for
    * realtime providers or unknown extensions — they fall through to the
    * realtime fallback (vscodeDiagnostics).

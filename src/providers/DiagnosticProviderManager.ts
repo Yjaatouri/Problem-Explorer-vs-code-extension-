@@ -13,6 +13,13 @@ export enum ProviderState {
 
 export interface ProviderMetadata {
   priority?: number;
+  /**
+   * @deprecated Capability tags are derived from the typed `ProviderCapabilities`
+   * on each provider's descriptor by `ProviderRegistry.register()`. New code
+   * should read capabilities via `ProviderRegistry.getCapabilities(id)` or
+   * `ProviderRegistry.hasCapability(id, tag)`. This field is retained for
+   * back-compat with telemetry consumers that read `info.metadata.capabilities`.
+   */
   capabilities?: string[];
 }
 
@@ -177,10 +184,19 @@ export class DiagnosticProviderManager {
     return this.all().filter((e) => e.state === state);
   }
 
+  /**
+   * @deprecated Use `ProviderRegistry.getByCapability()` instead — capabilities
+   * are derived from the typed `ProviderCapabilities` on each provider's
+   * descriptor. The string-tag system here is a derived view maintained for
+   * back-compat with existing telemetry consumers.
+   */
   getByCapability(capability: string): ProviderInfo[] {
     return this.all().filter((e) => e.metadata.capabilities.includes(capability));
   }
 
+  /**
+   * @deprecated Use `ProviderRegistry.hasCapability()` instead.
+   */
   hasCapability(name: string, capability: string): boolean {
     this.ensureNotDisposed();
     const entry = this.entries.get(name);
