@@ -71,6 +71,15 @@ export class ScanScheduler implements Disposable {
   /** Timer to flush the pending queue. */
   private _flushTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /** Task 8: Priority queue of jobs ready to execute (highest priority first). */
+  private readonly _readyQueue: PendingJob[] = [];
+
+  /** True while the worker loop is processing the queue. */
+  private _processing = false;
+
+  /** Inter-job debounce: wait this long after each job to let higher-priority jobs arrive. */
+  private readonly _interJobDebounceMs = 25;
+
   constructor(
     registry: ProviderRegistry,
     manager: DiagnosticProviderManager,
@@ -223,8 +232,8 @@ export class ScanScheduler implements Disposable {
     return `${a};${b}`;
   }
 
-  /** Flush a single pending job by key. */
-  private async flushOne(key: string): Promise<void> {
+  /** Flush a single pending job by key — moves it to the ready queue for priority scheduling. */
+  private flushOne(key: string): void {
     const pending = this._pending.get(key);
     if (!pending) return;
     this._pending.delete(key);
@@ -235,24 +244,55 @@ export class ScanScheduler implements Disposable {
       return;
     }
 
-    const { request, job, abort } = pending;
-
-    // Track as in-flight so newer jobs can abort it
-    this._inFlight.set(job.jobId, pending);
-
-    this._log(`[SCAN-SCHEDULER] flush: job ${job.jobId} for [${request.providerNames.join(', ')}] (${job.uris.length} URIs)`);
-
-    try {
-      if (abort.signal.aborted) {
-        this._log(`[SCAN-SCHEDULER] flush: aborted before execution ${job.jobId}`);
-        return;
-      }
-      // Refresh each provider through its per-provider lock.
-      // Different providers run concurrently; same provider is serialized.
-      await this.refreshWithLocks(request.providerNames, abort.signal);
-    } finally {
-      this._inFlight.delete(job.jobId);
+    // Insert into ready queue sorted by priority (highest first), then by timestamp (FIFO for ties)
+    const idx = this._readyQueue.findIndex((p) => p.job.priority < pending.job.priority);
+    if (idx === -1) {
+      this._readyQueue.push(pending);
+    } else {
+      this._readyQueue.splice(idx, 0, pending);
     }
+
+    this._log(`[SCAN-SCHEDULER] queued job ${pending.job.jobId} (pri=${pending.job.priority}) — queue length: ${this._readyQueue.length}`);
+
+    // Start worker if not already running
+    if (!this._processing) {
+      this._processing = true;
+      this.processQueue();
+    }
+  }
+
+  /**
+   * Worker loop: process ready queue by priority.
+   * After each job, wait a short inter-job debounce to allow higher-priority jobs to arrive.
+   */
+  private async processQueue(): Promise<void> {
+    while (this._readyQueue.length > 0) {
+      // Pop highest priority job
+      const pending = this._readyQueue.shift()!;
+      const { request, job, abort } = pending;
+
+      // Track as in-flight so newer jobs can abort it
+      this._inFlight.set(job.jobId, pending);
+
+      this._log(`[SCAN-SCHEDULER] executing job ${job.jobId} for [${request.providerNames.join(', ')}] (pri=${job.priority})`);
+
+      try {
+        if (abort.signal.aborted) {
+          this._log(`[SCAN-SCHEDULER] execution aborted before start ${job.jobId}`);
+        } else {
+          // Refresh each provider through its per-provider lock
+          await this.refreshWithLocks(request.providerNames, abort.signal);
+        }
+      } finally {
+        this._inFlight.delete(job.jobId);
+      }
+
+      // Inter-job debounce: wait briefly to let higher-priority jobs arrive
+      if (this._readyQueue.length > 0) {
+        await new Promise((r) => setTimeout(r, this._interJobDebounceMs));
+      }
+    }
+    this._processing = false;
   }
 
   /**
@@ -508,9 +548,13 @@ export class ScanScheduler implements Disposable {
 
   dispose(): void {
     this._disposed = true;
-    // Abort all pending jobs
+    // Abort all pending jobs (waiting for debounce)
     for (const [, pending] of this._pending) {
       clearTimeout(pending.timer);
+      pending.abort.abort();
+    }
+    // Abort all queued jobs (waiting in ready queue)
+    for (const pending of this._readyQueue) {
       pending.abort.abort();
     }
     // Abort all in-flight jobs
@@ -518,6 +562,7 @@ export class ScanScheduler implements Disposable {
       inflight.abort.abort();
     }
     this._pending.clear();
+    this._readyQueue.length = 0;
     this._inFlight.clear();
     this._providerLocks.clear();
     if (this._flushTimer) {
