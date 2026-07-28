@@ -267,6 +267,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       diagProvider.setReconcileInterval(config.reconcileIntervalMs);
       tscProvider.updateConfig(config.typescript);
       eslintProvider.updateConfig(config.eslint);
+      // Restore invariant: registry ownership must reflect the current
+      // enabled/disabled state of every provider after config changes.
+      providerRegistry.rebuildOwnership();
     };
     applyConfig();
 
