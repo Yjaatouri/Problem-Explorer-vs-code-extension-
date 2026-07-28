@@ -297,7 +297,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 
     // Start all providers with startupScan capability (non-blocking)
     const startupController = new StartupScanController(
-      providerRegistry,
       scanScheduler,
       log,
     );
@@ -308,7 +307,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const autoScannerCfg = configManager.getConfig();
     let autoScanController: AutoScanController | undefined;
     if (autoScannerCfg.autoScanEnabled) {
-      autoScanController = new AutoScanController(providerRegistry, scanScheduler, statusBarManager, log, autoScannerCfg.autoScanDelay, autoScannerCfg.autoScanEnabled);
+      autoScanController = new AutoScanController(scanScheduler, log, autoScannerCfg.autoScanEnabled);
       autoScanController.start();
       context.subscriptions.push(autoScanController);
       log('[VERIFY] AutoScanController created (feature flag enabled)');
@@ -333,15 +332,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         const currEslint = currCfg.eslint;
         prevTscEnabled = currTsc.enabled;
         prevEslintEnabled = currEslint.enabled;
-        autoScanController?.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
+        autoScanController?.updateConfig(currCfg.autoScanEnabled);
+        const reEnabled: string[] = [];
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
-          void scanScheduler.submit({ providerNames: ['tsc'], reason: 'config re-enable', source: 'config-change' });
+          reEnabled.push('tsc');
         }
         if (currEslint.enabled && !prevEslint) {
           log('[ESLINT] Scan enabled via config change — triggering scan');
-          void scanScheduler.submit({ providerNames: ['eslint'], reason: 'config re-enable', source: 'config-change' });
+          reEnabled.push('eslint');
         }
+        if (reEnabled.length > 0) {
+          void scanScheduler.routeConfigReEnable(reEnabled);
+        }
+        // Disabled providers release ownership in their updateConfig() — no scan needed.
       }),
     );
 

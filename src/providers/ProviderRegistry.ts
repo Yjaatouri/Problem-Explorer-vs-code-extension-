@@ -103,6 +103,17 @@ export class ProviderRegistry implements Disposable {
     if (this._descriptors.has(descriptor.id)) {
       throw new Error(`Provider "${descriptor.id}" is already registered`);
     }
+    // Enforce unique priorities — equal priorities make ownership
+    // dependent on registration order ("last writer wins"), which is
+    // almost certainly not what the author intended.
+    for (const existing of this._descriptors.values()) {
+      if (existing.priority === descriptor.priority) {
+        throw new Error(
+          `Priority ${descriptor.priority} is already claimed by "${existing.id}". ` +
+          `Provider "${descriptor.id}" must use a different priority.`,
+        );
+      }
+    }
     // Validate id == provider.name so consumers can always trust either one
     // (the dpm requires the same via its register() call, but here we own it).
     const type = descriptor.type ?? (descriptor.capabilities.realtime ? 'realtime' : 'scanner');
