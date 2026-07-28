@@ -16,6 +16,10 @@ interface PendingJob {
   request: ScanJobRequest;
   job: ScanJob;
   timer: ReturnType<typeof setTimeout>;
+  /** AbortController for cooperative cancellation. */
+  abort: AbortController;
+  /** True if this job has been superseded by a higher-priority job. */
+  superseded: boolean;
 }
 
 /**
@@ -34,6 +38,12 @@ interface PendingJob {
  * **Task 5 scope:** Job deduplication & debouncing. Multiple rapid saves
  * for the same file/provider are merged into a single scan job. A short
  * debounce window collects bursts; the highest priority wins.
+ *
+ * **Task 6 scope:** Cancellation. Obsolete jobs are cancelled when newer,
+ * higher-priority jobs supersede them. Each job gets an AbortController;
+ * when a new job for the same provider arrives with higher priority, the
+ * older job's signal is aborted and it is removed from the pending queue.
+ * In-flight jobs check their signal before and during execution.
  */
 export class ScanScheduler implements Disposable {
   private readonly _registry: ProviderRegistry;
@@ -46,6 +56,9 @@ export class ScanScheduler implements Disposable {
 
   /** Pending jobs keyed by deduplication key. */
   private readonly _pending = new Map<string, PendingJob>();
+
+  /** In-flight jobs keyed by job id (currently executing). */
+  private readonly _inFlight = new Map<string, PendingJob>();
 
   /** Timer to flush the pending queue. */
   private _flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -67,10 +80,14 @@ export class ScanScheduler implements Disposable {
    * Deduplication: multiple rapid requests for the same provider+URI+source
    * are merged into a single job within the debounce window. The highest
    * priority wins; URIs are unioned.
+   *
+   * Cancellation: if a new job for the same provider arrives with higher
+   * priority than a pending or in-flight job, the older job is aborted and
+   * removed from the queue. This ensures outdated scans never run.
    */
   async submit(request: ScanJobRequest): Promise<ScanJobResult> {
     this.ensureNotDisposed();
-    const { providerNames, reason, source, uris = [], signal } = request;
+    const { providerNames, reason, source, uris = [] } = request;
 
     if (providerNames.length === 0) {
       this._log(`[SCAN-SCHEDULER] ${source}: empty provider list — skipping (${reason})`);
@@ -84,13 +101,18 @@ export class ScanScheduler implements Disposable {
       : 0;
     const priority = computeScanPriority(eventTier, basePriority);
 
+    // Cancel obsolete pending/in-flight jobs for the same providers
+    this.cancelObsoleteJobs(providerNames, priority, reason);
+
+    const abort = new AbortController();
+
     const job: ScanJob = {
       provider: providerNames[0], // primary provider
       reason,
       uris,
       priority,
       timestamp: Date.now(),
-      signal,
+      signal: abort.signal,
       jobId: generateJobId(),
     };
 
@@ -119,12 +141,49 @@ export class ScanScheduler implements Disposable {
 
     // New pending job — schedule flush
     const timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
-    this._pending.set(dedupKey, { request, job, timer });
+    this._pending.set(dedupKey, { request, job, timer, abort, superseded: false });
 
     this._log(`[SCAN-SCHEDULER] ${source}: queued job ${job.jobId} for [${providerNames.join(', ')}] pri=${priority} (${reason})`);
 
     // Return immediately; actual execution happens on flush
     return { submitted: true, providerNames, reason, source, job };
+  }
+
+  /**
+   * Cancel pending and in-flight jobs for the given providers if the new
+   * job has higher priority. A job is obsolete if:
+   *   - It is still pending (not yet flushed) and the new job has higher priority
+   *   - It is in-flight and the new job has higher or equal priority (newer wins)
+   */
+  private cancelObsoleteJobs(providerNames: readonly string[], newPriority: number, newReason: string): void {
+    const providerSet = new Set(providerNames);
+
+    // Cancel pending jobs for the same providers with lower priority
+    for (const [key, pending] of this._pending) {
+      const pendingProviders = pending.request.providerNames;
+      const overlaps = pendingProviders.some((p) => providerSet.has(p));
+      if (!overlaps) continue;
+
+      if (pending.job.priority < newPriority) {
+        pending.superseded = true;
+        pending.abort.abort();
+        clearTimeout(pending.timer);
+        this._pending.delete(key);
+        this._log(`[SCAN-SCHEDULER] cancelled pending job ${pending.job.jobId} (pri=${pending.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
+      }
+    }
+
+    // Abort in-flight jobs for the same providers with lower priority
+    for (const [jobId, inflight] of this._inFlight) {
+      const inflightProviders = inflight.request.providerNames;
+      const overlaps = inflightProviders.some((p) => providerSet.has(p));
+      if (!overlaps) continue;
+
+      if (inflight.job.priority <= newPriority) {
+        inflight.abort.abort();
+        this._log(`[SCAN-SCHEDULER] aborted in-flight job ${jobId} (pri=${inflight.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
+      }
+    }
   }
 
   /** Build a deduplication key from request parameters. */
@@ -162,10 +221,28 @@ export class ScanScheduler implements Disposable {
     if (!pending) return;
     this._pending.delete(key);
 
-    const { request, job } = pending;
+    // Cancellation: skip if this job was superseded by a higher-priority one
+    if (pending.superseded || pending.abort.signal.aborted) {
+      this._log(`[SCAN-SCHEDULER] flush: skipping superseded job ${pending.job.jobId}`);
+      return;
+    }
+
+    const { request, job, abort } = pending;
+
+    // Track as in-flight so newer jobs can abort it
+    this._inFlight.set(job.jobId, pending);
+
     this._log(`[SCAN-SCHEDULER] flush: job ${job.jobId} for [${request.providerNames.join(', ')}] (${job.uris.length} URIs)`);
 
-    await this._manager.refreshByNames([...request.providerNames]);
+    try {
+      if (abort.signal.aborted) {
+        this._log(`[SCAN-SCHEDULER] flush: aborted before execution ${job.jobId}`);
+        return;
+      }
+      await this._manager.refreshByNames([...request.providerNames]);
+    } finally {
+      this._inFlight.delete(job.jobId);
+    }
   }
 
   /**
@@ -333,6 +410,36 @@ export class ScanScheduler implements Disposable {
     return { submitted: true, providerNames: [ownerName], reason, source };
   }
 
+  /**
+   * Cancel all pending and in-flight jobs for the specified providers.
+   * Useful when a provider is disabled via config or unregistered.
+   */
+  cancelProviderJobs(providerNames: readonly string[]): void {
+    this.ensureNotDisposed();
+    const providerSet = new Set(providerNames);
+
+    // Cancel pending jobs
+    for (const [key, pending] of this._pending) {
+      const overlaps = pending.request.providerNames.some((p) => providerSet.has(p));
+      if (overlaps) {
+        pending.superseded = true;
+        pending.abort.abort();
+        clearTimeout(pending.timer);
+        this._pending.delete(key);
+        this._log(`[SCAN-SCHEDULER] cancelled pending job ${pending.job.jobId} for [${providerNames.join(', ')}]`);
+      }
+    }
+
+    // Abort in-flight jobs
+    for (const [jobId, inflight] of this._inFlight) {
+      const overlaps = inflight.request.providerNames.some((p) => providerSet.has(p));
+      if (overlaps) {
+        inflight.abort.abort();
+        this._log(`[SCAN-SCHEDULER] aborted in-flight job ${jobId} for [${providerNames.join(', ')}]`);
+      }
+    }
+  }
+
   /** Map a ScanSource to its ScanPriority tier. */
   private sourceToTier(source: ScanSource): ScanPriority {
     switch (source) {
@@ -361,14 +468,17 @@ export class ScanScheduler implements Disposable {
 
   dispose(): void {
     this._disposed = true;
-    // Flush all pending jobs synchronously on dispose
+    // Abort all pending jobs
     for (const [, pending] of this._pending) {
       clearTimeout(pending.timer);
-      try {
-        this._manager.refreshByNames([...pending.request.providerNames]);
-      } catch {}
+      pending.abort.abort();
+    }
+    // Abort all in-flight jobs
+    for (const [, inflight] of this._inFlight) {
+      inflight.abort.abort();
     }
     this._pending.clear();
+    this._inFlight.clear();
     if (this._flushTimer) {
       clearTimeout(this._flushTimer);
       this._flushTimer = undefined;
