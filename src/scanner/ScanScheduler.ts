@@ -44,6 +44,11 @@ interface PendingJob {
  * when a new job for the same provider arrives with higher priority, the
  * older job's signal is aborted and it is removed from the pending queue.
  * In-flight jobs check their signal before and during execution.
+ *
+ * **Task 7 scope:** Concurrency. Different providers run concurrently,
+ * but two scans for the same provider never execute simultaneously.
+ * A per-provider lock (Promise chain) serializes same-provider scans;
+ * a waiting job checks its abort signal before acquiring the lock.
  */
 export class ScanScheduler implements Disposable {
   private readonly _registry: ProviderRegistry;
@@ -59,6 +64,9 @@ export class ScanScheduler implements Disposable {
 
   /** In-flight jobs keyed by job id (currently executing). */
   private readonly _inFlight = new Map<string, PendingJob>();
+
+  /** Per-provider locks — serializes same-provider scans. */
+  private readonly _providerLocks = new Map<string, Promise<void>>();
 
   /** Timer to flush the pending queue. */
   private _flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -239,10 +247,42 @@ export class ScanScheduler implements Disposable {
         this._log(`[SCAN-SCHEDULER] flush: aborted before execution ${job.jobId}`);
         return;
       }
-      await this._manager.refreshByNames([...request.providerNames]);
+      // Refresh each provider through its per-provider lock.
+      // Different providers run concurrently; same provider is serialized.
+      await this.refreshWithLocks(request.providerNames, abort.signal);
     } finally {
       this._inFlight.delete(job.jobId);
     }
+  }
+
+  /**
+   * Refresh providers concurrently, each through its own per-provider lock.
+   * Different providers run in parallel; same-provider scans are serialized.
+   * If the abort signal fires while waiting for a lock, the scan is skipped.
+   */
+  private async refreshWithLocks(providerNames: readonly string[], signal: AbortSignal): Promise<void> {
+    const tasks = providerNames.map((name) => this.refreshOneWithLock(name, signal));
+    await Promise.all(tasks);
+  }
+
+  /** Refresh a single provider, acquiring its per-provider lock. */
+  private async refreshOneWithLock(name: string, signal: AbortSignal): Promise<void> {
+    // Wait for any in-flight scan for this provider to finish.
+    const prev = this._providerLocks.get(name) ?? Promise.resolve();
+    const next = prev.then(async () => {
+      // Cancellation: if aborted while waiting for the lock, skip.
+      if (signal.aborted) {
+        this._log(`[SCAN-SCHEDULER] ${name}: skipped (aborted while waiting for lock)`);
+        return;
+      }
+      try {
+        await this._manager.refreshByNames([name]);
+      } catch (e) {
+        this._log(`[SCAN-SCHEDULER] ${name}: refresh failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
+    this._providerLocks.set(name, next);
+    await next;
   }
 
   /**
@@ -479,6 +519,7 @@ export class ScanScheduler implements Disposable {
     }
     this._pending.clear();
     this._inFlight.clear();
+    this._providerLocks.clear();
     if (this._flushTimer) {
       clearTimeout(this._flushTimer);
       this._flushTimer = undefined;
