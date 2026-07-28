@@ -257,6 +257,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       statusBarManager,
       trendTracker,
       log,
+      scanScheduler,
     );
 
     // Apply user config before initializing providers so the initial

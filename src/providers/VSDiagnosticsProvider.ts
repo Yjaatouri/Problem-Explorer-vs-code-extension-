@@ -8,6 +8,7 @@ import { TrendTracker } from '../trend/trendTracker';
 import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
+import { ScanScheduler } from '../scanner/ScanScheduler';
 
 
 export class VSDiagnosticsProvider extends BaseProblemProvider {
@@ -26,6 +27,7 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly statusBarManager: StatusBarManager,
     private readonly trendTracker: TrendTracker,
     log: (msg: string) => void,
+    private readonly scanScheduler?: ScanScheduler,
   ) {
     super();
     void log;
@@ -99,7 +101,13 @@ public get eventCount(): number { return this.diagEventCount; }
   }
 
   protected onRefresh(): void {
-    this.manager.refreshAll();
+    if (this.scanScheduler) {
+      // Route through ScanScheduler instead of calling manager.refreshAll() directly
+      void this.scanScheduler.submitAll('manual', 'vsdiagnostics refresh');
+    } else {
+      // Fallback for backward compatibility
+      this.manager.refreshAll();
+    }
     const changedFolders = this.folderStatusManager.rebuildAll();
     for (let i = 0; i < changedFolders.length; i++) {
       const folder = vscode.workspace.getWorkspaceFolder(changedFolders[i]);
