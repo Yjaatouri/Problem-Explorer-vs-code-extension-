@@ -18,6 +18,9 @@ export interface DiagnosticProvider extends Disposable {
   stop(): void;
   refresh(): void | Promise<void>;
 
+  /** Optional: incremental scan of specific files. If not implemented, falls back to full refresh(). */
+  refreshUris?(uris: readonly Uri[]): void | Promise<void>;
+
   /** Optional: called when provider is unregistered/stopped to release store ownership */
   releaseOwnership?(): void;
 }

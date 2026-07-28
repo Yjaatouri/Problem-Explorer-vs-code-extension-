@@ -9,6 +9,8 @@ export interface EslintRunOptions {
   ext?: string[];
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Optional: specific files to lint (for incremental scans) */
+  files?: readonly string[];
 }
 
 export interface EslintRunResult {
@@ -33,6 +35,7 @@ export class EslintRunner {
       ext = [],
       signal,
       timeoutMs = DEFAULT_TIMEOUT_MS,
+      files = [],
     } = options;
 
     const args = ['--format', 'json', '--no-error-on-unmatched-pattern'];
@@ -41,7 +44,13 @@ export class EslintRunner {
       args.push('--config', configPath);
     }
 
-    if (ext.length > 0) {
+    // If specific files are provided, lint only those (incremental scan)
+    if (files.length > 0) {
+      for (const file of files) {
+        args.push(file);
+      }
+    } else if (ext.length > 0) {
+      // Otherwise use glob patterns for full workspace scan
       args.push(...ext.map((e) => `**/*${e}`));
     }
 

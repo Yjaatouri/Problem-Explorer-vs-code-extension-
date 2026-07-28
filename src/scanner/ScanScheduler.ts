@@ -280,8 +280,9 @@ export class ScanScheduler implements Disposable {
         if (abort.signal.aborted) {
           this._log(`[SCAN-SCHEDULER] execution aborted before start ${job.jobId}`);
         } else {
-          // Refresh each provider through its per-provider lock
-          await this.refreshWithLocks(request.providerNames, abort.signal);
+          // Refresh each provider through its per-provider lock with specific URIs (if any)
+          const uris = request.uris ?? [];
+          await this.refreshWithLocks(request.providerNames, uris, abort.signal);
         }
       } finally {
         this._inFlight.delete(job.jobId);
@@ -300,13 +301,13 @@ export class ScanScheduler implements Disposable {
    * Different providers run in parallel; same-provider scans are serialized.
    * If the abort signal fires while waiting for a lock, the scan is skipped.
    */
-  private async refreshWithLocks(providerNames: readonly string[], signal: AbortSignal): Promise<void> {
-    const tasks = providerNames.map((name) => this.refreshOneWithLock(name, signal));
+  private async refreshWithLocks(providerNames: readonly string[], uris: readonly Uri[], signal: AbortSignal): Promise<void> {
+    const tasks = providerNames.map((name) => this.refreshOneWithLock(name, uris, signal));
     await Promise.all(tasks);
   }
 
   /** Refresh a single provider, acquiring its per-provider lock. */
-  private async refreshOneWithLock(name: string, signal: AbortSignal): Promise<void> {
+  private async refreshOneWithLock(name: string, uris: readonly Uri[], signal: AbortSignal): Promise<void> {
     // Wait for any in-flight scan for this provider to finish.
     const prev = this._providerLocks.get(name) ?? Promise.resolve();
     const next = prev.then(async () => {
@@ -316,7 +317,7 @@ export class ScanScheduler implements Disposable {
         return;
       }
       try {
-        await this._manager.refreshByNames([name]);
+        await this._manager.refreshByNames([name], uris);
       } catch (e) {
         this._log(`[SCAN-SCHEDULER] ${name}: refresh failed: ${e instanceof Error ? e.message : String(e)}`);
       }

@@ -72,6 +72,11 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
     this.store.releaseOwnership(this.name);
   }
 
+  /** Realtime provider — doesn't support incremental file-based scans */
+  refreshUris(_uris: readonly Uri[]): void {
+    // Realtime provider gets diagnostics from VS Code automatically
+  }
+
   fullScan(): Uri[] {
     return this.manager.fullScan();
   }

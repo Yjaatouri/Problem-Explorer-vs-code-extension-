@@ -19,6 +19,8 @@ export interface TscRunOptions {
   readonly tsconfigPath: string;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
+  /** Optional: specific files to scan (for incremental scans) */
+  readonly files?: readonly string[];
 }
 
 export interface TscProcess {
@@ -55,6 +57,13 @@ export class TscRunner {
       '--pretty', 'false',
       '--project', options.tsconfigPath,
     ];
+
+    // Incremental scan: pass specific files to tsc
+    if (options.files && options.files.length > 0) {
+      for (const file of options.files) {
+        args.push(file);
+      }
+    }
 
     const timeoutMs = options.timeoutMs ?? DEFAULT_TSC_TIMEOUT_MS;
     const startTime = Date.now();

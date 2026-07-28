@@ -177,8 +177,81 @@ export class EslintDiagnosticProvider implements DiagnosticProvider {
     this._onDidProgressScan.dispose();
   }
 
-  releaseOwnership(): void {
+releaseOwnership(): void {
     this._store.releaseOwnership(this.name);
+  }
+
+  /** Incremental scan of specific files */
+  async refreshUris(uris: readonly Uri[]): Promise<void> {
+    if (!this._enabled || this._disposed || uris.length === 0) { return; }
+    // Filter to only files we own (by extension)
+    const ownedExts = this._manager?.getOwnedExtensions(this.name) ?? this.capabilities.extensions;
+    const targetUris = uris.filter((uri) => ownedExts.some((ext) => uri.fsPath.endsWith(ext)));
+    if (targetUris.length === 0) { return; }
+    // Run a quick scan on just these files
+    await this.runIncrementalScan(targetUris);
+  }
+
+  private async runIncrementalScan(uris: readonly Uri[]): Promise<void> {
+    if (this._scanning) {
+      this._pendingRefresh = true;
+      return;
+    }
+    this._scanning = true;
+    const signal = new AbortSignal();
+    const allDiagnostics = new Map<string, EslintDiagnostic[]>();
+
+    try {
+      const workspaceFolders = this.getWorkspaceFolders();
+      const foldersWithEslint = await this.findFoldersWithEslint(workspaceFolders);
+      const ownedExts = this._manager?.getOwnedExtensions(this.name) ?? this.capabilities.extensions;
+
+      // Group URIs by workspace folder
+      const urisByFolder = new Map<string, Uri[]>();
+      for (const uri of uris) {
+        const folder = workspaceFolders.find((f) => uri.fsPath.startsWith(f.uri.fsPath));
+        if (folder) {
+          const key = folder.uri.fsPath;
+          const arr = urisByFolder.get(key) ?? [];
+          arr.push(uri);
+          urisByFolder.set(key, arr);
+        }
+      }
+
+      // Run ESLint on each folder's target files
+      for (const folder of foldersWithEslint) {
+        const folderUris = urisByFolder.get(folder.uri.fsPath);
+        if (!folderUris || folderUris.length === 0) continue;
+
+        const options: EslintRunOptions = {
+          cwd: folder.uri.fsPath,
+          ext: [...ownedExts],
+          signal,
+          timeoutMs: this.timeoutMs,
+          files: folderUris.map((u) => u.fsPath), // Pass specific files to scan
+        };
+
+        let result;
+        try {
+          result = await this.runner.run(options);
+        } catch {
+          continue;
+        }
+        if (result.cancelled || result.timedOut || result.error) { continue; }
+
+        const diagnostics = this.runner.parseOutput(result.stdout);
+        for (const diag of diagnostics) {
+          const key = diag.uri.toString();
+          const existing = allDiagnostics.get(key);
+          if (existing) { existing.push(diag); }
+          else { allDiagnostics.set(key, [diag]); }
+        }
+      }
+
+      this.writeToStore(allDiagnostics);
+    } finally {
+      this._scanning = false;
+    }
   }
 
   private _clearDebounce(): void {

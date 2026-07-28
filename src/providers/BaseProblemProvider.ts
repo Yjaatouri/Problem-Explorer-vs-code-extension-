@@ -1,4 +1,4 @@
-import { Disposable } from 'vscode';
+import { Disposable, Uri } from 'vscode';
 import { IProblemProvider } from './IProblemProvider';
 
 export abstract class BaseProblemProvider implements IProblemProvider {
@@ -30,6 +30,17 @@ export abstract class BaseProblemProvider implements IProblemProvider {
 
   refresh(): void {
     this.ensureNotDisposed();
+    this.onRefresh();
+  }
+
+  /**
+   * Incremental scan of specific URIs.
+   * Default implementation falls back to full refresh().
+   * Subclasses should override for true incremental scanning.
+   */
+  refreshUris(_uris: readonly Uri[]): void {
+    this.ensureNotDisposed();
+    // Default: full refresh (subclasses should override for incremental)
     this.onRefresh();
   }
 

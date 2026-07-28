@@ -260,16 +260,24 @@ export class DiagnosticProviderManager {
     }
   }
 
-  async refreshByNames(names: string[]): Promise<void> {
+  async refreshByNames(names: string[], uris?: readonly Uri[]): Promise<void> {
     this.ensureNotDisposed();
     const promises: Promise<void>[] = [];
     for (const name of names) {
       const entry = this.entries.get(name);
       if (!entry) continue;
       try {
-        const result = entry.provider.refresh();
-        if (result instanceof Promise) {
-          promises.push(result);
+        // Try incremental scan first, fall back to full refresh
+        if (uris && uris.length > 0 && entry.provider.refreshUris) {
+          const result = entry.provider.refreshUris(uris);
+          if (result instanceof Promise) {
+            promises.push(result);
+          }
+        } else {
+          const result = entry.provider.refresh();
+          if (result instanceof Promise) {
+            promises.push(result);
+          }
         }
       } catch (e) {
         console.error(`[DiagnosticProviderManager] refresh "${name}" failed:`, e);

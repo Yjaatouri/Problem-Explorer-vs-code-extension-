@@ -189,6 +189,92 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     this._store.releaseOwnership(this.name);
   }
 
+  /** Incremental scan of specific files — runs tsc with only those files */
+  async refreshUris(uris: readonly Uri[]): Promise<void> {
+    if (!this._enabled || this._disposed || uris.length === 0) { return; }
+    if (this._scanning) {
+      // Defer to next full scan
+      this._pendingRefresh = true;
+      return;
+    }
+
+    this._scanning = true;
+    this._lastScanErrors = [];
+    this.abortController = new AbortController();
+    const signal = this.abortController.signal;
+    const allDiagnostics = new Map<string, TscDiagnostic[]>();
+
+    try {
+      if (signal.aborted) { return; }
+
+      const projects = await this.projectResolver.resolveAll();
+      if (projects.length === 0) { return; }
+
+      // For incremental, run tsc on each project with only the relevant files
+      const semaphore = this.makeSemaphore(this._maxConcurrentScans);
+      await Promise.all(projects.map(async (project) => {
+        await semaphore.acquire();
+        if (signal.aborted) { semaphore.release(); return; }
+
+        // Filter URIs belonging to this project
+        const projectUris = uris.filter((uri) => {
+          const filePath = uri.fsPath;
+          return filePath.startsWith(project.projectRoot + path.sep) || filePath === project.projectRoot;
+        });
+        if (projectUris.length === 0) {
+          semaphore.release();
+          return;
+        }
+
+        const projectLabel = path.basename(project.projectRoot);
+        this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: `Incremental scan ${projectLabel}...`, detail: project.tsconfigPath });
+
+        // Run tsc on specific files
+        const options: TscRunOptions = {
+          typescriptPath: project.typescriptPath,
+          tsconfigPath: project.tsconfigPath,
+          signal,
+          timeoutMs: this.timeoutMs,
+          files: projectUris.map((u) => u.fsPath), // pass specific files to scan
+        };
+
+        let result;
+        try {
+          result = await this.tscRunner.run(options);
+        } catch {
+          semaphore.release();
+          return;
+        }
+
+        if (result.cancelled || result.timedOut || result.error) {
+          semaphore.release();
+          return;
+        }
+
+        const combined = result.stderr + '\n' + result.stdout;
+        const parsed = this.outputParser.parse(combined);
+
+        for (const diag of parsed) {
+          const fileKey = path.resolve(diag.file);
+          const existing = allDiagnostics.get(fileKey);
+          if (existing) { existing.push(diag); } else { allDiagnostics.set(fileKey, [diag]); }
+        }
+
+        semaphore.release();
+      }));
+
+      // Write results to store
+      this.writeToStore(allDiagnostics);
+    } finally {
+      this._scanning = false;
+      this.abortController = undefined;
+      if (this._pendingRefresh) {
+        this._pendingRefresh = false;
+        await this.runScan();
+      }
+    }
+  }
+
   private _clearDebounce(): void {
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
