@@ -11,6 +11,13 @@ import {
   generateJobId,
 } from './ScanJob';
 
+/** Pending job with debounce metadata. */
+interface PendingJob {
+  request: ScanJobRequest;
+  job: ScanJob;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 /**
  * The central `ScanScheduler` is the single entry point for all scan
  * requests in the extension. It wraps `DiagnosticProviderManager` and
@@ -23,12 +30,25 @@ import {
  * the scheduler resolves the correct providers via the ProviderRegistry
  * (extension ownership, capability filtering, enabled state, config gates).
  * No hardcoded provider names or capability checks remain in controllers.
+ *
+ * **Task 5 scope:** Job deduplication & debouncing. Multiple rapid saves
+ * for the same file/provider are merged into a single scan job. A short
+ * debounce window collects bursts; the highest priority wins.
  */
 export class ScanScheduler implements Disposable {
   private readonly _registry: ProviderRegistry;
   private readonly _manager: DiagnosticProviderManager;
   private readonly _log: (msg: string) => void;
   private _disposed = false;
+
+  /** Debounce window in ms for coalescing rapid same-file/provider events. */
+  private readonly _debounceMs = 50;
+
+  /** Pending jobs keyed by deduplication key. */
+  private readonly _pending = new Map<string, PendingJob>();
+
+  /** Timer to flush the pending queue. */
+  private _flushTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     registry: ProviderRegistry,
@@ -43,6 +63,10 @@ export class ScanScheduler implements Disposable {
   /**
    * Submit a scan request. Creates a ScanJob, computes priority,
    * and delegates to `DiagnosticProviderManager.refreshByNames()`.
+   *
+   * Deduplication: multiple rapid requests for the same provider+URI+source
+   * are merged into a single job within the debounce window. The highest
+   * priority wins; URIs are unioned.
    */
   async submit(request: ScanJobRequest): Promise<ScanJobResult> {
     this.ensureNotDisposed();
@@ -70,11 +94,78 @@ export class ScanScheduler implements Disposable {
       jobId: generateJobId(),
     };
 
-    this._log(`[SCAN-SCHEDULER] ${source}: job ${job.jobId} for [${providerNames.join(', ')}] pri=${priority} (${reason})`);
+    // Deduplication key: provider(s) + URI(s) + source + reason
+    // For autoscan, merge rapid saves on same file+provider.
+    const dedupKey = this.makeDedupKey(providerNames, uris, source, reason);
 
-    await this._manager.refreshByNames([...providerNames]);
+    const existing = this._pending.get(dedupKey);
+    if (existing) {
+      // Merge: union URIs, take max priority, update timestamp
+      const incomingUris = uris ?? [];
+      const existingUris = existing.request.uris ?? [];
+      const mergedUris = this.unionUris(existingUris, incomingUris);
+      const mergedPriority = Math.max(existing.job.priority, priority);
+      const mergedReason = this.mergeReason(existing.request.reason, reason);
 
+      existing.request = { ...existing.request, uris: mergedUris, priority: mergedPriority, reason: mergedReason };
+      existing.job = { ...existing.job, uris: mergedUris, priority: mergedPriority, timestamp: Date.now(), reason: mergedReason };
+      // Reset the debounce timer
+      clearTimeout(existing.timer);
+      existing.timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
+
+      this._log(`[SCAN-SCHEDULER] ${source}: merged job ${job.jobId} into ${existing.job.jobId} (key=${dedupKey})`);
+      return { submitted: true, providerNames, reason: mergedReason, source, job: existing.job };
+    }
+
+    // New pending job — schedule flush
+    const timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
+    this._pending.set(dedupKey, { request, job, timer });
+
+    this._log(`[SCAN-SCHEDULER] ${source}: queued job ${job.jobId} for [${providerNames.join(', ')}] pri=${priority} (${reason})`);
+
+    // Return immediately; actual execution happens on flush
     return { submitted: true, providerNames, reason, source, job };
+  }
+
+  /** Build a deduplication key from request parameters. */
+  private makeDedupKey(
+    providerNames: readonly string[],
+    uris: readonly Uri[],
+    source: ScanSource,
+    reason: string,
+  ): string {
+    const providers = [...providerNames].sort().join(',');
+    const uriKeys = [...uris].map(u => u.fsPath).sort().join(',');
+    return `${providers}|${uriKeys}|${source}|${reason}`;
+  }
+
+  /** Union two URI arrays (by fsPath). */
+  private unionUris(a: readonly Uri[], b: readonly Uri[]): readonly Uri[] {
+    const map = new Map<string, Uri>();
+    for (const u of a) map.set(u.fsPath, u);
+    for (const u of b) map.set(u.fsPath, u);
+    return Array.from(map.values());
+  }
+
+  /** Merge two reasons, preferring the more specific one. */
+  private mergeReason(a: string, b: string): string {
+    if (a === b) return a;
+    // Prefer non-generic reasons
+    if (a === 'file save' && b !== 'file save') return b;
+    if (b === 'file save' && a !== 'file save') return a;
+    return `${a};${b}`;
+  }
+
+  /** Flush a single pending job by key. */
+  private async flushOne(key: string): Promise<void> {
+    const pending = this._pending.get(key);
+    if (!pending) return;
+    this._pending.delete(key);
+
+    const { request, job } = pending;
+    this._log(`[SCAN-SCHEDULER] flush: job ${job.jobId} for [${request.providerNames.join(', ')}] (${job.uris.length} URIs)`);
+
+    await this._manager.refreshByNames([...request.providerNames]);
   }
 
   /**
@@ -270,6 +361,18 @@ export class ScanScheduler implements Disposable {
 
   dispose(): void {
     this._disposed = true;
+    // Flush all pending jobs synchronously on dispose
+    for (const [, pending] of this._pending) {
+      clearTimeout(pending.timer);
+      try {
+        this._manager.refreshByNames([...pending.request.providerNames]);
+      } catch {}
+    }
+    this._pending.clear();
+    if (this._flushTimer) {
+      clearTimeout(this._flushTimer);
+      this._flushTimer = undefined;
+    }
   }
 
   private ensureNotDisposed(): void {
