@@ -80,6 +80,13 @@ export class ScanScheduler implements Disposable {
   /** Inter-job debounce: wait this long after each job to let higher-priority jobs arrive. */
   private readonly _interJobDebounceMs = 25;
 
+  /** Task 9: Background reconciliation — runs only when scheduler is fully idle. */
+  private _reconcileTimer: ReturnType<typeof setTimeout> | undefined;
+  /** How long to wait after queue empties before starting reconciliation. */
+  private readonly _reconcileDelayMs = 5_000;
+  /** Interval between reconciliation runs. */
+  private readonly _reconcileIntervalMs = 60_000;
+
   constructor(
     registry: ProviderRegistry,
     manager: DiagnosticProviderManager,
@@ -88,6 +95,8 @@ export class ScanScheduler implements Disposable {
     this._registry = registry;
     this._manager = manager;
     this._log = log;
+    // Start background reconciliation timer
+    this.scheduleReconcile();
   }
 
   /**
@@ -294,6 +303,51 @@ export class ScanScheduler implements Disposable {
       }
     }
     this._processing = false;
+    // Queue fully empty — schedule background reconciliation
+    this.scheduleReconcile();
+  }
+
+  /**
+   * Task 10: Background reconciliation.
+   * Runs a reconciliation scan at the lowest priority (ScanPriority.Reconcile = 10)
+   * only when the scheduler is completely idle (no pending, ready, or in-flight jobs).
+   * Called periodically after queue empties.
+   */
+  private scheduleReconcile(): void {
+    if (this._disposed) return;
+    if (this._reconcileTimer) {
+      clearTimeout(this._reconcileTimer);
+    }
+    // Only start reconcile timer if not already processing and queue is empty
+    if (!this._processing && this._readyQueue.length === 0 && this._pending.size === 0 && this._inFlight.size === 0) {
+      this._reconcileTimer = setTimeout(() => this.runReconcile(), this._reconcileDelayMs);
+    } else {
+      // If busy, try again after a short delay
+      this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), 1000);
+    }
+  }
+
+  /** Execute the reconciliation job — scans for stale diagnostics and clears them. */
+  private async runReconcile(): Promise<void> {
+    if (this._disposed) return;
+    this._log('[SCAN-SCHEDULER] running background reconciliation');
+
+    // Submit a reconcile job at lowest priority
+    const result = await this.submit({
+      providerNames: ['vscodeDiagnostics'],
+      reason: 'background reconciliation',
+      source: 'realtime', // will be mapped to Reconcile priority via sourceToTier
+      uris: [],
+    });
+
+    if (result.submitted) {
+      this._log('[SCAN-SCHEDULER] reconciliation job submitted');
+    } else {
+      this._log('[SCAN-SCHEDULER] reconciliation skipped: ' + result.skipReason);
+    }
+
+    // Schedule next reconciliation
+    this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
   }
 
   /**
@@ -549,6 +603,11 @@ export class ScanScheduler implements Disposable {
 
   dispose(): void {
     this._disposed = true;
+    // Clear reconciliation timer
+    if (this._reconcileTimer) {
+      clearTimeout(this._reconcileTimer);
+      this._reconcileTimer = undefined;
+    }
     // Abort all pending jobs (waiting for debounce)
     for (const [, pending] of this._pending) {
       clearTimeout(pending.timer);
