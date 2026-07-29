@@ -22,6 +22,7 @@ export function register(registry: ProviderRegistry, ctx: ProviderRegistrationCo
   const providerConfig = registry.getProviderConfig('tsc');
   const provider = new TscDiagnosticProvider(ctx.store, {
     timeoutMs: providerConfig?.timeout,
+    log: ctx.log,
   });
   registry.register(provider, DESCRIPTOR);
 }

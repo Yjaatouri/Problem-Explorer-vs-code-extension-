@@ -11,7 +11,7 @@ import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
 import { ScanScheduler } from '../scanner/ScanScheduler';
 import { ScanProgress, ProviderCapabilities } from '../core/types';
-import { ProblemStore } from '../store/ProblemStore';
+
 
 
 export class VSDiagnosticsProvider extends BaseProblemProvider {

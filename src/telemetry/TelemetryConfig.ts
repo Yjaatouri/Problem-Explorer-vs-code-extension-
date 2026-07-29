@@ -21,7 +21,7 @@ export interface TelemetryConfig {
 /** Default telemetry configuration */
 export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
   enabled: false,
-  monitoring: 'minimal',
+  monitoring: 'full',
   bufferSize: 1000,
   flushIntervalMs: 5000,
   includeStackTraces: false,

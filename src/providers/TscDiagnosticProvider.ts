@@ -53,6 +53,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   private readonly outputParser: TscOutputParser;
   private timeoutMs: number;
   private readonly refreshDebounceMs: number;
+  private readonly _log: (msg: string) => void;
   private abortController: AbortController | undefined;
   private _lastScanErrors: TscScanError[] = [];
   private _lastScanDurationMs = 0;
@@ -121,9 +122,11 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       outputParser?: TscOutputParser;
       timeoutMs?: number;
       refreshDebounceMs?: number;
+      log?: (msg: string) => void;
     },
   ) {
     this._store = store;
+    this._log = options?.log ?? (() => {});
     this.projectResolver = options?.projectResolver ?? new ProjectResolver();
     this.tscRunner = options?.tscRunner ?? new TscRunner();
     this.outputParser = options?.outputParser ?? new TscOutputParser();
@@ -191,6 +194,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   /** Incremental scan of specific files — runs tsc with only those files */
   async refreshUris(uris: readonly Uri[]): Promise<void> {
+    this._log?.(`[TSC] refreshUris called with ${uris.length} uris`);
     if (!this._enabled || this._disposed || uris.length === 0) { return; }
     if (this._scanning) {
       // Defer to next full scan
@@ -287,9 +291,14 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   async runScan(): Promise<Uri[]> {
-    if (!this._enabled || this._disposed) { return []; }
+    this._log?.('[TSC] runScan start');
+    if (!this._enabled || this._disposed) { 
+      this._log?.('[TSC] runScan exit: disabled or disposed');
+      return []; 
+    }
     if (this._scanning) {
       this._pendingRefresh = true;
+      this._log?.('[TSC] runScan exit: already scanning, pendingRefresh=true');
       return [];
     }
 
@@ -456,7 +465,8 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   getMemoryUsage(): NodeJS.MemoryUsage | undefined {
     try {
-      return process.memoryUsage();
+      // process.memoryUsage() is not available in VS Code extension host
+      return undefined;
     } catch {
       return undefined;
     }
@@ -474,6 +484,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   }
 
   private writeToStore(diagnostics: Map<string, TscDiagnostic[]>): Uri[] {
+    this._log?.(`[TSC] writeToStore: ${diagnostics.size} diagnostics`);
     const changed: Uri[] = [];
     const scannedUris = new Set<string>();
 

@@ -347,13 +347,11 @@ suite('TscDiagnosticProvider', () => {
     provider.dispose();
   });
 
-  test('getMemoryUsage returns process info', () => {
+  test('getMemoryUsage returns undefined in extension host', () => {
     const store = new ProblemStore();
     const provider = new TscDiagnosticProvider(store);
     const mem = provider.getMemoryUsage();
-    assert.ok(mem);
-    assert.ok(mem!.heapUsed > 0);
-    assert.ok(mem!.heapTotal > 0);
+    assert.strictEqual(mem, undefined);
     provider.dispose();
   });
 
