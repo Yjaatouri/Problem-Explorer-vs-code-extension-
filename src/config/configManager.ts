@@ -63,7 +63,7 @@ private readConfig(): Config {
       warningColor: cfg.get<string | undefined>('warningColor', undefined),
       infoColor: cfg.get<string | undefined>('infoColor', undefined),
       severityOverrides: cfg.get<Record<string, Record<string, string>> | undefined>('severityOverrides', undefined),
-      autoScanEnabled: cfg.get<boolean>('autoScan.enabled', false),
+      autoScanEnabled: cfg.get<boolean>('autoScan.enabled', true),
       autoScanDelay: cfg.get<number>('autoScanDelay', 2000),
       debug: cfg.get<boolean>('debug', false),
       reconcileIntervalMs: cfg.get<number>('reconcileIntervalMs', 30000),
@@ -80,7 +80,7 @@ private readConfig(): Config {
   private readTscConfig(cfg: { get<T>(key: string, defaultValue?: T): T }): TscConfig {
     return {
       enabled: cfg.get<boolean>('typescript.enabled', true),
-      autoScan: cfg.get<boolean>('typescript.autoScan', false),
+      autoScan: cfg.get<boolean>('typescript.autoScan', true),
       scanOnStartup: cfg.get<boolean>('typescript.scanOnStartup', true),
       timeout: cfg.get<number>('typescript.timeout', 120000),
       useWorkspaceVersion: cfg.get<boolean>('typescript.useWorkspaceVersion', true),
@@ -91,7 +91,7 @@ private readConfig(): Config {
   private readEslintConfig(cfg: { get<T>(key: string, defaultValue?: T): T }): EslintConfig {
     return {
       enabled: cfg.get<boolean>('eslint.enabled', true),
-      autoScan: cfg.get<boolean>('eslint.autoScan', false),
+      autoScan: cfg.get<boolean>('eslint.autoScan', true),
       timeout: cfg.get<number>('eslint.timeout', 120000),
       maxConcurrentScans: cfg.get<number>('eslint.maxConcurrentScans', 2),
     };
@@ -100,7 +100,7 @@ private readConfig(): Config {
   private readProviderConfig(cfg: { get<T>(key: string, defaultValue?: T): T }, section: string): ProviderConfig {
     return {
       enabled: cfg.get<boolean>(`${section}.enabled`, true),
-      autoScan: cfg.get<boolean>(`${section}.autoScan`, false),
+      autoScan: cfg.get<boolean>(`${section}.autoScan`, true),
       scanOnStartup: cfg.get<boolean>(`${section}.scanOnStartup`, false),
       timeout: cfg.get<number>(`${section}.timeout`, 120000),
       maxConcurrentScans: cfg.get<number>(`${section}.maxConcurrentScans`, 1),

@@ -285,7 +285,7 @@
         },
         "problemExplorer.typescript.autoScan": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Automatically scan TypeScript projects when files change"
         },
         "problemExplorer.typescript.scanOnStartup": {
@@ -324,7 +324,7 @@
         },
         "problemExplorer.eslint.autoScan": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Automatically scan ESLint when JavaScript/TypeScript files change"
         },
         "problemExplorer.eslint.maxConcurrentScans": {

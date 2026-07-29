@@ -7,6 +7,7 @@ import {
   ScanJobResult,
   ScanJob,
   ScanPriority,
+  ScanDecision,
   computeScanPriority,
   generateJobId,
 } from './ScanJob';
@@ -430,24 +431,44 @@ export class ScanScheduler implements Disposable {
    * Route a file-save event to the owning scanner provider.
    * Resolves extension → owner, checks provider's autoScan config gate,
    * and submits if appropriate.
+   *
+   * Every exit point is logged with a {@link ScanDecision} so that
+   * debugging "I saved and nothing happened" is a single log line.
    */
   async routeFileSave(uri: Uri): Promise<ScanJobResult> {
     this.ensureNotDisposed();
     const ext = this.extractExtension(uri);
     if (!ext) {
+      this.logDecision(ScanDecision.NoExtension, uri, 'file save', 'no extension');
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no extension' };
     }
     const ownerName = this._registry.getOwner(ext);
     if (!ownerName) {
+      this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file save', `no owner for ${ext}`);
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no owner for extension' };
     }
     // Per-provider autoScan gate — user may disable auto-scan for specific providers.
     const providerCfg = this._registry.getProviderConfig(ownerName);
     if (providerCfg && !providerCfg.autoScan) {
+      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file save', `${ownerName}.autoScan=false`);
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'provider autoScan disabled' };
     }
+    this.logDecision(ScanDecision.Accepted, uri, 'file save', `owner=${ownerName}`);
     const result = await this.submit({ providerNames: [ownerName], reason: 'file save', source: 'autoscan', uris: [uri] });
     return result;
+  }
+
+  /**
+   * Log a single scan-routing decision. This is the "decision trace"
+   * — every silent exit in the routing pipeline emits one structured
+   * log line so users can see exactly WHERE a save event was rejected:
+   *
+   *   [SCAN-DECISION] Accepted src/main.ts file_save owner=tsc
+   *   [SCAN-DECISION] AutoScanDisabled src/foo.ts file_save tsc.autoScan=false
+   */
+  private logDecision(decision: ScanDecision, uri: Uri, reason: string, detail: string): void {
+    const shortPath = uri.fsPath.split(/[\\/]/).slice(-2).join('/');
+    this._log(`[SCAN-DECISION] ${decision} ${shortPath} ${reason} ${detail}`);
   }
 
   /**

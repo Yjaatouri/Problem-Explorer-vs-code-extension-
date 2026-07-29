@@ -45,7 +45,10 @@ export class AutoScanController implements Disposable {
   }
 
   private async onFileSave(uri: Uri): Promise<void> {
-    if (!this._enabled) return;
+    if (!this._enabled) {
+      this.log(`[AUTO-SCAN] Skipped: global autoScan disabled`);
+      return;
+    }
     const result = await this.scheduler.routeFileSave(uri);
     if (result.submitted) {
       this.log(`[AUTO-SCAN] Queued ${result.providerNames.join(', ')} for ${result.reason}`);
@@ -55,7 +58,10 @@ export class AutoScanController implements Disposable {
   }
 
   private async onFileCreate(uri: Uri): Promise<void> {
-    if (!this._enabled) return;
+    if (!this._enabled) {
+      this.log(`[AUTO-SCAN] Skipped create: global autoScan disabled`);
+      return;
+    }
     const result = await this.scheduler.routeFileCreate(uri);
     if (result.submitted) {
       this.log(`[AUTO-SCAN] Queued ${result.providerNames.join(', ')} for ${result.reason}`);
@@ -65,7 +71,10 @@ export class AutoScanController implements Disposable {
   }
 
   private async onFileDelete(uri: Uri): Promise<void> {
-    if (!this._enabled) return;
+    if (!this._enabled) {
+      this.log(`[AUTO-SCAN] Skipped delete: global autoScan disabled`);
+      return;
+    }
     const result = await this.scheduler.routeFileDelete(uri);
     if (result.submitted) {
       this.log(`[AUTO-SCAN] Queued ${result.providerNames.join(', ')} for ${result.reason}`);
@@ -75,7 +84,10 @@ export class AutoScanController implements Disposable {
   }
 
   private async onFileRename(oldUri: Uri, newUri: Uri): Promise<void> {
-    if (!this._enabled) return;
+    if (!this._enabled) {
+      this.log(`[AUTO-SCAN] Skipped rename: global autoScan disabled`);
+      return;
+    }
     const result = await this.scheduler.routeFileRename(oldUri, newUri);
     if (result.submitted) {
       this.log(`[AUTO-SCAN] Queued ${result.providerNames.join(', ')} for ${result.reason}`);

@@ -113,3 +113,29 @@ export function computeScanPriority(
 export function generateJobId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+/**
+ * Explicit decision codes for scan routing. Every silent exit in the
+ * routing pipeline returns one of these instead of a bare `return`,
+ * so logs and debugging tools can show exactly why a scan was rejected.
+ */
+export enum ScanDecision {
+  /** Job accepted and queued. */
+  Accepted = 'accepted',
+  /** Global autoScan feature flag is off. */
+  GlobalDisabled = 'global_disabled',
+  /** Provider is disabled in config. */
+  ProviderDisabled = 'provider_disabled',
+  /** Provider's autoScan config gate is off. */
+  AutoScanDisabled = 'autoScan_disabled',
+  /** No provider owns this file extension. */
+  UnsupportedExtension = 'unsupported_extension',
+  /** File has no extension. */
+  NoExtension = 'no_extension',
+  /** Provider list was empty. */
+  NoProviders = 'no_providers',
+  /** Provider is already scanning (pending refresh set). */
+  ProviderBusy = 'provider_busy',
+  /** Job was merged into an existing pending job (dedup). */
+  Merged = 'merged',
+}
