@@ -122,10 +122,6 @@ export class ProblemStore {
   }
 
   clear(): void {
-    // Fire per-entry removed events so downstream caches (decorations, folders) can react
-    for (const key of this.storage.keys()) {
-      this._onDidChange.fire({ kind: 'removed', uri: Uri.parse(key) });
-    }
     this.storage.clear();
     this.folderKeys.clear();
     this.ownerByKey.clear();
@@ -191,11 +187,6 @@ export class ProblemStore {
     for (const entry of entriesToMove) {
       const newKey = newPrefix + entry.key.slice(oldPrefix.length);
 
-      // Fire per-entry events so decoration engine / folder status can react
-      if (this.batchDepth === 0) {
-        this._onDidChange.fire({ kind: 'removed', uri: Uri.parse(entry.key) });
-      }
-
       this.storage.delete(entry.key);
       this.folderKeys.delete(entry.key);
       this.storage.set(newKey, entry.state);
@@ -206,10 +197,6 @@ export class ProblemStore {
       if (owner !== undefined) {
         this.ownerByKey.delete(entry.key);
         this.ownerByKey.set(newKey, owner);
-      }
-
-      if (this.batchDepth === 0) {
-        this._onDidChange.fire({ kind: 'added', uri: Uri.parse(newKey) });
       }
 
       count++;
