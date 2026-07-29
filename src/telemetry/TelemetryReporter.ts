@@ -41,8 +41,9 @@ export class BusTelemetryReporter implements TelemetryReporter {
   private readonly configSub: Disposable;
 
   constructor(configManager: TelemetryConfigManager, bus?: TelemetryBus) {
-    this.enabled = configManager.isEnabled();
     this.bus = bus ?? getTelemetryBus();
+    this.enabled = configManager.isEnabled() || this.bus.isEnabled();
+    this.bus.setEnabled(this.enabled);
     this.configSub = configManager.onDidChangeConfig((config) => {
       this.enabled = config.enabled;
       this.bus.setEnabled(config.enabled);
