@@ -88,10 +88,24 @@ export class MementoStorageProvider implements StorageProvider {
   constructor(private readonly memento: Memento) {}
 
   get<T>(key: string, defaultValue: T): T {
-    return this.memento.get(key, defaultValue);
+    if (typeof this.memento?.get !== 'function') {
+      return defaultValue;
+    }
+    try {
+      return this.memento.get(key, defaultValue);
+    } catch {
+      return defaultValue;
+    }
   }
 
   update(key: string, value: unknown): Thenable<void> {
-    return this.memento.update(key, value);
+    if (typeof this.memento?.update !== 'function') {
+      return Promise.resolve();
+    }
+    try {
+      return this.memento.update(key, value);
+    } catch {
+      return Promise.resolve();
+    }
   }
 }
