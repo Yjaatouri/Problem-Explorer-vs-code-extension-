@@ -182,7 +182,7 @@ export class ProviderRegistry implements Disposable {
       const descriptor = this._descriptors.get(info.name);
       if (descriptor) result.push({ ...info, descriptor });
     }
-    return result;
+    return result.sort((a, b) => b.descriptor.priority - a.descriptor.priority);
   }
 
   /** Enumerate descriptors only (no provider instances). */
