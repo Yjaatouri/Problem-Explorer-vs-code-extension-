@@ -75,7 +75,7 @@ suite('ScanCommand', () => {
 
     await provider.refresh();
 
-    assert.strictEqual(store.size, 0);
+    assert.strictEqual(store.size(), 0);
   });
 
   test('scan updates existing entries', async () => {
@@ -161,7 +161,7 @@ suite('ScanCommand', () => {
 
     try {
       await provider.refresh();
-      assert.strictEqual(store.size, 0);
+      assert.strictEqual(store.size(), 0);
     } catch {
       assert.fail('refresh should not throw');
     }

@@ -193,7 +193,7 @@ suite('TscDiagnosticProvider', () => {
     const provider = makeProvider({ store, tscOutput: makeEmptyOutput() });
     const changed = await provider.runScan();
     assert.strictEqual(changed.length, 0);
-    assert.strictEqual(store.size, 0);
+    assert.strictEqual(store.size(), 0);
     provider.dispose();
   });
 

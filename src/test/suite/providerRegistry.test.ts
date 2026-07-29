@@ -59,7 +59,7 @@ suite('ProviderRegistry', () => {
     const { store, dpm, registry } = makeRegistry();
     const provider = new MockProvider('tsc', store, tscCaps);
     registry.register(provider, describe(tscCaps, 10, true, 'scanner', 'tsc', 'TypeScript'));
-    assert.strictEqual(dpm.getProviderPriority('tsc'), 10);
+    assert.strictEqual(registry.getPriority('tsc'), 10);
     assert.strictEqual(store.getProviderPriority('tsc'), 10);
   });
 
@@ -148,11 +148,9 @@ suite('ProviderRegistry', () => {
 
   test('disabled scanner is skipped in ownership map', () => {
     const { store, registry } = makeRegistry();
-    // Mock the disabled state by patching the provider's enabled flag.
-    class DisabledTsc extends MockProvider {
-      readonly enabled = false;
-    }
-    registry.register(new DisabledTsc('tsc', store, tscCaps), describe(tscCaps, 10, true, 'scanner', 'tsc', 'TypeScript'));
+    const provider = new MockProvider('tsc', store, tscCaps);
+    (provider as any).enabled = false;
+    registry.register(provider, describe(tscCaps, 10, true, 'scanner', 'tsc', 'TypeScript'));
     // Without tsc claiming .ts, the ownership map should be empty.
     assert.strictEqual(registry.getOwner('.ts'), undefined);
   });

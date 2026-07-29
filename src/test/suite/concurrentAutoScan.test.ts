@@ -11,6 +11,7 @@ import { StatusBarManager } from '../../statusBar/statusBarManager';
 import { TrendTracker } from '../../trend/trendTracker';
 import { MementoStorageProvider } from '../../trend/trendTracker';
 import { AutoScanController } from '../../scanner/AutoScanner';
+import { ScanScheduler } from '../../scanner/ScanScheduler';
 import { ProviderRegistry } from '../../providers/ProviderRegistry';
 
 const rootUri = Uri.parse('file:///workspace');
@@ -121,11 +122,13 @@ suite('ConcurrentAutoScan', () => {
   let apiManager: ApiManager;
   let statusBarManager: StatusBarManager;
   let trendTracker: TrendTracker;
+  let scheduler: ScanScheduler;
 
   setup(() => {
     store = new ProblemStore();
     manager = new DiagnosticProviderManager();
     registry = new ProviderRegistry(manager, store);
+    scheduler = new ScanScheduler(registry, manager, () => {});
     folderStatusManager = new FolderStatusManager(store, workspaceFolderDelegate());
     decorationEngine = new DecorationEngine(store, workspaceFolderDelegate());
     apiManager = new ApiManager(store);
@@ -138,6 +141,7 @@ suite('ConcurrentAutoScan', () => {
     decorationEngine.dispose();
     statusBarManager.dispose();
     trendTracker.stop();
+    scheduler.dispose();
   });
 
   test('Concurrent saves during active scan do not drop providers (regression for _flushing bug)', async () => {
@@ -166,7 +170,7 @@ suite('ConcurrentAutoScan', () => {
     );
     vsDiagProvider.start();
 
-    const autoScan = new AutoScanController(registry, statusBarManager, () => {}, 10, true);
+    const autoScan = new AutoScanController(scheduler, () => {}, true);
     autoScan.start();
 
     (autoScan as any).onFileChanged(file1);
@@ -221,7 +225,7 @@ suite('ConcurrentAutoScan', () => {
     );
     vsDiagProvider.start();
 
-    const autoScan = new AutoScanController(registry, statusBarManager, () => {}, 5, true);
+    const autoScan = new AutoScanController(scheduler, () => {}, true);
     autoScan.start();
 
     (autoScan as any).onFileChanged(file1);

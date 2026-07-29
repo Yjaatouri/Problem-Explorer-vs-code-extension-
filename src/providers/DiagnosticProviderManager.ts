@@ -126,8 +126,9 @@ export class DiagnosticProviderManager {
   /**
    * Return all extensions owned by the named provider.
    */
-  getOwnedExtensions(providerName: string): readonly string[] {
+  getOwnedExtensions(providerName: string): readonly string[] | undefined {
     this.ensureNotDisposed();
+    if (!this.entries.has(providerName)) return undefined;
     const result: string[] = [];
     for (const [ext, owner] of this._ownershipMap) {
       if (owner === providerName) result.push(ext);

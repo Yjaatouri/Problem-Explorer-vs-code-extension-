@@ -167,7 +167,7 @@ suite('MultiProviderIntegration', () => {
       [fileB, [diag(vscode.DiagnosticSeverity.Warning)]],
     ]);
     vsDiagProvider = new VSCodeDiagnosticProvider(store, delegate);
-    manager.register('vscode', vsDiagProvider);
+    manager.register('vscodeDiagnostics', vsDiagProvider);
 
     vsDiagProvider.fullScan();
 
@@ -188,13 +188,13 @@ suite('MultiProviderIntegration', () => {
       [fileA, [diag(vscode.DiagnosticSeverity.Error)]],
     ]));
     dummyProvider = new DummyProvider('dummy', store);
-    manager.register('vscode', vsDiagProvider);
+    manager.register('vscodeDiagnostics', vsDiagProvider);
     manager.register('dummy', dummyProvider);
 
     vsDiagProvider.fullScan();
     dummyProvider.initialize();
 
-    assert.strictEqual(store.size, 3);
+    assert.strictEqual(store.size(), 3);
     const stateA = store.get(fileA);
     assert.strictEqual(stateA?.severity, ProblemSeverity.Error);
     assert.strictEqual(stateA?.errorCount, 1);
@@ -230,7 +230,8 @@ suite('MultiProviderIntegration', () => {
       [fileA, [diag(vscode.DiagnosticSeverity.Error)]],
     ]);
     vsDiagProvider = new VSCodeDiagnosticProvider(store, delegate);
-    manager.register('vscode', vsDiagProvider);
+    manager.register('vscodeDiagnostics', vsDiagProvider);
+    vsDiagProvider.fullScan();
     manager.startAll();
 
     assert.strictEqual(store.get(fileA)?.severity, ProblemSeverity.Error);

@@ -589,7 +589,7 @@ export class SnapshotSystem {
         state: info.state,
         priority: (info.metadata as any)?.priority ?? -1,
         capabilities: (info.metadata as any)?.capabilities ?? [],
-        ownedExtensions: this.dpm.getOwnedExtensions(info.name),
+        ownedExtensions: this.dpm.getOwnedExtensions(info.name) ?? [],
       };
     }
     return { count: all.length, started: this.dpm.started, entries };
@@ -604,7 +604,7 @@ export class SnapshotSystem {
     const providers = all.map((i) => i.name);
     const extensionMap: Record<string, string> = {};
     for (const name of providers) {
-      const exts = this.dpm.getOwnedExtensions(name);
+      const exts = this.dpm.getOwnedExtensions(name) ?? [];
       for (const ext of exts) {
         extensionMap[ext] = name;
       }

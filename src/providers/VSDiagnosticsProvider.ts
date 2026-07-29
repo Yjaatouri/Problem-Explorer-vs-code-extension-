@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { Event, EventEmitter } from 'vscode';
 import { DiagnosticProviderManager } from './DiagnosticProviderManager';
 import { FolderStatusManager } from '../folder/folderStatusManager';
 import { ApiManager } from '../api/problemExplorerApi';
@@ -9,9 +10,20 @@ import { debounce } from '../performance/debounce';
 import { PROCESSING_DEBOUNCE_MS } from '../core/constants';
 import { BaseProblemProvider } from './BaseProblemProvider';
 import { ScanScheduler } from '../scanner/ScanScheduler';
+import { ScanProgress, ProviderCapabilities } from '../core/types';
+import { ProblemStore } from '../store/ProblemStore';
 
 
 export class VSDiagnosticsProvider extends BaseProblemProvider {
+  readonly name = 'vsDiagnostics';
+  readonly capabilities: ProviderCapabilities = { extensions: [], realtime: true, manualScan: false, startupScan: false };
+  readonly autoScan = true;
+  readonly enabled = true;
+  private readonly _onDidUpdate = new EventEmitter<vscode.Uri[]>();
+  readonly onDidUpdate: Event<vscode.Uri[]> = this._onDidUpdate.event;
+  private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();
+  readonly onDidProgressScan: Event<ScanProgress> = this._onDidProgressScan.event;
+  readonly scanning = false;
   private diagEventCount = 0;
   private readonly dirtyUris = new Set<string>();
   private readonly pendingUris = new Set<string>();
