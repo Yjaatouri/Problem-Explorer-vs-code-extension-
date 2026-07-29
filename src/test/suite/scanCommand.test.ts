@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import { Uri } from 'vscode';
 import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemSeverity } from '../../core/types';
@@ -9,7 +10,11 @@ import { TscRunnerDelegate, TscProcess } from '../../typescript/TscRunner';
 import { ProjectResolver } from '../../typescript/ProjectResolver';
 import { TscOutputParser } from '../../typescript/TscOutputParser';
 
-const rootUri = Uri.parse('file:///workspace');
+function workspaceUri(relativePath: string): Uri {
+  return Uri.file(path.resolve('/workspace', relativePath));
+}
+
+const rootUri = Uri.file(path.resolve('/workspace'));
 
 function makeFakeTscDelegate(output: string, delayMs = 0): TscRunnerDelegate {
   return {
@@ -63,7 +68,7 @@ suite('ScanCommand', () => {
 
     await provider.refresh();
 
-    const state = store.get(Uri.file('/workspace/src/a.ts'));
+    const state = store.get(workspaceUri('src/a.ts'));
     assert.ok(state);
     assert.strictEqual(state!.severity, ProblemSeverity.Error);
     assert.strictEqual(state!.errorCount, 1);
@@ -83,14 +88,14 @@ suite('ScanCommand', () => {
     const provider = makeProvider(store, 'src/a.ts(1,1): error TS2322: Old error.');
 
     await provider.refresh();
-    assert.strictEqual(store.get(Uri.file('/workspace/src/a.ts'))?.errorCount, 1);
+    assert.strictEqual(store.get(workspaceUri('src/a.ts'))?.errorCount, 1);
 
     const provider2 = makeProvider(store, 'src/a.ts(1,1): error TS2322: New error.\nsrc/b.ts(2,2): warning TS6133: New warning.');
     await provider2.refresh();
 
-    assert.strictEqual(store.get(Uri.file('/workspace/src/a.ts'))?.errorCount, 1);
-    assert.ok(store.get(Uri.file('/workspace/src/b.ts')));
-    assert.strictEqual(store.get(Uri.file('/workspace/src/b.ts'))?.severity, ProblemSeverity.Warning);
+    assert.strictEqual(store.get(workspaceUri('src/a.ts'))?.errorCount, 1);
+    assert.ok(store.get(workspaceUri('src/b.ts')));
+    assert.strictEqual(store.get(workspaceUri('src/b.ts'))?.severity, ProblemSeverity.Warning);
   });
 
   test('scan handler uses refresh not initialize', async () => {

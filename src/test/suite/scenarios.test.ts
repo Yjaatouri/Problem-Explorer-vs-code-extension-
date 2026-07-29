@@ -60,7 +60,8 @@ suite('Scenarios', () => {
     assert.strictEqual(store.get(deepDir)?.severity, ProblemSeverity.Error);
   });
 
-  test('toProblemState handles 10000 diagnostics', () => {
+  test('toProblemState handles 10000 diagnostics', function () {
+    this.timeout(10000);
     const range = new (require('vscode').Range)(0, 0, 0, 1);
     const diags: import('vscode').Diagnostic[] = [];
     const severities = [

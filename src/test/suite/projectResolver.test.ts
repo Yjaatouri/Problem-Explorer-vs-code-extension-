@@ -107,9 +107,9 @@ suite('ProjectResolver', () => {
 
   test('falls back to VS Code bundled TypeScript when workspace module is missing', () => {
     const delegate = makeDelegate({
-      moduleExists: () => false,
+      moduleExists: (p) => p.includes('extensions') || p.includes('vscode'),
       readPackageJson: (p) => {
-        if (p.includes('vscode') && p.endsWith('typescript' + path.sep + 'package.json') || p.endsWith('typescript/package.json')) {
+        if ((p.includes('vscode') || p.includes('extensions')) && (p.endsWith('typescript' + path.sep + 'package.json') || p.endsWith('typescript/package.json'))) {
           return { version: '5.4.0' };
         }
         return undefined;
@@ -126,9 +126,9 @@ suite('ProjectResolver', () => {
 
   test('ignores workspace TypeScript when useWorkspaceVersion is false', () => {
     const delegate = makeDelegate({
-      moduleExists: () => false,
+      moduleExists: (p) => p.includes('extensions') || p.includes('vscode'),
       readPackageJson: (p) => {
-        if (p.includes('vscode') && p.endsWith('typescript' + path.sep + 'package.json') || p.endsWith('typescript/package.json')) {
+        if ((p.includes('vscode') || p.includes('extensions')) && (p.endsWith('typescript' + path.sep + 'package.json') || p.endsWith('typescript/package.json'))) {
           return { version: '5.4.0' };
         }
         return undefined;

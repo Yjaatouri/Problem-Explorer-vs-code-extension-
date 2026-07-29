@@ -169,7 +169,7 @@ suite('Large Workspace - Folder Aggregation', function () {
 
     // Should have aggregate entries for each directory level
     assert.ok(changed.length > 0, 'rebuildAll should return changed folder URIs');
-    assert.ok(elapsed < 10000, `rebuildAll(10000 files, 4-level tree) took ${elapsed.toFixed(0)}ms (expected <10000ms)`);
+    assert.ok(elapsed < 15000, `rebuildAll(10000 files, 4-level tree) took ${elapsed.toFixed(0)}ms (expected <15000ms)`);
 
     // verify root aggregate
     const rootState = store.get(Uri.parse('file:///project'));

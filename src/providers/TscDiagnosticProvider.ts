@@ -255,7 +255,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         const parsed = this.outputParser.parse(combined);
 
         for (const diag of parsed) {
-          const fileKey = path.resolve(diag.file);
+          const fileKey = path.resolve(project.projectRoot, diag.file);
           const existing = allDiagnostics.get(fileKey);
           if (existing) { existing.push(diag); } else { allDiagnostics.set(fileKey, [diag]); }
         }
@@ -406,7 +406,7 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
         const fileCount = new Set<string>();
         for (const diag of parsed) {
-          const fileKey = path.resolve(diag.file);
+          const fileKey = path.resolve(project.projectRoot, diag.file);
           fileCount.add(fileKey);
           const existing = allDiagnostics.get(fileKey);
           if (existing) {

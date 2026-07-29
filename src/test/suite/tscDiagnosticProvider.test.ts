@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import { Uri } from 'vscode';
 import { ProblemStore } from '../../store/ProblemStore';
 import { ProblemSeverity } from '../../core/types';
@@ -6,6 +7,10 @@ import { TscDiagnosticProvider, TscScanContext, TscScanError, ScanTiming } from 
 import { ProjectResolver, TypeScriptProject } from '../../typescript/ProjectResolver';
 import { TscRunner, TscRunnerDelegate, TscProcess } from '../../typescript/TscRunner';
 import { TscOutputParser } from '../../typescript/TscOutputParser';
+
+function workspaceUri(relativePath: string): Uri {
+  return Uri.file(path.resolve('/workspace', relativePath));
+}
 
 const mockProjects: TypeScriptProject[] = [
   {
@@ -131,9 +136,9 @@ suite('TscDiagnosticProvider', () => {
 
     await provider.initialize();
 
-    const aState = store.get(Uri.file('/workspace/src/a.ts'));
-    const bState = store.get(Uri.file('/workspace/src/b.ts'));
-    const cState = store.get(Uri.file('/workspace/src/c.ts'));
+    const aState = store.get(workspaceUri('src/a.ts'));
+    const bState = store.get(workspaceUri('src/b.ts'));
+    const cState = store.get(workspaceUri('src/c.ts'));
 
     assert.ok(aState);
     assert.strictEqual(aState!.severity, ProblemSeverity.Error);
@@ -156,15 +161,15 @@ suite('TscDiagnosticProvider', () => {
     const provider = makeProvider({ store });
 
     await provider.initialize();
-    let state = store.get(Uri.file('/workspace/src/a.ts'));
+    let state = store.get(workspaceUri('src/a.ts'));
     assert.ok(state);
 
-    store.delete(Uri.file('/workspace/src/a.ts'));
-    assert.strictEqual(store.get(Uri.file('/workspace/src/a.ts')), undefined);
+    store.delete(workspaceUri('src/a.ts'));
+    assert.strictEqual(store.get(workspaceUri('src/a.ts')), undefined);
 
     await provider.refresh();
 
-    state = store.get(Uri.file('/workspace/src/a.ts'));
+    state = store.get(workspaceUri('src/a.ts'));
     assert.ok(state);
     assert.strictEqual(state!.severity, ProblemSeverity.Error);
 

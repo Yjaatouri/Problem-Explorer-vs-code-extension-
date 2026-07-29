@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import { Uri } from 'vscode';
 import { ProblemStore } from '../../store/ProblemStore';
 import { TscConfig } from '../../core/types';
@@ -6,6 +7,10 @@ import { TscDiagnosticProvider } from '../../providers/TscDiagnosticProvider';
 import { ProjectResolver, ProjectResolverDelegate } from '../../typescript/ProjectResolver';
 import { TscRunner, TscRunnerDelegate, TscProcess } from '../../typescript/TscRunner';
 import { TscOutputParser } from '../../typescript/TscOutputParser';
+
+function workspaceUri(relativePath: string): Uri {
+  return Uri.file(path.resolve('/workspace', relativePath));
+}
 
 const TS_VERSION = '5.5.0';
 
@@ -20,13 +25,15 @@ interface ProjectLayout {
 
 class FakeTscDelegate implements TscRunnerDelegate {
   private errors: string[];
+  private callCount = 0;
 
   constructor(errors: string[]) {
     this.errors = errors;
   }
 
   spawn(_command: string, _args: string[]): TscProcess {
-    const output = this.errors.join('\n');
+    const output = this.callCount === 0 ? this.errors.join('\n') : '';
+    this.callCount++;
     const dataListeners: Array<(chunk: string) => void> = [];
     const closeListeners: Array<(code: number | null) => void> = [];
 
@@ -51,7 +58,7 @@ class FakeTscDelegate implements TscRunnerDelegate {
 function makeResolver(tsconfigPaths: string[]): ProjectResolver {
   const delegate: ProjectResolverDelegate = {
     workspaceFolders: [{ uri: Uri.parse('file:///workspace'), name: 'root', index: 0 }],
-    findFiles: async () => tsconfigPaths.map((p) => Uri.file(p)),
+    findFiles: async () => tsconfigPaths.map((p) => workspaceUri(p)),
     readFile: async () => '',
     moduleExists: () => true,
     readPackageJson: (p) => {
@@ -69,7 +76,7 @@ suite('ScannerValidation', () => {
   const projects: ProjectLayout[] = [
     {
       name: 'React (CRA)',
-      tsconfigPaths: ['/workspace/tsconfig.json'],
+      tsconfigPaths: ['tsconfig.json'],
       errors: [
         'src/App.tsx(23,12): error TS2322: Type \'number\' is not assignable to type \'string\'.',
         'src/components/Button.tsx(8,3): error TS2786: \'React.FC\' cannot be used as a JSX component.',
@@ -81,7 +88,7 @@ suite('ScannerValidation', () => {
     },
     {
       name: 'Next.js',
-      tsconfigPaths: ['/workspace/tsconfig.json'],
+      tsconfigPaths: ['tsconfig.json'],
       errors: [
         'src/app/page.tsx(10,18): error TS2322: Type \'null\' is not assignable to type \'string\'.',
         'src/app/layout.tsx(5,1): error TS2786: Page prop type mismatch.',
@@ -94,7 +101,7 @@ suite('ScannerValidation', () => {
     },
     {
       name: 'Vite',
-      tsconfigPaths: ['/workspace/tsconfig.json', '/workspace/tsconfig.node.json'],
+      tsconfigPaths: ['tsconfig.json', 'tsconfig.node.json'],
       errors: [
         'src/main.ts(1,1): error TS2304: Cannot find module \'vite/client\'.',
         'src/App.vue(45,5): error TS2322: Type \'Ref<string>\' is not assignable.',
@@ -105,7 +112,7 @@ suite('ScannerValidation', () => {
     },
     {
       name: 'Node',
-      tsconfigPaths: ['/workspace/tsconfig.json'],
+      tsconfigPaths: ['tsconfig.json'],
       errors: [
         'src/server.ts(25,18): error TS2580: Cannot find name \'require\'.',
         'src/routes/index.ts(10,5): warning TS6133: \'req\' is declared but never used.',
@@ -117,7 +124,7 @@ suite('ScannerValidation', () => {
     },
     {
       name: 'NestJS',
-      tsconfigPaths: ['/workspace/tsconfig.json', '/workspace/tsconfig.build.json'],
+      tsconfigPaths: ['tsconfig.json', 'tsconfig.build.json'],
       errors: [
         'src/app.module.ts(12,5): error TS1240: Unable to resolve signature of class decorator.',
         'src/users/users.service.ts(33,12): error TS2322: Type \'unknown\' is not assignable.',
@@ -130,10 +137,10 @@ suite('ScannerValidation', () => {
     {
       name: 'Monorepo',
       tsconfigPaths: [
-        '/workspace/tsconfig.json',
-        '/workspace/packages/core/tsconfig.json',
-        '/workspace/packages/web/tsconfig.json',
-        '/workspace/packages/api/tsconfig.json',
+        'tsconfig.json',
+        'tsconfig.core.json',
+        'tsconfig.web.json',
+        'tsconfig.api.json',
       ],
       errors: [
         'packages/core/src/index.ts(5,12): error TS2322: Type mismatch in shared type.',
@@ -147,7 +154,7 @@ suite('ScannerValidation', () => {
     {
       name: 'Large project',
       tsconfigPaths: Array.from({ length: 50 }, (_, i) =>
-        `/workspace/packages/pkg${i}/tsconfig.json`,
+        `tsconfig.pkg${i}.json`,
       ),
       errors: (() => {
         const lines: string[] = [];
@@ -200,7 +207,7 @@ suite('ScannerValidation', () => {
 
   test('Large project resolves all tsconfig files', async () => {
     const tsconfigPaths = Array.from({ length: 50 }, (_, i) =>
-      `/workspace/packages/pkg${i}/tsconfig.json`,
+      `tsconfig.pkg${i}.json`,
     );
     const resolver = makeResolver(tsconfigPaths);
     const projects = await resolver.resolveAll();
@@ -210,9 +217,9 @@ suite('ScannerValidation', () => {
   test('Monorepo preserves package-level error counts', async () => {
     const store = new ProblemStore();
     const tsconfigPaths = [
-      '/workspace/tsconfig.json',
-      '/workspace/packages/core/tsconfig.json',
-      '/workspace/packages/web/tsconfig.json',
+      'tsconfig.json',
+      'tsconfig.core.json',
+      'tsconfig.web.json',
     ];
     const errors = [
       'packages/core/src/db.ts(1,1): error TS2322: DB type error.',
@@ -230,8 +237,8 @@ suite('ScannerValidation', () => {
 
     await provider.runScan();
 
-    const coreUri = Uri.file('/workspace/packages/core/src/db.ts');
-    const uiUri = Uri.file('/workspace/packages/web/src/ui.tsx');
+    const coreUri = workspaceUri('packages/core/src/db.ts');
+    const uiUri = workspaceUri('packages/web/src/ui.tsx');
     const coreState = store.get(coreUri);
     const uiState = store.get(uiUri);
 
