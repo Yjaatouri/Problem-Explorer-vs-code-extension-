@@ -74,6 +74,7 @@ export class TscRunner {
       let settled = false;
       let timeoutHandle: ReturnType<typeof setTimeout> | undefined; // eslint-disable-line prefer-const
       let childResolved = false;
+      let cancelled = false;
 
       const finish = (result: TscRunResult): void => {
         if (settled) return;
@@ -108,12 +109,13 @@ export class TscRunner {
       });
 
       const abortHandler = (): void => {
+        cancelled = true;
         child.kill();
       };
 
       if (options.signal) {
         if (options.signal.aborted) {
-          child.kill();
+          abortHandler();
         } else {
           options.signal.addEventListener('abort', abortHandler, { once: true });
         }
@@ -146,7 +148,7 @@ export class TscRunner {
           stdout: stdoutChunks.join(''),
           stderr: stderrChunks.join(''),
           executionTimeMs,
-          cancelled: code === null,
+          cancelled: cancelled || code === null,
           timedOut: false,
           tsconfigPath: options.tsconfigPath,
         });
