@@ -248,7 +248,10 @@ releaseOwnership(): void {
         }
       }
 
-      this.writeToStore(allDiagnostics);
+      const changed = this.writeToStore(allDiagnostics);
+      if (!this._disposed && changed.length > 0) {
+        this._onDidUpdate.fire(changed);
+      }
     } finally {
       this._scanning = false;
     }

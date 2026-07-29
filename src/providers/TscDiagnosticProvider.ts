@@ -267,14 +267,20 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
         semaphore.release();
       }));
 
-      // Write results to store
-      this.writeToStore(allDiagnostics);
+      // Write results to store and fire update event so decoration engine refreshes
+      const changed = this.writeToStore(allDiagnostics);
+      if (!this._disposed && changed.length > 0) {
+        this._onDidUpdate.fire(changed);
+      }
     } finally {
       this._scanning = false;
       this.abortController = undefined;
       if (this._pendingRefresh) {
         this._pendingRefresh = false;
-        await this.runScan();
+        const changed = await this.runScan();
+        if (!this._disposed && changed.length > 0) {
+          this._onDidUpdate.fire(changed);
+        }
       }
     }
   }
