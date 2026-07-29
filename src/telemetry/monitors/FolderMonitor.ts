@@ -256,11 +256,11 @@ export class FolderMonitor {
     private readonly problemStore: ProblemStore,
     private readonly reporter: TelemetryReporter
   ) {
-    this.originalUpdateAncestors = folderManager.updateAncestors.bind(folderManager);
-    this.originalRebuildAll = folderManager.rebuildAll.bind(folderManager);
-    this.originalRecomputeFolderStatus = folderManager.recomputeFolderStatus.bind(folderManager);
-    this.originalSetFolderAggregate = problemStore.setFolderAggregate.bind(problemStore);
-    this.originalStoreDelete = problemStore.delete.bind(problemStore);
+    this.originalUpdateAncestors = folderManager.updateAncestors;
+    this.originalRebuildAll = folderManager.rebuildAll;
+    this.originalRecomputeFolderStatus = folderManager.recomputeFolderStatus;
+    this.originalSetFolderAggregate = problemStore.setFolderAggregate;
+    this.originalStoreDelete = problemStore.delete;
 
     this.wrapUpdateAncestors();
     this.wrapRebuildAll();
@@ -299,7 +299,7 @@ export class FolderMonitor {
 
   private wrapUpdateAncestors(): void {
     this.folderManager.updateAncestors = (fileUri: Uri): Uri[] => {
-      if (this.disposed) return this.originalUpdateAncestors(fileUri);
+      if (this.disposed) return this.originalUpdateAncestors.call(this.folderManager, fileUri);
       this.activeUpdates++;
       try {
         const start = Date.now();
@@ -321,7 +321,7 @@ export class FolderMonitor {
       /* Compute ancestor chain before the call */
       const { ancestors, rootStr } = this.computeAncestorChain(uriStr);
 
-      const changed = this.originalUpdateAncestors(fileUri);
+      const changed = this.originalUpdateAncestors.call(this.folderManager, fileUri);
       const now = Date.now();
       const durationMs = now - start;
       const changedUris = changed.map((u: Uri) => u.toString());
@@ -416,7 +416,7 @@ export class FolderMonitor {
 
   private wrapRebuildAll(): void {
     this.folderManager.rebuildAll = (): Uri[] => {
-      if (this.disposed) return this.originalRebuildAll();
+      if (this.disposed) return this.originalRebuildAll.call(this.folderManager);
       this.activeRebuilds++;
       try {
         const start = Date.now();
@@ -434,7 +434,7 @@ export class FolderMonitor {
         } as any);
       } catch { /* monitoring only */ }
 
-      const changed = this.originalRebuildAll();
+      const changed = this.originalRebuildAll.call(this.folderManager);
       const now = Date.now();
       const durationMs = now - start;
       const changedUris = changed.map((u: Uri) => u.toString());
@@ -471,9 +471,9 @@ export class FolderMonitor {
   private wrapRecomputeFolderStatus(): void {
     const original = this.originalRecomputeFolderStatus;
     this.folderManager.recomputeFolderStatus = (folderUri: Uri): ProblemState => {
-      if (this.disposed) return original(folderUri);
+      if (this.disposed) return original.call(this.folderManager, folderUri);
       const start = Date.now();
-      const result = original(folderUri);
+      const result = original.call(this.folderManager, folderUri);
       const durationMs = Date.now() - start;
       try {
         this.stats.totalRecomputes++;
@@ -545,8 +545,8 @@ export class FolderMonitor {
   private wrapSetFolderAggregate(): void {
     const original = this.originalSetFolderAggregate;
     this.problemStore.setFolderAggregate = (uri: Uri, state: ProblemState): boolean => {
-      if (this.disposed) return original(uri, state);
-      if (this.reentrant > 0) return original(uri, state);
+      if (this.disposed) return original.call(this.problemStore, uri, state);
+      if (this.reentrant > 0) return original.call(this.problemStore, uri, state);
       const start = Date.now();
       const uriStr = uri.toString();
       let before: ProblemState | undefined;
@@ -557,7 +557,7 @@ export class FolderMonitor {
       } catch { /* monitoring only */ }
       this.reentrant++;
       try {
-        const accepted = original(uri, state);
+        const accepted = original.call(this.problemStore, uri, state);
         const now = Date.now();
         const after = this.problemStore.get(uri);
         const durationMs = now - start;
@@ -601,11 +601,11 @@ export class FolderMonitor {
   private wrapStoreDelete(): void {
     const original = this.originalStoreDelete;
     this.problemStore.delete = (uri: Uri): boolean => {
-      if (this.disposed) return original(uri);
+      if (this.disposed) return original.call(this.problemStore, uri);
       if (!this.problemStore.isFolderAggregate(uri)) {
-        return original(uri);
+        return original.call(this.problemStore, uri);
       }
-      if (this.reentrant > 0) return original(uri);
+      if (this.reentrant > 0) return original.call(this.problemStore, uri);
       const start = Date.now();
       const uriStr = uri.toString();
       let before: ProblemState | undefined;
@@ -616,7 +616,7 @@ export class FolderMonitor {
       } catch { /* monitoring only */ }
       this.reentrant++;
       try {
-        const result = original(uri);
+        const result = original.call(this.problemStore, uri);
         const now = Date.now();
         const durationMs = now - start;
 
@@ -650,7 +650,7 @@ export class FolderMonitor {
     if (!this.problemStore.isFolderAggregate(folderUri)) return;
     const current = this.problemStore.get(folderUri);
     if (!current) return;
-    const recomputed = this.originalRecomputeFolderStatus(folderUri);
+    const recomputed = this.originalRecomputeFolderStatus.call(this.folderManager, folderUri);
     if (
       current.errorCount !== recomputed.errorCount ||
       current.warningCount !== recomputed.warningCount ||

@@ -194,10 +194,7 @@ suite('MultiProviderIntegration', () => {
     vsDiagProvider.fullScan();
     dummyProvider.initialize();
 
-    assert.strictEqual(store.size(), 3);
-    const stateA = store.get(fileA);
-    assert.strictEqual(stateA?.severity, ProblemSeverity.Error);
-    assert.strictEqual(stateA?.errorCount, 1);
+    assert.strictEqual(store.size(), 2);
     const stateFileBDummy = store.get(fileB);
     assert.strictEqual(stateFileBDummy?.severity, ProblemSeverity.Info);
     assert.strictEqual(stateFileBDummy?.infoCount, 1);

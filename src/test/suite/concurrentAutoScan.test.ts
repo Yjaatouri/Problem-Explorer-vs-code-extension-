@@ -173,13 +173,13 @@ suite('ConcurrentAutoScan', () => {
     const autoScan = new AutoScanController(scheduler, () => {}, true);
     autoScan.start();
 
-    (autoScan as any).onFileChanged(file1);
+    await scheduler.routeFileSave(file1);
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    (autoScan as any).onFileChanged(file2);
+    await scheduler.routeFileSave(file2);
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    (autoScan as any).onFileChanged(file3);
+    await scheduler.routeFileSave(file3);
     await new Promise(resolve => setTimeout(resolve, 10));
 
     await new Promise(resolve => setTimeout(resolve, 350));
@@ -228,13 +228,13 @@ suite('ConcurrentAutoScan', () => {
     const autoScan = new AutoScanController(scheduler, () => {}, true);
     autoScan.start();
 
-    (autoScan as any).onFileChanged(file1);
+    await scheduler.routeFileSave(file1);
     await new Promise(resolve => setTimeout(resolve, 5));
 
-    (autoScan as any).onFileChanged(file2);
+    await scheduler.routeFileSave(file2);
     await new Promise(resolve => setTimeout(resolve, 5));
 
-    (autoScan as any).onFileChanged(file3);
+    await scheduler.routeFileSave(file3);
     await new Promise(resolve => setTimeout(resolve, 5));
 
     await new Promise(resolve => setTimeout(resolve, 300));

@@ -19,10 +19,12 @@ const testFile = Uri.parse('file:///workspace/src/test.ts');
 
 function workspaceFolderDelegate() {
   return {
-    getWorkspaceFolder: (uri: Uri) =>
-      uri.toString().startsWith(rootUri.toString() + '/')
+    getWorkspaceFolder: (uri: Uri) => {
+      const str = uri.toString();
+      return str === rootUri.toString() || str.startsWith(rootUri.toString() + '/')
         ? { uri: rootUri, name: 'workspace', index: 0 }
-        : undefined,
+        : undefined;
+    },
     workspaceFolders: [{ uri: rootUri, name: 'workspace', index: 0 }],
   };
 }
@@ -188,7 +190,9 @@ suite('FirstSaveAutoScan', () => {
     assert.strictEqual(store.get(testFile), undefined, 'Store should be empty initially');
 
     tscProvider.refresh();
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    vsDiagProvider.flush();
+    await new Promise(resolve => setTimeout(resolve, 20));
 
     const fileState = store.get(testFile);
     assert.ok(fileState, 'File should have error state after auto-scan');
@@ -223,7 +227,9 @@ suite('FirstSaveAutoScan', () => {
     vsDiagProvider.start();
 
     tscProvider.refresh();
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    vsDiagProvider.flush();
+    await new Promise(resolve => setTimeout(resolve, 20));
 
     const fileState = store.get(testFile);
     assert.ok(fileState);

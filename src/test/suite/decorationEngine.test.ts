@@ -118,12 +118,14 @@ suite('DecorationEngine', () => {
     assert.strictEqual(result?.propagate, false);
   });
 
-  test('fireDidChange triggers onDidChangeFileDecorations', () => {
+  test('fireDidChange triggers onDidChangeFileDecorations', async () => {
     const uris: unknown[] = [];
     engine.onDidChangeFileDecorations((e) => uris.push(e));
     engine.fireDidChange([fileUri]);
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.strictEqual(uris.length, 1);
-    assert.deepStrictEqual(uris[0], [fileUri]);
+    assert.strictEqual(Array.isArray(uris[0]), true);
+    assert.strictEqual((uris[0] as Uri[])[0].toString(), fileUri.toString());
   });
 
   test('refresh fires with undefined', () => {

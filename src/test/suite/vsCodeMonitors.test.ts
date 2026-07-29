@@ -410,7 +410,7 @@ suite('VS Code-dependent Telemetry Monitors', () => {
       assert.strictEqual(rebuildEvents.length, 1, 'Expected one folder.rebuildAll event');
 
       const payload = rebuildEvents[0] as any;
-      assert.ok(typeof payload.changedCount === 'number');
+      assert.ok(typeof payload.affectedCount === 'number');
       assert.ok(typeof payload.executionTimeMs === 'number');
     });
 

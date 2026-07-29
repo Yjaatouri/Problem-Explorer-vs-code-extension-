@@ -163,16 +163,17 @@ suite('Telemetry Monitors', () => {
       reporter.subscribeAll((e) => collected.push(e));
       createTimerMonitor(reporter);
 
-      // Use a short timeout so the test doesn't hang
+      // setTimeout immediately emits timer.setTimeout event
       const id = setTimeout(() => {
-        const setEvents = collected.filter((e) => e.type === 'timer.setTimeout');
-        assert.ok(setEvents.length >= 1, 'Expected timer.setTimeout event');
-        done();
+        // Timer callback
       }, 5);
 
-      // If the timer hasn't fired yet, we should have at least the set event queued
-      // but clearTimeout to avoid issues
+      // The setTimeout event should already be emitted
+      const setEvents = collected.filter((e) => e.type === 'timer.setTimeout');
+      assert.ok(setEvents.length >= 1, 'Expected timer.setTimeout event');
+
       clearTimeout(id);
+      done();
     });
   });
 
@@ -189,7 +190,7 @@ suite('Telemetry Monitors', () => {
       const traceId = 'dup-test-trace' as any;
       const ts = Date.now();
       for (let i = 0; i < 3; i++) {
-        reporter.report({ type: 'store.set', timestamp: ts + i, traceId });
+        reporter.report({ type: 'store.set', uri: 'file:///test.ts', timestamp: ts + i, traceId } as any);
       }
 
       const dupEvents = collected.filter((e) => e.type === 'pipeline.duplicateEvent');
@@ -238,7 +239,7 @@ suite('Telemetry Monitors', () => {
       const snapshot = createSnapshotSystem(reporter, store);
 
       store.set(Uri.parse('file:///project/a.ts'), makeState({ errorCount: 3 }));
-      store.set(Uri.parse('file:///project/b.ts'), makeState({ warningCount: 2 }));
+      store.set(Uri.parse('file:///project/b.ts'), makeState({ errorCount: 0, warningCount: 2 }));
 
       const state = snapshot.captureManual();
       assert.strictEqual(state.data.store.totalErrors, 3);

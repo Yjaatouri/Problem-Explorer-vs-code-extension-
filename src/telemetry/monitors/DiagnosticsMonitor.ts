@@ -56,6 +56,44 @@ export interface DiagnosticsStoreWriteEventData {
   readonly writeDurationUs: number;
 }
 
+/** Trigger: vscodeDiagnostics provider fired onDidUpdate for one or more URIs */
+export interface DiagnosticsUpdateUriEventData {
+  readonly type: 'diagnostics.updateUri';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly provider: string;
+  readonly uris: readonly string[];
+  readonly uriCount: number;
+  readonly diagnosticCount: number;
+  readonly errorCount: number;
+  readonly warningCount: number;
+  readonly infoCount: number;
+  readonly executionTimeMs: number;
+}
+
+/** Trigger: vscodeDiagnostics provider performed a full scan (many URIs updated) */
+export interface DiagnosticsFullScanEventData {
+  readonly type: 'diagnostics.fullScan';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly provider: string;
+  readonly uriCount: number;
+  readonly executionTimeMs: number;
+}
+
+/** Trigger: all provider updates were flushed */
+export interface DiagnosticsFlushUpdatesEventData {
+  readonly type: 'diagnostics.flushUpdates';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'DiagnosticsMonitor';
+  readonly uriCount: number;
+  readonly uris: readonly string[];
+  readonly executionTimeMs: number;
+}
+
 /** Trigger: ownership of a URI was transferred or disputed */
 export interface DiagnosticsOwnershipEventData {
   readonly type: 'diagnostics.ownership';
@@ -111,7 +149,10 @@ export type DiagnosticsTelemetryEvent =
   | DiagnosticsOwnershipEventData
   | DiagnosticsStateChangeEventData
   | DiagnosticsAssertionEventData
-  | DiagnosticsSnapshotEventData;
+  | DiagnosticsSnapshotEventData
+  | DiagnosticsUpdateUriEventData
+  | DiagnosticsFullScanEventData
+  | DiagnosticsFlushUpdatesEventData;
 
 /* ------------------------------------------------------------------ */
 /*  Statistics & snapshot interfaces                                   */
@@ -318,10 +359,18 @@ export class DiagnosticsMonitor implements Disposable {
   }
 
   private handleProviderUpdate(uris: Uri[]): void {
+    const nowMs = Date.now();
+    const provider = this.vsDiagProvider?.name ?? 'vscodeDiagnostics';
+    const store = this.vsDiagProvider?.store;
+
+    let totalDiagnosticCount = 0;
+    let totalErrorCount = 0;
+    let totalWarningCount = 0;
+    let totalInfoCount = 0;
+
     for (const uri of uris) {
       const traceId = generateTraceId();
       const uriStr = uri.toString();
-      const nowMs = Date.now();
 
       /* Compute mapping duration from change event to provider update */
       const startMs = this.mappingStartTimes.get(uriStr);
@@ -339,13 +388,18 @@ export class DiagnosticsMonitor implements Disposable {
       let warningCount = 0;
       let infoCount = 0;
 
-      const storeState = this.vsDiagProvider?.store?.get(uri);
+      const storeState = store?.get(uri);
       if (storeState) {
         errorCount = storeState.errorCount;
         warningCount = storeState.warningCount;
         infoCount = storeState.infoCount;
         diagnosticCount = errorCount + warningCount + infoCount;
       }
+
+      totalDiagnosticCount += diagnosticCount;
+      totalErrorCount += errorCount;
+      totalWarningCount += warningCount;
+      totalInfoCount += infoCount;
 
       const success = true;
 
@@ -374,7 +428,6 @@ export class DiagnosticsMonitor implements Disposable {
       this.stats.totalMappings++;
 
       /* Detect duplicate: when a higher-priority provider already owns this URI */
-      const store = this.vsDiagProvider?.store;
       const currentOwner = store ? store.getOwningProvider(uri) : undefined;
       if (currentOwner && currentOwner !== 'vscodeDiagnostics') {
         this.safeReport({
@@ -421,20 +474,51 @@ export class DiagnosticsMonitor implements Disposable {
       }
       if (currentOwner) this.knownOwners.set(uriStr, currentOwner);
     }
+
+    /* Emit aggregate updateUri event for all URIs in this provider update */
+    this.safeReport({
+      type: 'diagnostics.updateUri',
+      timestamp: nowMs,
+      traceId: generateTraceId(),
+      source: 'DiagnosticsMonitor',
+      provider,
+      uris: uris.map((u: Uri) => u.toString()),
+      uriCount: uris.length,
+      diagnosticCount: totalDiagnosticCount,
+      errorCount: totalErrorCount,
+      warningCount: totalWarningCount,
+      infoCount: totalInfoCount,
+      executionTimeMs: 0,
+    } as TelemetryEvent);
+
+    /* Detect full scan — many URIs updated at once */
+    if (uris.length > 20) {
+      this.safeReport({
+        type: 'diagnostics.fullScan',
+        timestamp: nowMs,
+        traceId: generateTraceId(),
+        source: 'DiagnosticsMonitor',
+        provider,
+        uriCount: uris.length,
+        executionTimeMs: 0,
+      } as TelemetryEvent);
+    }
   }
 
   private handleFlushUpdates(uris: Uri[]): void {
+    const nowMs = Date.now();
     const traceId = generateTraceId();
     this.stats.totalFlushUpdates++;
     this.stats.totalFlushUris += uris.length;
 
     this.safeReport({
-      type: 'diagnostics.flush',
-      timestamp: Date.now(),
+      type: 'diagnostics.flushUpdates',
+      timestamp: nowMs,
       traceId,
       source: 'DiagnosticsMonitor',
       uriCount: uris.length,
       uris: uris.map((u: Uri) => u.toString()),
+      executionTimeMs: 0,
     } as TelemetryEvent);
   }
 

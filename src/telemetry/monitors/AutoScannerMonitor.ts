@@ -90,6 +90,41 @@ export interface AutoScanAssertionEvent {
   readonly detail: string;
 }
 
+/** Structured event payload for provider scan progress (generic) */
+export interface ProviderScanEvent {
+  readonly type: 'provider.scan';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'AutoScannerMonitor';
+  readonly provider: string;
+  readonly scanPhase: ScanProgress['phase'];
+  readonly message?: string;
+  readonly detail?: string;
+  readonly executionTimeMs: number;
+}
+
+/** Structured event payload for provider execution lifecycle */
+export interface AutoScanProviderExecutionEvent {
+  readonly type: 'autoscan.providerExecution';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'AutoScannerMonitor';
+  readonly provider: string;
+  readonly scanPhase: ScanProgress['phase'];
+  readonly executionTimeMs: number;
+  readonly success?: boolean;
+}
+
+/** Structured event payload for scan cancellation */
+export interface AutoScanCancelEvent {
+  readonly type: 'autoscan.cancel';
+  readonly timestamp: number;
+  readonly traceId: TraceId;
+  readonly source: 'AutoScannerMonitor';
+  readonly provider: string;
+  readonly executionTimeMs: number;
+}
+
 /** Union of all auto-scanner monitor event types */
 export type AutoScannerTelemetryEvent =
   | AutoScanFileSavedEvent
@@ -98,7 +133,10 @@ export type AutoScannerTelemetryEvent =
   | AutoScanFlushEvent
   | AutoScanRefreshEvent
   | AutoScanFlushCompleteEvent
-  | AutoScanAssertionEvent;
+  | AutoScanAssertionEvent
+  | ProviderScanEvent
+  | AutoScanProviderExecutionEvent
+  | AutoScanCancelEvent;
 
 /* ------------------------------------------------------------------ */
 /*  Statistics & snapshot interfaces                                   */
@@ -223,6 +261,21 @@ export class AutoScannerMonitor implements Disposable {
   private handleScanProgress(progress: ScanProgress): void {
     const now = Date.now();
 
+    /* Emit generic provider.scan event for every scan progress phase */
+    this.emit({
+      type: 'provider.scan',
+      timestamp: now,
+      traceId: generateTraceId(),
+      source: 'AutoScannerMonitor',
+      provider: progress.providerName,
+      scanPhase: progress.phase,
+      message: progress.message,
+      detail: progress.detail,
+      executionTimeMs: this.state.providerTimestamps.has(progress.providerName)
+        ? now - (this.state.providerTimestamps.get(progress.providerName) ?? now)
+        : 0,
+    });
+
     switch (progress.phase) {
       case 'resolving':
       case 'scanning':
@@ -293,6 +346,17 @@ export class AutoScannerMonitor implements Disposable {
             phase: 'begin',
             executionTimeMs: 0,
           });
+          if (progress.phase === 'resolving') {
+            this.emit({
+              type: 'autoscan.providerExecution',
+              timestamp: now,
+              traceId: generateTraceId(),
+              source: 'AutoScannerMonitor',
+              provider: progress.providerName,
+              scanPhase: 'resolving',
+              executionTimeMs: 0,
+            });
+          }
         } else {
           /* Provider is still scanning — emit progress update */
           const elapsed = now - (this.state.providerTimestamps.get(progress.providerName) ?? now);
@@ -317,6 +381,16 @@ export class AutoScannerMonitor implements Disposable {
         this.state.totalRefreshesCompleted++;
         this.state.totalRefreshDurationMs += execTime;
         this.emitRefreshEnd(progress.providerName, execTime, true);
+        this.emit({
+          type: 'autoscan.providerExecution',
+          timestamp: now,
+          traceId: generateTraceId(),
+          source: 'AutoScannerMonitor',
+          provider: progress.providerName,
+          scanPhase: 'completed',
+          executionTimeMs: execTime,
+          success: true,
+        });
         this.checkFlushEnd(now);
         break;
       }
@@ -328,6 +402,14 @@ export class AutoScannerMonitor implements Disposable {
         this.state.totalRefreshesCompleted++;
         this.state.totalRefreshDurationMs += execTime;
         this.emitRefreshEnd(progress.providerName, execTime, false, 'cancelled');
+        this.emit({
+          type: 'autoscan.cancel',
+          timestamp: now,
+          traceId: generateTraceId(),
+          source: 'AutoScannerMonitor',
+          provider: progress.providerName,
+          executionTimeMs: execTime,
+        });
         this.checkFlushEnd(now);
         break;
       }

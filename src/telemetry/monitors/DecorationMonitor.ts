@@ -185,8 +185,8 @@ export class DecorationMonitor {
     private readonly reporter: TelemetryReporter,
     private readonly problemStore?: ProblemStore,
   ) {
-    this.originalFireDidChange = engine.fireDidChange.bind(engine);
-    this.originalProvideFileDecoration = engine.provideFileDecoration.bind(engine);
+    this.originalFireDidChange = engine.fireDidChange;
+    this.originalProvideFileDecoration = engine.provideFileDecoration;
 
     /* Subscribe to actual decoration fire events from the engine */
     this._fireSubscription = engine.onDidChangeFileDecorations((uris: Uri | Uri[] | undefined) => {
@@ -245,7 +245,7 @@ export class DecorationMonitor {
 
   private wrapMethods(): void {
     this.engine.fireDidChange = (uris: Uri | Uri[] | undefined): void => {
-      if (this.disposed) { this.originalFireDidChange(uris); return; }
+      if (this.disposed) { this.originalFireDidChange.call(this.engine, uris); return; }
       this.handleFireDidChange(uris);
     };
 
@@ -253,7 +253,7 @@ export class DecorationMonitor {
       uri: Uri,
       token: CancellationToken,
     ): FileDecoration | undefined => {
-      if (this.disposed) { return this.originalProvideFileDecoration(uri, token); }
+      if (this.disposed) { return this.originalProvideFileDecoration.call(this.engine, uri, token); }
       return this.handleProvideFileDecoration(uri, token);
     };
   }
@@ -643,7 +643,7 @@ export class DecorationMonitor {
       });
 
       /* Call through to original */
-      this.originalFireDidChange(uris);
+      this.originalFireDidChange.call(this.engine, uris);
     } finally {
       this.activeRefreshCount--;
     }
@@ -742,7 +742,7 @@ export class DecorationMonitor {
       let error: string | undefined;
 
       try {
-        result = this.originalProvideFileDecoration(uri, token);
+        result = this.originalProvideFileDecoration.call(this.engine, uri, token);
         /* Guard against async return values */
         if (result instanceof Promise) {
           this._emitAssertion('ASYNC_RETURN', 'provideFileDecoration returned a Promise — monitoring skipped',

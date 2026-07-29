@@ -20,7 +20,7 @@ export interface ProviderLifecycleEvent {
   readonly traceId: TraceId;
   readonly source: 'ProviderMonitor';
   readonly provider: string;
-  readonly phase: 'initialize' | 'initialized' | 'start' | 'stop' | 'dispose';
+  readonly phase: 'initialize' | 'initialized' | 'start' | 'stop' | 'dispose' | 'error';
   readonly oldState: ProviderState | undefined;
   readonly newState: ProviderState;
   readonly executionTimeMs: number;
@@ -323,7 +323,9 @@ export class ProviderMonitor {
   private onProviderRegistered(name: string, provider: DiagnosticProvider): void {
     if (this.providers.has(name)) return;
 
-    const originalRefresh = provider.refresh.bind(provider);
+    const originalRefresh = typeof provider.refresh === 'function'
+      ? provider.refresh.bind(provider)
+      : (() => {}) as DiagnosticProvider['refresh'];
 
     const tracking: ProviderTrackingState = {
       originalRefresh,
@@ -643,27 +645,16 @@ export class ProviderMonitor {
       executionTimeMs = t.registrationTime > 0 ? now - t.registrationTime : 0;
     }
 
-    const phase: 'initialize' | 'initialized' | 'start' | 'stop' | 'dispose' | undefined =
+    const phase: 'initialize' | 'initialized' | 'start' | 'stop' | 'dispose' | 'error' | undefined =
       newState === ProviderState.initializing ? 'initialize' :
       newState === ProviderState.running ? 'start' :
       newState === ProviderState.disposed ? 'dispose' :
+      newState === ProviderState.error ? 'error' :
       oldState === ProviderState.initializing && newState === ProviderState.idle ? 'initialized' :
       oldState === ProviderState.running && newState === ProviderState.idle ? 'stop' :
       undefined;
 
     if (!phase) {
-      if (newState === ProviderState.error) {
-        this.emit({
-          type: 'provider.error',
-          timestamp: now,
-          traceId,
-          source: 'ProviderMonitor',
-          provider: name,
-          phase: 'unknown',
-          error: `Provider entered error state`,
-          executionTimeMs: oldState === ProviderState.initializing && t.initializeStartTime > 0 ? now - t.initializeStartTime : 0,
-        });
-      }
       return;
     }
 
@@ -680,6 +671,19 @@ export class ProviderMonitor {
       success: newState !== ProviderState.error,
       error: newState === ProviderState.error ? `Provider entered error state after ${phase}` : undefined,
     });
+
+    if (newState === ProviderState.error) {
+      this.emit({
+        type: 'provider.error',
+        timestamp: now,
+        traceId,
+        source: 'ProviderMonitor',
+        provider: name,
+        phase: 'unknown',
+        error: `Provider entered error state`,
+        executionTimeMs: oldState === ProviderState.initializing && t.initializeStartTime > 0 ? now - t.initializeStartTime : 0,
+      });
+    }
   }
 
   /* ------------------------------------------------------------------ */
