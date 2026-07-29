@@ -15,6 +15,7 @@ import type { EventPipelineMonitor } from '../monitors/EventPipelineMonitor';
 import type { RuntimeAssertions } from '../monitors/RuntimeAssertions';
 import type { SnapshotSystem } from '../monitors/SnapshotSystem';
 import type { PerformanceMonitor } from '../monitors/PerformanceMonitor';
+import type { ScanSchedulerMonitor } from '../monitors/ScanSchedulerMonitor';
 import type { AutoScannerMonitor } from '../monitors/AutoScannerMonitor';
 import type { ProviderMonitor } from '../monitors/ProviderMonitor';
 import type { DiagnosticsMonitor } from '../monitors/DiagnosticsMonitor';
@@ -41,6 +42,7 @@ export interface DashboardMonitorRefs {
   readonly timelineGenerator: TimelineGenerator;
   readonly fileLogger?: FileLogger;
   readonly performanceMonitor: PerformanceMonitor;
+  readonly scanSchedulerMonitor: ScanSchedulerMonitor;
 }
 
 export class Dashboard {
@@ -261,6 +263,11 @@ export class Dashboard {
     dataProviders.set('timeline', () => this.collectTimelineData());
     dataProviders.set('filelogger', () => this.collectFileLoggerData());
     dataProviders.set('performance', () => this.collectPerformanceData());
+    dataProviders.set('scheduler', () => this.collectSchedulerData());
+  }
+
+  private collectSchedulerData(): unknown {
+    try { return this.monitors.scanSchedulerMonitor.getStatistics(); } catch { return { error: 'scheduler unavailable' }; }
   }
 
   private collectStoreData(): unknown {

@@ -32,6 +32,7 @@ export type DashboardPanelType =
   | 'timeline'
   | 'filelogger'
   | 'performance'
+  | 'scheduler'
   | 'export';
 
 /* ------------------------------------------------------------------ */
@@ -149,6 +150,7 @@ export const ALL_PANELS: readonly PanelDescriptor[] = [
   { id: 'timeline', label: 'Timeline', icon: '$(history)', description: 'Timeline generator' },
   { id: 'filelogger', label: 'File Logger', icon: '$(note)', description: 'File logger' },
   { id: 'performance', label: 'Performance', icon: '$(rocket)', description: 'Performance monitor' },
+  { id: 'scheduler', label: 'Scheduler', icon: '$(sync)', description: 'ScanScheduler monitor' },
   { id: 'export', label: 'Export', icon: '$(save)', description: 'Export data' },
 ];
 

@@ -22,6 +22,19 @@ interface PendingJob {
   superseded: boolean;
 }
 
+/** Telemetry monitor for scheduler metrics */
+interface ScanSchedulerMonitor {
+  onJobSubmitted(job: ScanJob, dedupKey: string): void;
+  onJobMerged(existingJobId: string, newJobId: string, dedupKey: string): void;
+  onJobFlushed(job: ScanJob, queueLength: number): void;
+  onJobStarted(job: ScanJob): void;
+  onJobCompleted(job: ScanJob, executionTimeMs: number): void;
+  onJobCancelled(job: ScanJob, reason: string): void;
+  onJobFailed(job: ScanJob, error: Error): void;
+  onReconcileRun(): void;
+  getQueueSizes(): { pending: number; ready: number; inflight: number };
+}
+
 /**
  * The central `ScanScheduler` is the single entry point for all scan
  * requests in the extension. It wraps `DiagnosticProviderManager` and
@@ -49,11 +62,16 @@ interface PendingJob {
  * but two scans for the same provider never execute simultaneously.
  * A per-provider lock (Promise chain) serializes same-provider scans;
  * a waiting job checks its abort signal before acquiring the lock.
+ *
+ * **Task 11 scope:** Performance metrics. Integrates with ScanSchedulerMonitor
+ * to track queue lengths, job latency, merge/cancel counts, provider execution
+ * time, and end-to-end save-to-decoration latency.
  */
 export class ScanScheduler implements Disposable {
   private readonly _registry: ProviderRegistry;
   private readonly _manager: DiagnosticProviderManager;
   private readonly _log: (msg: string) => void;
+  private _monitor?: ScanSchedulerMonitor;
   private _disposed = false;
 
   /** Debounce window in ms for coalescing rapid same-file/provider events. */
@@ -91,12 +109,19 @@ export class ScanScheduler implements Disposable {
     registry: ProviderRegistry,
     manager: DiagnosticProviderManager,
     log: (msg: string) => void,
+    monitor?: ScanSchedulerMonitor,
   ) {
     this._registry = registry;
     this._manager = manager;
     this._log = log;
+    this._monitor = monitor;
     // Start background reconciliation timer
     this.scheduleReconcile();
+  }
+
+  /** Attach or replace the monitor (useful when monitor is created after scheduler). */
+  setMonitor(monitor: ScanSchedulerMonitor): void {
+    this._monitor = monitor;
   }
 
   /**
@@ -162,6 +187,7 @@ export class ScanScheduler implements Disposable {
       existing.timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
 
       this._log(`[SCAN-SCHEDULER] ${source}: merged job ${job.jobId} into ${existing.job.jobId} (key=${dedupKey})`);
+      this._monitor?.onJobMerged(existing.job.jobId, job.jobId, dedupKey);
       return { submitted: true, providerNames, reason: mergedReason, source, job: existing.job };
     }
 
@@ -170,6 +196,7 @@ export class ScanScheduler implements Disposable {
     this._pending.set(dedupKey, { request, job, timer, abort, superseded: false });
 
     this._log(`[SCAN-SCHEDULER] ${source}: queued job ${job.jobId} for [${providerNames.join(', ')}] pri=${priority} (${reason})`);
+    this._monitor?.onJobSubmitted(job, dedupKey);
 
     // Return immediately; actual execution happens on flush
     return { submitted: true, providerNames, reason, source, job };
@@ -196,6 +223,7 @@ export class ScanScheduler implements Disposable {
         clearTimeout(pending.timer);
         this._pending.delete(key);
         this._log(`[SCAN-SCHEDULER] cancelled pending job ${pending.job.jobId} (pri=${pending.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
+        this._monitor?.onJobCancelled(pending.job, `superseded by ${newReason}`);
       }
     }
 
@@ -208,6 +236,7 @@ export class ScanScheduler implements Disposable {
       if (inflight.job.priority <= newPriority) {
         inflight.abort.abort();
         this._log(`[SCAN-SCHEDULER] aborted in-flight job ${jobId} (pri=${inflight.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
+        this._monitor?.onJobCancelled(inflight.job, `superseded by ${newReason}`);
       }
     }
   }
@@ -262,6 +291,7 @@ export class ScanScheduler implements Disposable {
     }
 
     this._log(`[SCAN-SCHEDULER] queued job ${pending.job.jobId} (pri=${pending.job.priority}) — queue length: ${this._readyQueue.length}`);
+    this._monitor?.onJobFlushed(pending.job, this._readyQueue.length);
 
     // Start worker if not already running
     if (!this._processing) {
@@ -284,6 +314,11 @@ export class ScanScheduler implements Disposable {
       this._inFlight.set(job.jobId, pending);
 
       this._log(`[SCAN-SCHEDULER] executing job ${job.jobId} for [${request.providerNames.join(', ')}] (pri=${job.priority})`);
+      this._monitor?.onJobStarted(job);
+
+      const startTime = Date.now();
+      let success = true;
+      let error: Error | undefined;
 
       try {
         if (abort.signal.aborted) {
@@ -293,8 +328,18 @@ export class ScanScheduler implements Disposable {
           const uris = request.uris ?? [];
           await this.refreshWithLocks(request.providerNames, uris, abort.signal);
         }
+      } catch (e) {
+        success = false;
+        error = e instanceof Error ? e : new Error(String(e));
+        this._log(`[SCAN-SCHEDULER] job ${job.jobId} failed: ${error.message}`);
       } finally {
         this._inFlight.delete(job.jobId);
+        const executionTimeMs = Date.now() - startTime;
+        if (success) {
+          this._monitor?.onJobCompleted(job, executionTimeMs);
+        } else {
+          this._monitor?.onJobFailed(job, error!);
+        }
       }
 
       // Inter-job debounce: wait briefly to let higher-priority jobs arrive
@@ -342,6 +387,7 @@ export class ScanScheduler implements Disposable {
 
     if (result.submitted) {
       this._log('[SCAN-SCHEDULER] reconciliation job submitted');
+      this._monitor?.onReconcileRun();
     } else {
       this._log('[SCAN-SCHEDULER] reconciliation skipped: ' + result.skipReason);
     }
@@ -585,6 +631,15 @@ export class ScanScheduler implements Disposable {
       case 'realtime': return ScanPriority.Realtime;
       default: return ScanPriority.Save;
     }
+  }
+
+  /** Get current queue sizes for monitoring. */
+  getQueueSizes(): { pending: number; ready: number; inflight: number } {
+    return {
+      pending: this._pending.size,
+      ready: this._readyQueue.length,
+      inflight: this._inFlight.size,
+    };
   }
 
   /** Extract file extension from URI (lowercase, with leading dot). */

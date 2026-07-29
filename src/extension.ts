@@ -44,6 +44,7 @@ import { createFileLogger, FileLogger } from './telemetry/monitors/FileLogger';
 import { createTelemetryFileLogger } from './telemetry/monitors/TelemetryFileLogger';
 import { TelemetryLogEditorProvider } from './telemetry/monitors/TelemetryLogEditorProvider';
 import { Dashboard } from './telemetry/dashboard/Dashboard';
+import { createScanSchedulerMonitor } from './telemetry/monitors/ScanSchedulerMonitor';
 
 console.log('[LOG:DIST_LOADED]');
 
@@ -112,6 +113,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     let pipelineMonitor: import('./telemetry/monitors/EventPipelineMonitor').EventPipelineMonitor | undefined;
     let timerMonitor: import('./telemetry/monitors/TimerMonitor').TimerMonitor | undefined;
     let perfMonitor: import('./telemetry/monitors/PerformanceMonitor').PerformanceMonitor | undefined;
+    let scanSchedulerMonitor: import('./telemetry/monitors/ScanSchedulerMonitor').ScanSchedulerMonitor | undefined;
+    const scanSchedulerRef: { current: import('./scanner/ScanScheduler').ScanScheduler | undefined } = { current: undefined };
     let runtimeAssertions: ReturnType<typeof createRuntimeAssertions> | undefined;
     let timelineGenerator: ReturnType<typeof createTimelineGenerator> | undefined;
     let snapshotSystem: ReturnType<typeof createSnapshotSystem> | undefined;
@@ -129,6 +132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       const mPipelineMonitor = createEventPipelineMonitor(telemetryReporter);
       const mTimerMonitor = createTimerMonitor(telemetryReporter);
       const mPerfMonitor = createPerformanceMonitor(telemetryReporter);
+      const mScanSchedulerMonitor = createScanSchedulerMonitor(telemetryReporter, () => scanSchedulerRef.current?.getQueueSizes?.() ?? { pending: 0, ready: 0, inflight: 0 });
       const mRuntimeAssertions = createRuntimeAssertions(telemetryReporter);
       const mTimelineGenerator = createTimelineGenerator(telemetryReporter);
       const mSnapshotSystem = createSnapshotSystem(
@@ -171,6 +175,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
           timelineGenerator: mTimelineGenerator,
           fileLogger: fileLogger ?? undefined,
           performanceMonitor: mPerfMonitor,
+          scanSchedulerMonitor: mScanSchedulerMonitor,
         },
       );
       try {
@@ -193,6 +198,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       pipelineMonitor = mPipelineMonitor;
       timerMonitor = mTimerMonitor;
       perfMonitor = mPerfMonitor;
+      scanSchedulerMonitor = mScanSchedulerMonitor;
       runtimeAssertions = mRuntimeAssertions;
       timelineGenerator = mTimelineGenerator;
       snapshotSystem = mSnapshotSystem;
@@ -222,7 +228,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       manager: diagProviderManager,
       vscodeLanguagesDelegate,
     });
-    const scanScheduler = new ScanScheduler(providerRegistry, diagProviderManager, log);
+    const scanScheduler = new ScanScheduler(providerRegistry, diagProviderManager, log, scanSchedulerMonitor);
+    scanSchedulerRef.current = scanScheduler;
     const diagProvider = providerHandles['vscodeDiagnostics'] as VSCodeDiagnosticProvider;
     const tscProvider = providerHandles['tsc'] as TscDiagnosticProvider;
     const eslintProvider = providerHandles['eslint'] as EslintDiagnosticProvider;
