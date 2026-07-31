@@ -28,6 +28,7 @@ export class VSDiagnosticsProvider extends BaseProblemProvider {
   private readonly dirtyUris = new Set<string>();
   private readonly pendingUris = new Set<string>();
   private flushUpdates: { (): void; cancel(): void; flush(): void } | undefined;
+  private readonly _log: (msg: string) => void;
 
 public get eventCount(): number { return this.diagEventCount; }
 
@@ -42,14 +43,19 @@ public get eventCount(): number { return this.diagEventCount; }
     private readonly scanScheduler?: ScanScheduler,
   ) {
     super();
-    void log;
+    this._log = log;
     this.registerDisposable(this.manager.onDidUpdateAll((changed: vscode.Uri[]) => {
       this.diagEventCount++;
+      this._log(`[VS-DIAG] onDidUpdateAll received ${changed.length} URIs (flushUpdates=${this.flushUpdates ? 'ready' : 'NOT_READY'})`);
       for (let i = 0; i < changed.length; i++) {
         this.pendingUris.add(changed[i].toString());
       }
       if (changed.length > 0) {
-        this.flushUpdates?.();
+        if (this.flushUpdates) {
+          this.flushUpdates();
+        } else {
+          this._log(`[VS-DIAG] WARNING: dropped ${changed.length} URIs — flushUpdates not initialized (start() not called?)`);
+        }
       }
     }));
   }
@@ -72,7 +78,9 @@ public get eventCount(): number { return this.diagEventCount; }
   }
 
   protected onStart(): void {
+    this._log('[VS-DIAG] onStart: initializing flushUpdates');
     this.flushUpdates = debounce(() => {
+      this._log(`[VS-DIAG] flushUpdates firing: pending=${this.pendingUris.size} dirty=${this.dirtyUris.size}`);
       for (const uriStr of this.pendingUris) {
         const uri = vscode.Uri.parse(uriStr);
         this.dirtyUris.add(uriStr);
@@ -87,7 +95,10 @@ public get eventCount(): number { return this.diagEventCount; }
       if (this.dirtyUris.size > 0) {
         const uris = Array.from(this.dirtyUris, (s) => vscode.Uri.parse(s));
         this.dirtyUris.clear();
+        this._log(`[VS-DIAG] decorationEngine.fireDidChange: ${uris.length} URIs`);
         this.decorationEngine.fireDidChange(uris);
+      } else {
+        this._log('[VS-DIAG] flushUpdates: no dirty URIs to refresh');
       }
       this.statusBarManager.update();
       this.trendTracker.takeSnapshot();

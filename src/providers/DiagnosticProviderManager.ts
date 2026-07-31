@@ -263,10 +263,14 @@ export class DiagnosticProviderManager {
 
   async refreshByNames(names: string[], uris?: readonly Uri[]): Promise<void> {
     this.ensureNotDisposed();
+    console.log(`[DPM.refreshByNames] names=${JSON.stringify(names)} uris=${uris?.length ?? 0}`);
     const promises: Promise<void>[] = [];
     for (const name of names) {
       const entry = this.entries.get(name);
-      if (!entry) continue;
+      if (!entry) {
+        console.log(`[DPM.refreshByNames] no entry for "${name}"`);
+        continue;
+      }
       try {
         // Try incremental scan first, fall back to full refresh
         if (uris && uris.length > 0 && entry.provider.refreshUris) {
@@ -274,17 +278,20 @@ export class DiagnosticProviderManager {
           if (result instanceof Promise) {
             promises.push(result);
           }
+          console.log(`[DPM.refreshByNames] ${name}.refreshUris called (promise=${result instanceof Promise})`);
         } else {
           const result = entry.provider.refresh();
           if (result instanceof Promise) {
             promises.push(result);
           }
+          console.log(`[DPM.refreshByNames] ${name}.refresh called (promise=${result instanceof Promise})`);
         }
       } catch (e) {
-        console.error(`[DiagnosticProviderManager] refresh "${name}" failed:`, e);
+        console.error(`[DPM.refreshByNames] "${name}" failed:`, e);
       }
     }
     await Promise.all(promises);
+    console.log(`[DPM.refreshByNames] completed: ${promises.length} promises awaited`);
   }
 
   dispose(): void {

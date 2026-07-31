@@ -137,13 +137,9 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   async initialize(): Promise<void> {
     if (this._disposed || !this._enabled) { return; }
     const changed = await this.runScan();
-    console.log(`[LOG:TSC-init] runScan returned changed.length=${changed.length}`);
+    this._log?.(`[TSC] initialize: runScan returned ${changed.length} changed URIs`);
     if (changed.length > 0) {
-      console.log(`[LOG:TSC-init] BEFORE _onDidUpdate.fire() — ${changed.length} URIs`);
       this._onDidUpdate.fire(changed);
-      console.log(`[LOG:TSC-init] AFTER _onDidUpdate.fire()`);
-    } else {
-      console.log(`[LOG:TSC-init] changed.length=0 → SKIPPING _onDidUpdate.fire()`);
     }
   }
 
@@ -192,96 +188,27 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     this._store.releaseOwnership(this.name);
   }
 
-  /** Incremental scan of specific files — runs tsc with only those files */
+  /** Incremental scan of specific files.
+   *
+   *  NOTE: True incremental tsc invocation (passing individual files) is not
+   *  supported — `tsc -p tsconfig.json file1.ts file2.ts` is rejected by tsc
+   *  with TS5042 "Option 'project' cannot be mixed with input files".
+   *  Instead, we trigger a full project scan via `runScan()` and let it
+   *  write the results back. The `uris` argument is kept for API compat
+   *  and for any future incremental-on-files support.
+   */
   async refreshUris(uris: readonly Uri[]): Promise<void> {
-    this._log?.(`[TSC] refreshUris called with ${uris.length} uris`);
+    this._log?.(`[TSC] refreshUris called with ${uris.length} uris — delegating to runScan`);
     if (!this._enabled || this._disposed || uris.length === 0) { return; }
     if (this._scanning) {
-      // Defer to next full scan
+      // Defer to the in-flight scan's pendingRefresh
       this._pendingRefresh = true;
+      this._log?.('[TSC] refreshUris: already scanning — pendingRefresh=true');
       return;
     }
-
-    this._scanning = true;
-    this._lastScanErrors = [];
-    this.abortController = new AbortController();
-    const signal = this.abortController.signal;
-    const allDiagnostics = new Map<string, TscDiagnostic[]>();
-
-    try {
-      if (signal.aborted) { return; }
-
-      const projects = await this.projectResolver.resolveAll();
-      if (projects.length === 0) { return; }
-
-      // For incremental, run tsc on each project with only the relevant files
-      const semaphore = this.makeSemaphore(this._maxConcurrentScans);
-      await Promise.all(projects.map(async (project) => {
-        await semaphore.acquire();
-        if (signal.aborted) { semaphore.release(); return; }
-
-        // Filter URIs belonging to this project
-        const projectUris = uris.filter((uri) => {
-          const filePath = uri.fsPath;
-          return filePath.startsWith(project.projectRoot + path.sep) || filePath === project.projectRoot;
-        });
-        if (projectUris.length === 0) {
-          semaphore.release();
-          return;
-        }
-
-        const projectLabel = path.basename(project.projectRoot);
-        this._onDidProgressScan.fire({ providerName: this.name, phase: 'scanning', message: `Incremental scan ${projectLabel}...`, detail: project.tsconfigPath });
-
-        // Run tsc on specific files
-        const options: TscRunOptions = {
-          typescriptPath: project.typescriptPath,
-          tsconfigPath: project.tsconfigPath,
-          signal,
-          timeoutMs: this.timeoutMs,
-          files: projectUris.map((u) => u.fsPath), // pass specific files to scan
-        };
-
-        let result;
-        try {
-          result = await this.tscRunner.run(options);
-        } catch {
-          semaphore.release();
-          return;
-        }
-
-        if (result.cancelled || result.timedOut || result.error) {
-          semaphore.release();
-          return;
-        }
-
-        const combined = result.stderr + '\n' + result.stdout;
-        const parsed = this.outputParser.parse(combined);
-
-        for (const diag of parsed) {
-          const fileKey = path.resolve(project.projectRoot, diag.file);
-          const existing = allDiagnostics.get(fileKey);
-          if (existing) { existing.push(diag); } else { allDiagnostics.set(fileKey, [diag]); }
-        }
-
-        semaphore.release();
-      }));
-
-      // Write results to store and fire update event so decoration engine refreshes
-      const changed = this.writeToStore(allDiagnostics);
-      if (!this._disposed && changed.length > 0) {
-        this._onDidUpdate.fire(changed);
-      }
-    } finally {
-      this._scanning = false;
-      this.abortController = undefined;
-      if (this._pendingRefresh) {
-        this._pendingRefresh = false;
-        const changed = await this.runScan();
-        if (!this._disposed && changed.length > 0) {
-          this._onDidUpdate.fire(changed);
-        }
-      }
+    const changed = await this.runScan();
+    if (!this._disposed && changed.length > 0) {
+      this._onDidUpdate.fire(changed);
     }
   }
 
@@ -337,10 +264,12 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       if (projects.length === 0) {
         const msg = 'No tsconfig.json found or TypeScript not available in workspace.';
         this._lastScanErrors.push({ tsconfigPath: '', message: msg });
+        this._log?.(`[TSC] runScan: ${msg}`);
         this._onDidProgressScan.fire({ providerName: this.name, phase: 'completed', message: msg });
         return [];
       }
 
+      this._log?.(`[TSC] runScan: ${projects.length} tsconfig projects found`);
       const tscStart = performance.now();
       const semaphore = this.makeSemaphore(this._maxConcurrentScans);
       await Promise.all(projects.map(async (project) => {
@@ -441,8 +370,10 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       this._onDidProgressScan.fire({ providerName: this.name, phase: 'writing', message: 'Writing results to store...' });
 
       const writeStart = performance.now();
+      this._log?.(`[TSC] runScan: tsc done. ${allDiagnostics.size} files with diagnostics; exitCodes seen`);
       const result = this.writeToStore(allDiagnostics);
       timing.storeWriteMs = performance.now() - writeStart;
+      this._log?.(`[TSC] runScan: writeToStore returned ${result.length} changed URIs`);
 
       timing.totalMs = performance.now() - scanStart;
       this._lastScanDurationMs = timing.totalMs;

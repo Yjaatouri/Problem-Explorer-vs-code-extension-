@@ -18,8 +18,10 @@ export class AutoScanController implements Disposable {
   }
 
   start(): void {
+    this.log(`[AUTO-SCAN] start() — registering file event listeners (enabled=${this._enabled})`);
     this.disposables.push(
       workspace.onDidSaveTextDocument((doc) => {
+        this.log(`[AUTO-SCAN] onDidSaveTextDocument: ${doc.uri.fsPath}`);
         this.onFileSave(doc.uri);
       }),
       workspace.onDidCreateFiles((e) => {
