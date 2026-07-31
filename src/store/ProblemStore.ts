@@ -43,6 +43,7 @@ export class ProblemStore {
         const currentPriority = this.providerPriorities.get(currentOwner) ?? -1;
         const newPriority = this.providerPriorities.get(providerName) ?? -1;
         if (newPriority < currentPriority) {
+          console.warn(`[STORE] rejected set by "${providerName}" (pri=${newPriority}) on URI owned by "${currentOwner}" (pri=${currentPriority}): ${uri.fsPath}`);
           return false;
         }
       } else {
@@ -66,6 +67,9 @@ export class ProblemStore {
       this.ownerByKey.set(key, providerName);
     }
     this.version++;
+    if (state.severity !== ProblemSeverity.None && process.env.PROBLEM_EXPLORER_DEBUG === '1') {
+      console.log(`[STORE] set OK by "${providerName ?? 'none'}" owner="${this.ownerByKey.get(key)}" severity=${state.severity} err=${state.errorCount} warn=${state.warningCount}: ${uri.fsPath}`);
+    }
     if (this.batchDepth === 0) {
       this._onDidChange.fire(existed ? { kind: 'updated', uri } : { kind: 'added', uri });
     } else {

@@ -70,7 +70,16 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
       }
 
       if (!status || status.severity === ProblemSeverity.None) {
+        if (status === undefined && !ignored && this.config?.debug) {
+          console.warn(`[DECO] no status for ${uri.fsPath} (no badge)`);
+        }
         return undefined;
+      }
+
+      // Verbose trace when debug config is enabled — shows the status VS Code
+      // is being asked to decorate for this URI.
+      if (this.config?.debug) {
+        console.log(`[DECO] provideFileDecoration ${uri.fsPath} severity=${status.severity} err=${status.errorCount} warn=${status.warningCount} info=${status.infoCount}`);
       }
 
       if (

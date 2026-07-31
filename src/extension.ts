@@ -271,6 +271,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     // scan respects enabled/disabled state, timeout, etc.
     const applyConfig = (): void => {
       const config = configManager.getConfig();
+      // Enable verbose trace logging when problemExplorer.debug is on.
+      // The store/decoration components gate their diagnostic logs on this env var
+      // (not just config), so users can opt into traces without code changes.
+      if (config.debug) {
+        process.env.PROBLEM_EXPLORER_DEBUG = '1';
+      } else {
+        delete process.env.PROBLEM_EXPLORER_DEBUG;
+      }
       decorationEngine.setConfig(config);
       diagProvider.setSeverityOverrides(config.severityOverrides);
       diagProvider.setIgnorePatterns(config.ignorePatterns);
