@@ -11,6 +11,7 @@ import {
   computeScanPriority,
   generateJobId,
 } from './ScanJob';
+import { Dispatcher } from './Dispatcher';
 
 /** Pending job with debounce metadata. */
 interface PendingJob {
@@ -84,8 +85,12 @@ export class ScanScheduler implements Disposable {
   /** In-flight jobs keyed by job id (currently executing). */
   private readonly _inFlight = new Map<string, PendingJob>();
 
-  /** Per-provider locks — serializes same-provider scans. */
-  private readonly _providerLocks = new Map<string, Promise<void>>();
+  /**
+   * Per-provider execution dispatcher (extracted in T2). Owns the per-provider
+   * serialization lock + provider invocation. Replaces the former
+   * `_providerLocks` map and `refreshWithLocks`/`refreshOneWithLock` methods.
+   */
+  private readonly _dispatcher: Dispatcher;
 
   /** Timer to flush the pending queue. */
   private _flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -116,6 +121,18 @@ export class ScanScheduler implements Disposable {
     this._manager = manager;
     this._log = log;
     this._monitor = monitor;
+    // The dispatcher delegates to DPM.refreshByNames through the per-provider
+    // lock. log + monitor wiring preserve the legacy telemetry surface.
+    this._dispatcher = new Dispatcher(
+      (names, uris) => this._manager.refreshByNames([...names], uris),
+      log,
+      monitor
+        ? {
+            onProviderStart: () => {},
+            onProviderFinish: () => {},
+          }
+        : undefined,
+    );
     // Start background reconciliation timer
     this.scheduleReconcile();
   }
@@ -304,6 +321,10 @@ export class ScanScheduler implements Disposable {
   /**
    * Worker loop: process ready queue by priority.
    * After each job, wait a short inter-job debounce to allow higher-priority jobs to arrive.
+   *
+   * (T2) Execution is delegated to the Dispatcher, which owns the per-provider
+   * serialization lock. The scheduler retains in-flight tracking, monitor
+   * events, and the inter-job debounce.
    */
   private async processQueue(): Promise<void> {
     while (this._readyQueue.length > 0) {
@@ -325,9 +346,9 @@ export class ScanScheduler implements Disposable {
         if (abort.signal.aborted) {
           this._log(`[SCAN-SCHEDULER] execution aborted before start ${job.jobId}`);
         } else {
-          // Refresh each provider through its per-provider lock with specific URIs (if any)
-          const uris = request.uris ?? [];
-          await this.refreshWithLocks(request.providerNames, uris, abort.signal);
+          const result = await this._dispatcher.execute(request, abort.signal);
+          success = result.success;
+          error = result.error;
         }
       } catch (e) {
         success = false;
@@ -395,36 +416,6 @@ export class ScanScheduler implements Disposable {
 
     // Schedule next reconciliation
     this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
-  }
-
-  /**
-   * Refresh providers concurrently, each through its own per-provider lock.
-   * Different providers run in parallel; same-provider scans are serialized.
-   * If the abort signal fires while waiting for a lock, the scan is skipped.
-   */
-  private async refreshWithLocks(providerNames: readonly string[], uris: readonly Uri[], signal: AbortSignal): Promise<void> {
-    const tasks = providerNames.map((name) => this.refreshOneWithLock(name, uris, signal));
-    await Promise.all(tasks);
-  }
-
-  /** Refresh a single provider, acquiring its per-provider lock. */
-  private async refreshOneWithLock(name: string, uris: readonly Uri[], signal: AbortSignal): Promise<void> {
-    // Wait for any in-flight scan for this provider to finish.
-    const prev = this._providerLocks.get(name) ?? Promise.resolve();
-    const next = prev.then(async () => {
-      // Cancellation: if aborted while waiting for the lock, skip.
-      if (signal.aborted) {
-        this._log(`[SCAN-SCHEDULER] ${name}: skipped (aborted while waiting for lock)`);
-        return;
-      }
-      try {
-        await this._manager.refreshByNames([name], uris);
-      } catch (e) {
-        this._log(`[SCAN-SCHEDULER] ${name}: refresh failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    });
-    this._providerLocks.set(name, next);
-    await next;
   }
 
   /**
@@ -700,7 +691,7 @@ export class ScanScheduler implements Disposable {
     this._pending.clear();
     this._readyQueue.length = 0;
     this._inFlight.clear();
-    this._providerLocks.clear();
+    this._dispatcher.dispose();
     if (this._flushTimer) {
       clearTimeout(this._flushTimer);
       this._flushTimer = undefined;
