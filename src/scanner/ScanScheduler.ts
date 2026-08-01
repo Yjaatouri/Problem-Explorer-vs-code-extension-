@@ -6,23 +6,15 @@ import {
   ScanJobRequest,
   ScanJobResult,
   ScanJob,
-  ScanPriority,
   ScanDecision,
-  computeScanPriority,
-  generateJobId,
 } from './ScanJob';
 import { Dispatcher } from './Dispatcher';
-
-/** Pending job with debounce metadata. */
-interface PendingJob {
-  request: ScanJobRequest;
-  job: ScanJob;
-  timer: ReturnType<typeof setTimeout>;
-  /** AbortController for cooperative cancellation. */
-  abort: AbortController;
-  /** True if this job has been superseded by a higher-priority job. */
-  superseded: boolean;
-}
+import {
+  JobQueue,
+  JobQueueListener,
+  ReadyEntry,
+  FlushHandler,
+} from './JobQueue';
 
 /** Telemetry monitor for scheduler metrics */
 interface ScanSchedulerMonitor {
@@ -50,9 +42,11 @@ interface ScanSchedulerMonitor {
  * (extension ownership, capability filtering, enabled state, config gates).
  * No hardcoded provider names or capability checks remain in controllers.
  *
- * **Task 5 scope:** Job deduplication & debouncing. Multiple rapid saves
- * for the same file/provider are merged into a single scan job. A short
- * debounce window collects bursts; the highest priority wins.
+ * **Task 5 scope (T3 redesign):** Job deduplication & debouncing. Multiple
+ * rapid saves for the same file/provider are merged into a single scan job.
+ * The coalesce key is the **provider id**, so 10 saves for the same TSC
+ * provider → 1 merged scan, not 10. A trailing debounce window collects
+ * bursts; the highest priority wins. The `JobQueue` handles this entirely.
  *
  * **Task 6 scope:** Cancellation. Obsolete jobs are cancelled when newer,
  * higher-priority jobs supersede them. Each job gets an AbortController;
@@ -62,8 +56,17 @@ interface ScanSchedulerMonitor {
  *
  * **Task 7 scope:** Concurrency. Different providers run concurrently,
  * but two scans for the same provider never execute simultaneously.
- * A per-provider lock (Promise chain) serializes same-provider scans;
- * a waiting job checks its abort signal before acquiring the lock.
+ * The Dispatcher's per-provider lock (Promise chain) serializes same-
+ * provider scans; a waiting job checks its abort signal before acquiring.
+ *
+ * **T2 scope:** Execution is delegated to the `Dispatcher`, which owns
+ * the per-provider serialization lock and provider invocation. The scheduler
+ * retains scheduling decisions (when/whether) and hands off execution.
+ *
+ * **T3 scope:** Queue management is delegated to the `JobQueue`, which
+ * handles provider-keyed coalescing, trailing debounce, binary-heap priority
+ * ordering, depth-1 parked slots, and cancellation. The scheduler bridges
+ * the JobQueue → Dispatcher pipeline and maintains the monitor interface.
  *
  * **Task 11 scope:** Performance metrics. Integrates with ScanSchedulerMonitor
  * to track queue lengths, job latency, merge/cancel counts, provider execution
@@ -76,29 +79,20 @@ export class ScanScheduler implements Disposable {
   private _monitor?: ScanSchedulerMonitor;
   private _disposed = false;
 
-  /** Debounce window in ms for coalescing rapid same-file/provider events. */
-  private readonly _debounceMs = 50;
-
-  /** Pending jobs keyed by deduplication key. */
-  private readonly _pending = new Map<string, PendingJob>();
-
-  /** In-flight jobs keyed by job id (currently executing). */
-  private readonly _inFlight = new Map<string, PendingJob>();
+  /**
+   * The coalescing queue (T3). Handles provider-keyed merge, trailing
+   * debounce, binary-heap priority ordering, parked slots, and
+   * cancellation. Owns all scheduling state — the scheduler is the bridge.
+   */
+  private readonly _queue: JobQueue;
 
   /**
-   * Per-provider execution dispatcher (extracted in T2). Owns the per-provider
-   * serialization lock + provider invocation. Replaces the former
-   * `_providerLocks` map and `refreshWithLocks`/`refreshOneWithLock` methods.
+   * Per-provider execution dispatcher (T2). Owns the per-provider
+   * serialization lock + provider invocation.
    */
   private readonly _dispatcher: Dispatcher;
 
-  /** Timer to flush the pending queue. */
-  private _flushTimer: ReturnType<typeof setTimeout> | undefined;
-
-  /** Task 8: Priority queue of jobs ready to execute (highest priority first). */
-  private readonly _readyQueue: PendingJob[] = [];
-
-  /** True while the worker loop is processing the queue. */
+  /** True while the worker loop is processing the ready heap. */
   private _processing = false;
 
   /** Inter-job debounce: wait this long after each job to let higher-priority jobs arrive. */
@@ -121,6 +115,29 @@ export class ScanScheduler implements Disposable {
     this._manager = manager;
     this._log = log;
     this._monitor = monitor;
+
+    // Wire the JobQueue listener to bridge queue events → scheduler monitor.
+    const queueListener: JobQueueListener | undefined = monitor
+      ? {
+          onSubmitted: (job, key) => monitor.onJobSubmitted(job, key),
+          onMerged: (existingId, incomingId, key) => monitor.onJobMerged(existingId, incomingId, key),
+          onReady: (job, heapSize) => monitor.onJobFlushed(job, heapSize),
+          onParked: () => {},   // parked is an internal queue state — no monitor surface yet
+          onCancelled: (job, reason) => monitor.onJobCancelled(job, reason),
+        }
+      : undefined;
+
+    // The flush handler is called by JobQueue whenever a job clears debounce.
+    // It starts the worker loop if not already running.
+    const onFlush: FlushHandler = (_entry: ReadyEntry) => {
+      if (!this._processing) {
+        this._processing = true;
+        this.processQueue();
+      }
+    };
+
+    this._queue = new JobQueue(onFlush, queueListener);
+
     // The dispatcher delegates to DPM.refreshByNames through the per-provider
     // lock. log + monitor wiring preserve the legacy telemetry surface.
     this._dispatcher = new Dispatcher(
@@ -146,196 +163,69 @@ export class ScanScheduler implements Disposable {
    * Submit a scan request. Creates a ScanJob, computes priority,
    * and delegates to `DiagnosticProviderManager.refreshByNames()`.
    *
-   * Deduplication: multiple rapid requests for the same provider+URI+source
-   * are merged into a single job within the debounce window. The highest
-   * priority wins; URIs are unioned.
+   * Deduplication: multiple rapid requests for the same provider
+   * are merged into a single job within the debounce window (T3).
+   * The coalesce key is the provider id — so 10 saves for TSC → 1 scan.
    *
-   * Cancellation: if a new job for the same provider arrives with higher
-   * priority than a pending or in-flight job, the older job is aborted and
-   * removed from the queue. This ensures outdated scans never run.
+   * Cancellation: handled by JobQueue's parked-slot and maxWait logic.
    */
   async submit(request: ScanJobRequest): Promise<ScanJobResult> {
     this.ensureNotDisposed();
-    const { providerNames, reason, source, uris = [] } = request;
+    const { providerNames, reason, source } = request;
 
     if (providerNames.length === 0) {
       this._log(`[SCAN-SCHEDULER] ${source}: empty provider list — skipping (${reason})`);
       return { submitted: false, providerNames: [], reason, source, skipReason: 'no providers' };
     }
 
-    // Compute priority: event tier + provider base priority
-    const eventTier = this.sourceToTier(source);
+    // Compute per-provider base priority from the registry.
+    // For multi-provider requests, use 0 (no per-provider boost).
     const basePriority = providerNames.length === 1
       ? this._registry.getPriority(providerNames[0]) ?? 0
       : 0;
-    const priority = computeScanPriority(eventTier, basePriority);
 
-    // Cancel obsolete pending/in-flight jobs for the same providers
-    this.cancelObsoleteJobs(providerNames, priority, reason);
+    const outcome = this._queue.submit(request, basePriority);
 
-    const abort = new AbortController();
+    switch (outcome.kind) {
+      case 'rejected':
+        this._log(`[SCAN-SCHEDULER] ${source}: rejected — ${outcome.reason}`);
+        return { submitted: false, providerNames, reason, source, skipReason: outcome.reason };
 
-    const job: ScanJob = {
-      provider: providerNames[0], // primary provider
-      reason,
-      uris,
-      priority,
-      timestamp: Date.now(),
-      signal: abort.signal,
-      jobId: generateJobId(),
-    };
+      case 'submitted':
+        this._log(`[SCAN-SCHEDULER] ${source}: queued job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority} (${reason})`);
+        return { submitted: true, providerNames, reason, source, job: outcome.job };
 
-    // Deduplication key: provider(s) + URI(s) + source + reason
-    // For autoscan, merge rapid saves on same file+provider.
-    const dedupKey = this.makeDedupKey(providerNames, uris, source, reason);
+      case 'merged':
+        this._log(`[SCAN-SCHEDULER] ${source}: merged into job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
+        return { submitted: true, providerNames, reason, source, job: outcome.job };
 
-    const existing = this._pending.get(dedupKey);
-    if (existing) {
-      // Merge: union URIs, take max priority, update timestamp
-      const incomingUris = uris ?? [];
-      const existingUris = existing.request.uris ?? [];
-      const mergedUris = this.unionUris(existingUris, incomingUris);
-      const mergedPriority = Math.max(existing.job.priority, priority);
-      const mergedReason = this.mergeReason(existing.request.reason, reason);
-
-      existing.request = { ...existing.request, uris: mergedUris, priority: mergedPriority, reason: mergedReason };
-      existing.job = { ...existing.job, uris: mergedUris, priority: mergedPriority, timestamp: Date.now(), reason: mergedReason };
-      // Reset the debounce timer
-      clearTimeout(existing.timer);
-      existing.timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
-
-      this._log(`[SCAN-SCHEDULER] ${source}: merged job ${job.jobId} into ${existing.job.jobId} (key=${dedupKey})`);
-      this._monitor?.onJobMerged(existing.job.jobId, job.jobId, dedupKey);
-      return { submitted: true, providerNames, reason: mergedReason, source, job: existing.job };
-    }
-
-    // New pending job — schedule flush
-    const timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
-    this._pending.set(dedupKey, { request, job, timer, abort, superseded: false });
-
-    this._log(`[SCAN-SCHEDULER] ${source}: queued job ${job.jobId} for [${providerNames.join(', ')}] pri=${priority} (${reason})`);
-    this._monitor?.onJobSubmitted(job, dedupKey);
-
-    // Return immediately; actual execution happens on flush
-    return { submitted: true, providerNames, reason, source, job };
-  }
-
-  /**
-   * Cancel pending and in-flight jobs for the given providers if the new
-   * job has higher priority. A job is obsolete if:
-   *   - It is still pending (not yet flushed) and the new job has higher priority
-   *   - It is in-flight and the new job has higher or equal priority (newer wins)
-   */
-  private cancelObsoleteJobs(providerNames: readonly string[], newPriority: number, newReason: string): void {
-    const providerSet = new Set(providerNames);
-
-    // Cancel pending jobs for the same providers with lower priority
-    for (const [key, pending] of this._pending) {
-      const pendingProviders = pending.request.providerNames;
-      const overlaps = pendingProviders.some((p) => providerSet.has(p));
-      if (!overlaps) continue;
-
-      if (pending.job.priority < newPriority) {
-        pending.superseded = true;
-        pending.abort.abort();
-        clearTimeout(pending.timer);
-        this._pending.delete(key);
-        this._log(`[SCAN-SCHEDULER] cancelled pending job ${pending.job.jobId} (pri=${pending.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
-        this._monitor?.onJobCancelled(pending.job, `superseded by ${newReason}`);
-      }
-    }
-
-    // Abort in-flight jobs for the same providers with lower priority
-    for (const [jobId, inflight] of this._inFlight) {
-      const inflightProviders = inflight.request.providerNames;
-      const overlaps = inflightProviders.some((p) => providerSet.has(p));
-      if (!overlaps) continue;
-
-      if (inflight.job.priority <= newPriority) {
-        inflight.abort.abort();
-        this._log(`[SCAN-SCHEDULER] aborted in-flight job ${jobId} (pri=${inflight.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
-        this._monitor?.onJobCancelled(inflight.job, `superseded by ${newReason}`);
-      }
-    }
-  }
-
-  /** Build a deduplication key from request parameters. */
-  private makeDedupKey(
-    providerNames: readonly string[],
-    uris: readonly Uri[],
-    source: ScanSource,
-    reason: string,
-  ): string {
-    const providers = [...providerNames].sort().join(',');
-    const uriKeys = [...uris].map(u => u.fsPath).sort().join(',');
-    return `${providers}|${uriKeys}|${source}|${reason}`;
-  }
-
-  /** Union two URI arrays (by fsPath). */
-  private unionUris(a: readonly Uri[], b: readonly Uri[]): readonly Uri[] {
-    const map = new Map<string, Uri>();
-    for (const u of a) map.set(u.fsPath, u);
-    for (const u of b) map.set(u.fsPath, u);
-    return Array.from(map.values());
-  }
-
-  /** Merge two reasons, preferring the more specific one. */
-  private mergeReason(a: string, b: string): string {
-    if (a === b) return a;
-    // Prefer non-generic reasons
-    if (a === 'file save' && b !== 'file save') return b;
-    if (b === 'file save' && a !== 'file save') return a;
-    return `${a};${b}`;
-  }
-
-  /** Flush a single pending job by key — moves it to the ready queue for priority scheduling. */
-  private flushOne(key: string): void {
-    const pending = this._pending.get(key);
-    if (!pending) return;
-    this._pending.delete(key);
-
-    // Cancellation: skip if this job was superseded by a higher-priority one
-    if (pending.superseded || pending.abort.signal.aborted) {
-      this._log(`[SCAN-SCHEDULER] flush: skipping superseded job ${pending.job.jobId}`);
-      return;
-    }
-
-    // Insert into ready queue sorted by priority (highest first), then by timestamp (FIFO for ties)
-    const idx = this._readyQueue.findIndex((p) => p.job.priority < pending.job.priority);
-    if (idx === -1) {
-      this._readyQueue.push(pending);
-    } else {
-      this._readyQueue.splice(idx, 0, pending);
-    }
-
-    this._log(`[SCAN-SCHEDULER] queued job ${pending.job.jobId} (pri=${pending.job.priority}) — queue length: ${this._readyQueue.length}`);
-    this._monitor?.onJobFlushed(pending.job, this._readyQueue.length);
-
-    // Start worker if not already running
-    if (!this._processing) {
-      this._processing = true;
-      this.processQueue();
+      case 'parked':
+        this._log(`[SCAN-SCHEDULER] ${source}: parked behind in-flight job for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
+        return { submitted: true, providerNames, reason, source, job: outcome.job };
     }
   }
 
   /**
-   * Worker loop: process ready queue by priority.
-   * After each job, wait a short inter-job debounce to allow higher-priority jobs to arrive.
+   * Worker loop: drain the ready heap by priority, executing each job
+   * through the Dispatcher. After each job, wait a short inter-job
+   * debounce to allow higher-priority jobs to arrive.
    *
-   * (T2) Execution is delegated to the Dispatcher, which owns the per-provider
-   * serialization lock. The scheduler retains in-flight tracking, monitor
-   * events, and the inter-job debounce.
+   * Execution is delegated to the Dispatcher (T2), which owns the
+   * per-provider serialization lock. The scheduler retains in-flight
+   * tracking via the JobQueue's beginInFlight/completeInFlight lifecycle.
    */
   private async processQueue(): Promise<void> {
-    while (this._readyQueue.length > 0) {
-      // Pop highest priority job
-      const pending = this._readyQueue.shift()!;
-      const { request, job, abort } = pending;
+    while (true) {
+      const entry = this._queue.popReady();
+      if (!entry) break;
 
-      // Track as in-flight so newer jobs can abort it
-      this._inFlight.set(job.jobId, pending);
+      const { job, request, abort } = entry;
+      const provider = job.provider;
 
-      this._log(`[SCAN-SCHEDULER] executing job ${job.jobId} for [${request.providerNames.join(', ')}] (pri=${job.priority})`);
+      // Mark the provider in-flight in the queue (enables parked-slot logic).
+      this._queue.beginInFlight(provider);
+
+      this._log(`[SCAN-SCHEDULER] executing job ${job.jobId} for ${provider} (pri=${job.priority})`);
       this._monitor?.onJobStarted(job);
 
       const startTime = Date.now();
@@ -355,8 +245,9 @@ export class ScanScheduler implements Disposable {
         error = e instanceof Error ? e : new Error(String(e));
         this._log(`[SCAN-SCHEDULER] job ${job.jobId} failed: ${error.message}`);
       } finally {
-        this._inFlight.delete(job.jobId);
         const executionTimeMs = Date.now() - startTime;
+        // Complete in-flight in the queue — this promotes any parked slot.
+        this._queue.completeInFlight(provider);
         if (success) {
           this._monitor?.onJobCompleted(job, executionTimeMs);
         } else {
@@ -365,7 +256,9 @@ export class ScanScheduler implements Disposable {
       }
 
       // Inter-job debounce: wait briefly to let higher-priority jobs arrive
-      if (this._readyQueue.length > 0) {
+      // (but only if the queue might have more work — skip if promoted parked
+      // job is the only thing left and it was already waiting).
+      if (this._queue.getSizes().ready > 0) {
         await new Promise((r) => setTimeout(r, this._interJobDebounceMs));
       }
     }
@@ -385,8 +278,8 @@ export class ScanScheduler implements Disposable {
     if (this._reconcileTimer) {
       clearTimeout(this._reconcileTimer);
     }
-    // Only start reconcile timer if not already processing and queue is empty
-    if (!this._processing && this._readyQueue.length === 0 && this._pending.size === 0 && this._inFlight.size === 0) {
+    // Only start reconcile timer if queue is completely idle
+    if (this._queue.isIdle()) {
       this._reconcileTimer = setTimeout(() => this.runReconcile(), this._reconcileDelayMs);
     } else {
       // If busy, try again after a short delay
@@ -606,52 +499,20 @@ export class ScanScheduler implements Disposable {
   /**
    * Cancel all pending and in-flight jobs for the specified providers.
    * Useful when a provider is disabled via config or unregistered.
+   * Delegates to JobQueue.cancelProviders() which handles pending, parked,
+   * and ready entries. In-flight jobs are aborted via their AbortController.
    */
   cancelProviderJobs(providerNames: readonly string[]): void {
     this.ensureNotDisposed();
-    const providerSet = new Set(providerNames);
-
-    // Cancel pending jobs
-    for (const [key, pending] of this._pending) {
-      const overlaps = pending.request.providerNames.some((p) => providerSet.has(p));
-      if (overlaps) {
-        pending.superseded = true;
-        pending.abort.abort();
-        clearTimeout(pending.timer);
-        this._pending.delete(key);
-        this._log(`[SCAN-SCHEDULER] cancelled pending job ${pending.job.jobId} for [${providerNames.join(', ')}]`);
-      }
-    }
-
-    // Abort in-flight jobs
-    for (const [jobId, inflight] of this._inFlight) {
-      const overlaps = inflight.request.providerNames.some((p) => providerSet.has(p));
-      if (overlaps) {
-        inflight.abort.abort();
-        this._log(`[SCAN-SCHEDULER] aborted in-flight job ${jobId} for [${providerNames.join(', ')}]`);
-      }
+    const cancelled = this._queue.cancelProviders(providerNames, 'provider disabled/unregistered');
+    for (const job of cancelled) {
+      this._log(`[SCAN-SCHEDULER] cancelled job ${job.jobId} for [${providerNames.join(', ')}]`);
     }
   }
 
-  /** Map a ScanSource to its ScanPriority tier. */
-  private sourceToTier(source: ScanSource): ScanPriority {
-    switch (source) {
-      case 'manual': return ScanPriority.Manual;
-      case 'config-change': return ScanPriority.ConfigChange;
-      case 'startup': return ScanPriority.Startup;
-      case 'autoscan': return ScanPriority.Save; // save is the primary autoscan trigger
-      case 'realtime': return ScanPriority.Realtime;
-      default: return ScanPriority.Save;
-    }
-  }
-
-  /** Get current queue sizes for monitoring. */
+  /** Get current queue sizes for monitoring. Delegates to JobQueue. */
   getQueueSizes(): { pending: number; ready: number; inflight: number } {
-    return {
-      pending: this._pending.size,
-      ready: this._readyQueue.length,
-      inflight: this._inFlight.size,
-    };
+    return this._queue.getSizes();
   }
 
   /** Extract file extension from URI (lowercase, with leading dot). */
@@ -675,27 +536,10 @@ export class ScanScheduler implements Disposable {
       clearTimeout(this._reconcileTimer);
       this._reconcileTimer = undefined;
     }
-    // Abort all pending jobs (waiting for debounce)
-    for (const [, pending] of this._pending) {
-      clearTimeout(pending.timer);
-      pending.abort.abort();
-    }
-    // Abort all queued jobs (waiting in ready queue)
-    for (const pending of this._readyQueue) {
-      pending.abort.abort();
-    }
-    // Abort all in-flight jobs
-    for (const [, inflight] of this._inFlight) {
-      inflight.abort.abort();
-    }
-    this._pending.clear();
-    this._readyQueue.length = 0;
-    this._inFlight.clear();
+    // Dispose queue (cancels all pending/parked/ready jobs)
+    this._queue.dispose();
+    // Dispose dispatcher (clears lock state)
     this._dispatcher.dispose();
-    if (this._flushTimer) {
-      clearTimeout(this._flushTimer);
-      this._flushTimer = undefined;
-    }
   }
 
   private ensureNotDisposed(): void {
