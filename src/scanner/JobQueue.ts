@@ -2,6 +2,8 @@ import { Uri } from 'vscode';
 import {
   ScanJob,
   ScanJobRequest,
+  ScanEventKind,
+  ScanPriority,
   computeScanPriority,
   generateJobId,
 } from './ScanJob';
@@ -220,8 +222,8 @@ export class JobQueue {
     provider: string,
     providerBasePriority: number,
   ): SubmitOutcome {
-    const { reason, source, uris = [] } = request;
-    const priority = computeScanPriority(this.sourceToTier(source), providerBasePriority);
+    const { reason, uris = [] } = request;
+    const priority = computeScanPriority(this.sourceToTier(request), providerBasePriority);
     const now = Date.now();
 
     // 1) Merge into an existing pending slot for this provider.
@@ -470,16 +472,37 @@ export class JobQueue {
     return `${a};${b}`;
   }
 
-  /** Map a ScanSource to its ScanPriority tier (mirrors the scheduler). */
-  private sourceToTier(source: ScanJobRequest['source']): number {
+  /**
+   * Map a (source, event) pair to its priority tier (R3).
+   *
+   * Brief's priority ladder, highest to lowest:
+   *   manual (100) > config-change (90) > startup (80) >
+   *   save (50) > create (40) > rename (35) > delete (30) >
+   *   realtime (20) > reconcile (10)
+   *
+   * `event` disambiguates the `autoscan` bucket (which currently maps all of
+   * save/create/rename/delete at the same default térm). When `event` is set
+   * and `source` is `autoscan`, the ladder replaces the default `autoscan`
+   * tier of 50 with the event-specific value. When `event` is `undefined`
+   * or `'other'`, the source tier alone governs (backwards‑compatible).
+   */
+  private sourceToTier(request: ScanJobRequest): number {
+    const { source, event } = request;
+    // Sources that fully determine tier regardless of event.
     switch (source) {
-      case 'manual': return 100;
-      case 'config-change': return 90;
-      case 'startup': return 80;
-      case 'autoscan': return 50; // save tier
-      case 'realtime': return 20;
-      default: return 50;
+      case 'manual': return ScanPriority.Manual;
+      case 'config-change': return ScanPriority.ConfigChange;
+      case 'startup': return ScanPriority.Startup;
+      case 'reconcile': return ScanPriority.Reconcile;
+      case 'realtime': return ScanPriority.Realtime;
+      case 'autoscan': {
+        if (event && event !== 'other') {
+          return eventTierForAutoscan(event);
+        }
+        return ScanPriority.Save; // legacy: autoscan without event = save tier
+      }
     }
+    return ScanPriority.Save;
   }
 
   // ─── binary heap (priority desc, then timestamp asc) ───────────────
@@ -536,5 +559,21 @@ export class JobQueue {
     if (this._disposed) {
       throw new Error('JobQueue is disposed');
     }
+  }
+}
+
+/**
+ * (R3) Map a fine-grained file event to a {@link ScanPriority} tier for the
+ * autoscan source. The complete ladder lives in the design brief:
+ *   save (50) > create (40) > rename (35) > delete (30).
+ */
+function eventTierForAutoscan(event: ScanEventKind): number {
+  switch (event) {
+    case 'save': return ScanPriority.Save;
+    case 'create': return ScanPriority.Create;
+    case 'rename': return ScanPriority.Rename;
+    case 'delete': return ScanPriority.Delete;
+    case 'reconcile': return ScanPriority.Reconcile;
+    default: return ScanPriority.Save;
   }
 }

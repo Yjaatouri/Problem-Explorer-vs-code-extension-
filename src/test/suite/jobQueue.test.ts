@@ -301,4 +301,58 @@ suite('JobQueue', () => {
     assert.strictEqual(queue.getDebounceMs(), before, '0 debounce rejected');
     assert.strictEqual(queue.getMaxWaitMs(), 80, 'negative maxWait rejected');
   });
+
+  // ── R3: per‑event priority ladder (save > create > rename > delete) ───
+
+  test('R3: within autoscan, save outranks create outranks rename outranks delete', async () => {
+    // Use distinct providers so each gets its own slot (same provider would
+    // merge instead of competing for ordering). providers differ only in
+    // identity; priorities are identical (providerBasePriority=5), so the
+    // priority difference comes purely from the event field.
+    const q = new JobQueue(() => {}, undefined, { debounceMs: 5, maxWaitMs: 50 });
+    try {
+      q.submit({ providerNames: ['pDelete'], reason: 'd', source: 'autoscan', event: 'delete' }, 5);
+      q.submit({ providerNames: ['pRename'], reason: 'r', source: 'autoscan', event: 'rename' }, 5);
+      q.submit({ providerNames: ['pCreate'], reason: 'c', source: 'autoscan', event: 'create' }, 5);
+      q.submit({ providerNames: ['pSave'], reason: 's', source: 'autoscan', event: 'save' }, 5);
+      await wait(20);
+      const order: string[] = [];
+      let e: ReadyEntry | undefined;
+      while ((e = q.popReady()) !== undefined) {
+        order.push(e.job.provider);
+        void e;
+      }
+      assert.deepStrictEqual(order, ['pSave', 'pCreate', 'pRename', 'pDelete'],
+        'priority order should follow the event ladder (save>create>rename>delete)');
+    } finally {
+      q.dispose();
+    }
+  });
+
+  test('R3: autoscan without explicit event defaults to save tier (backwards compat)', async () => {
+    const q = new JobQueue(() => {}, undefined, { debounceMs: 5, maxWaitMs: 50 });
+    try {
+      q.submit({ providerNames: ['pDefault'], reason: 'x', source: 'autoscan' }, 5); // 50+5=55
+      q.submit({ providerNames: ['pDelete'], reason: 'y', source: 'autoscan', event: 'delete' }, 5); // 30+5=35
+      await wait(20);
+      assert.strictEqual(q.popReady()!.job.provider, 'pDefault', 'eventless autoscan still at save tier');
+      assert.strictEqual(q.popReady()!.job.provider, 'pDelete');
+    } finally {
+      q.dispose();
+    }
+  });
+
+  test('R3: event field does not affect non-autoscan sources', async () => {
+    const q = new JobQueue(() => {}, undefined, { debounceMs: 5, maxWaitMs: 50 });
+    try {
+      // manual + delete event must still be tier 100, not 30. The event
+      // should be ignored for non-autoscan sources.
+      q.submit({ providerNames: ['pM'], reason: 'm', source: 'manual', event: 'delete' }, 5);
+      q.submit({ providerNames: ['pA'], reason: 'a', source: 'autoscan', event: 'save' }, 5);
+      await wait(20);
+      assert.strictEqual(q.popReady()!.job.provider, 'pM', 'manual outranks autoscan regardless of event');
+    } finally {
+      q.dispose();
+    }
+  });
 });

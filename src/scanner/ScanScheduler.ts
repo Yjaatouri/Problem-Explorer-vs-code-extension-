@@ -367,7 +367,7 @@ export class ScanScheduler implements Disposable {
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'provider autoScan disabled' };
     }
     this.logDecision(ScanDecision.Accepted, uri, 'file save', `owner=${ownerName}`);
-    const result = await this.submit({ providerNames: [ownerName], reason: 'file save', source: 'autoscan', uris: [uri] });
+    const result = await this.submit({ providerNames: [ownerName], reason: 'file save', source: 'autoscan', event: 'save', uris: [uri] });
     return result;
   }
 
@@ -385,10 +385,29 @@ export class ScanScheduler implements Disposable {
   }
 
   /**
-   * Route a file-create event (same logic as save for now).
+   * Route a file-create event. Same ownership/autoScan-gate logic as save,
+   * but (R3) tagged with `event: 'create'` so it lands at priority tier 40
+   * (one notch below save's tier 50, per the design brief ladder).
    */
   async routeFileCreate(uri: Uri): Promise<ScanJobResult> {
-    return this.routeFileSave(uri); // same logic: extension → owner → autoScan gate
+    this.ensureNotDisposed();
+    const ext = this.extractExtension(uri);
+    if (!ext) {
+      this.logDecision(ScanDecision.NoExtension, uri, 'file create', 'no extension');
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no extension' };
+    }
+    const ownerName = this._registry.getOwner(ext);
+    if (!ownerName) {
+      this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file create', `no owner for ${ext}`);
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no owner for extension' };
+    }
+    const providerCfg = this._registry.getProviderConfig(ownerName);
+    if (providerCfg && !providerCfg.autoScan) {
+      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file create', `${ownerName}.autoScan=false`);
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'provider autoScan disabled' };
+    }
+    this.logDecision(ScanDecision.Accepted, uri, 'file create', `owner=${ownerName}`);
+    return this.submit({ providerNames: [ownerName], reason: 'file create', source: 'autoscan', event: 'create', uris: [uri] });
   }
 
   /**
@@ -420,7 +439,7 @@ export class ScanScheduler implements Disposable {
     if (owners.length === 0) {
       return { submitted: false, providerNames: [], reason: 'file rename', source: 'autoscan', skipReason: 'no owner for extensions' };
     }
-    return this.submit({ providerNames: owners, reason: 'file rename', source: 'autoscan', uris: [oldUri, newUri] });
+    return this.submit({ providerNames: owners, reason: 'file rename', source: 'autoscan', event: 'rename', uris: [oldUri, newUri] });
   }
 
   /**
@@ -442,7 +461,7 @@ export class ScanScheduler implements Disposable {
     // For delete, we could trigger a cleanup scan, but the diagnostics
     // manager's onDidDeleteFiles + clearIfOwner handles badge removal.
     // Submit a lightweight scan for the owner to refresh its state.
-    return this.submit({ providerNames: [ownerName], reason: 'file delete', source: 'autoscan', uris: [uri] });
+    return this.submit({ providerNames: [ownerName], reason: 'file delete', source: 'autoscan', event: 'delete', uris: [uri] });
   }
 
   /**
