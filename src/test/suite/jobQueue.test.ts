@@ -274,25 +274,35 @@ suite('JobQueue', () => {
   // ── R1: setOptions hot‑reload (config → JobQueue) ─────────────────────
 
   test('setOptions affects future pending slots but not already‑armed ones', async () => {
-    // Start with a long debounce; submit; then shorten via setOptions.
-    // The first slot must flush on its *original* schedule, not the new one.
+    // Submit slot 1 with debounce=400ms; then in the middle of its window call
+    // setOptions to shrink the debounce to 30ms. Slot 1's *already‑armed*
+    // timer must still fire at ~400ms (the new 30ms setting does NOT shrink
+    // an armed timer — preserves the trailing debounce invariant). A *new*
+    // slot created after setOptions uses the 30ms value.
     queue = new JobQueue(collectingFlush(flushed), rec, {
       debounceMs: 400,
       maxWaitMs: 10_000,
     });
     queue.submit({ providerNames: ['tsc'], reason: 'save', source: 'autoscan', uris: [file1] }, 10);
-    // Wait past the original debounce early (can't fire under the NEW setting).
-    await wait(200);
-    assert.strictEqual(flushed.length, 1, 'first slot flushed on its original 400ms timer');
     assert.strictEqual(queue.getDebounceMs(), 400);
 
-    // Now shorten the debounce to 30ms; the next submit should fire ~30ms.
+    // Halfway into slot 1's debounce, hot‑reload the config.
+    await wait(200);
+    assert.strictEqual(flushed.length, 0, 'slot 1 not flushed yet at t=200 (debounce=400)');
     queue.setOptions({ debounceMs: 30, maxWaitMs: 200 });
     assert.strictEqual(queue.getDebounceMs(), 30);
     assert.strictEqual(queue.getMaxWaitMs(), 200);
+
+    // Wait past the ORIGINAL 400ms debounce. The armed timer was set when
+    // the slot was created with debounce=400; setOptions touches only future
+    // slots, so slot 1 must flush at ~400ms (not at t=200+30=230).
+    await wait(260); // t≈460ms — past 400, would also be past 230 (the reset path)
+    assert.strictEqual(flushed.length, 1, 'slot 1 flushed on its original 400ms timer (setOptions did not move it)');
+
+    // A new slot created after setOptions uses the new 30ms debounce.
     queue.submit({ providerNames: ['tsc'], reason: 'save2', source: 'autoscan', uris: [file2] }, 10);
     await wait(80);
-    assert.strictEqual(flushed.length, 2, 'second slot flushed under the new 30ms debounce');
+    assert.strictEqual(flushed.length, 2, 'slot 2 flushed under the new 30ms debounce');
   });
 
   test('setOptions ignores non‑positive values (defensive)', () => {
