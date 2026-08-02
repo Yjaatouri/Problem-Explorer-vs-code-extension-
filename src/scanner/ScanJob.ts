@@ -9,7 +9,8 @@ export type ScanSource =
   | 'startup'
   | 'manual'
   | 'config-change'
-  | 'realtime';
+  | 'realtime'
+  | 'reconcile';
 
 /**
  * Priority tiers for scan jobs. Higher values execute first.

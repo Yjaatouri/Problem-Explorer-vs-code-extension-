@@ -398,16 +398,16 @@ export class JobQueue {
     // Heap: filter in place.
     if (this._heap.length > 0) {
       const kept: ReadyEntry[] = [];
-      for (const entry of this._heap) {
-        if (set.has(entry.job.provider)) {
-          entry.abort.abort();
-          cancelled.push(entry.job);
-          this._listener?.onCancelled(entry.job, reason);
-        } else {
-          kept.push(entry);
-        }
-      }
-      this._heap = kept;
+for (const entry of this._heap) {
+         if (set.has(entry.job.provider)) {
+           entry.abort.abort();
+           cancelled.push(entry.job);
+           this._listener?.onCancelled(entry.job, reason);
+         } else {
+           kept.push(entry);
+         }
+       }
+       this._heap = kept;
     }
     return cancelled;
   }
@@ -450,9 +450,66 @@ export class JobQueue {
     this._parked.clear();
     this._heap = [];
     this._inFlight.clear();
-  }
+}
 
-  // ─── helpers ───────────────────────────────────────────────────────
+/** Ensure the queue has not been disposed. */
+    private ensureNotDisposed(): void {
+      if (this._disposed) {
+        throw new Error('JobQueue is disposed');
+      }
+    }
+
+    /** Remove and return the highest‑priority ready job, or undefined if empty. */
+    private heapPop(): ReadyEntry | undefined {
+      if (this._heap.length === 0) return undefined;
+      const top = this._heap[0];
+      const last = this._heap.pop()!;
+      if (this._heap.length > 0) {
+        this._heap[0] = last;
+        this.siftDown(0);
+      }
+      return top;
+    }
+
+    /** Higher priority first; ties broken by earlier timestamp (FIFO). */
+    private ranksBefore(a: ReadyEntry, b: ReadyEntry): boolean {
+      if (a.job.priority !== b.job.priority) return a.job.priority > b.job.priority;
+      return a.job.timestamp < b.job.timestamp;
+    }
+
+    private siftUp(i: number): void {
+      while (i > 0) {
+        const parent = (i - 1) >> 1;
+        if (this.ranksBefore(this._heap[i], this._heap[parent])) {
+          [this._heap[i], this._heap[parent]] = [this._heap[parent], this._heap[i]];
+          i = parent;
+        } else {
+          break;
+        }
+      }
+    }
+
+    private siftDown(i: number): void {
+      const n = this._heap.length;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = 2 * i + 2;
+        let best = i;
+        if (l < n && this.ranksBefore(this._heap[l], this._heap[best])) best = l;
+        if (r < n && this.ranksBefore(this._heap[r], this._heap[best])) best = r;
+        if (best === i) break;
+        [this._heap[i], this._heap[best]] = [this._heap[best], this._heap[i]];
+        i = best;
+      }
+    }
+
+    /** Push an entry onto the heap and maintain heap invariant. */
+    private heapPush(entry: ReadyEntry): void {
+      this._heap.push(entry);
+      this.siftUp(this._heap.length - 1);
+    }
+
+    // ─── helpers ───────────────────────────────────────────────────────
 
   /** Union two URI arrays by fsPath, preserving insertion order. */
   private unionUris(a: readonly Uri[], b: readonly Uri[]): readonly Uri[] {
@@ -472,7 +529,7 @@ export class JobQueue {
     return `${a};${b}`;
   }
 
-  /**
+/**
    * Map a (source, event) pair to its priority tier (R3).
    *
    * Brief's priority ladder, highest to lowest:
@@ -504,63 +561,9 @@ export class JobQueue {
     }
     return ScanPriority.Save;
   }
-
-  // ─── binary heap (priority desc, then timestamp asc) ───────────────
-
-  private heapPush(entry: ReadyEntry): void {
-    this._heap.push(entry);
-    this.siftUp(this._heap.length - 1);
-  }
-
-  private heapPop(): ReadyEntry | undefined {
-    if (this._heap.length === 0) return undefined;
-    const top = this._heap[0];
-    const last = this._heap.pop()!;
-    if (this._heap.length > 0) {
-      this._heap[0] = last;
-      this.siftDown(0);
-    }
-    return top;
-  }
-
-  /** Higher priority first; ties broken by earlier timestamp (FIFO). */
-  private ranksBefore(a: ReadyEntry, b: ReadyEntry): boolean {
-    if (a.job.priority !== b.job.priority) return a.job.priority > b.job.priority;
-    return a.job.timestamp < b.job.timestamp;
-  }
-
-  private siftUp(i: number): void {
-    while (i > 0) {
-      const parent = (i - 1) >> 1;
-      if (this.ranksBefore(this._heap[i], this._heap[parent])) {
-        [this._heap[i], this._heap[parent]] = [this._heap[parent], this._heap[i]];
-        i = parent;
-      } else {
-        break;
-      }
-    }
-  }
-
-  private siftDown(i: number): void {
-    const n = this._heap.length;
-    for (;;) {
-      const l = 2 * i + 1;
-      const r = 2 * i + 2;
-      let best = i;
-      if (l < n && this.ranksBefore(this._heap[l], this._heap[best])) best = l;
-      if (r < n && this.ranksBefore(this._heap[r], this._heap[best])) best = r;
-      if (best === i) break;
-      [this._heap[i], this._heap[best]] = [this._heap[best], this._heap[i]];
-      i = best;
-    }
-  }
-
-  private ensureNotDisposed(): void {
-    if (this._disposed) {
-      throw new Error('JobQueue is disposed');
-    }
-  }
 }
+
+
 
 /**
  * (R3) Map a fine-grained file event to a {@link ScanPriority} tier for the

@@ -325,7 +325,7 @@ export class ScanScheduler implements Disposable {
     const result = await this.submit({
       providerNames: ['vscodeDiagnostics'],
       reason: 'background reconciliation',
-      source: 'realtime', // will be mapped to Reconcile priority via sourceToTier
+      source: 'reconcile',
       uris: [],
     });
 
