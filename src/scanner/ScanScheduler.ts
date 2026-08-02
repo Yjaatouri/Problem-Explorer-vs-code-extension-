@@ -105,16 +105,29 @@ export class ScanScheduler implements Disposable {
   /** Interval between reconciliation runs. */
   private readonly _reconcileIntervalMs = 60_000;
 
+  /**
+   * Construct the scheduler.
+   *
+   * @param options (R1) overrides the JobQueue debounce/maxWait. When omitted,
+   *   the scheduler derives them from the user‑facing `problemExplorer.autoScanDelay`
+   *   config via {@link setDebounceMs}. Effective defaults when no config is
+   *   supplied: `debounceMs=50, maxWaitMs=1000` (legacy). With config, the
+   *   `autoScanDelay` knob is honored and `maxWaitMs = max(autoScanDelay * 4, 1000)`.
+   */
   constructor(
     registry: ProviderRegistry,
     manager: DiagnosticProviderManager,
     log: (msg: string) => void,
     monitor?: ScanSchedulerMonitor,
+    options?: { debounceMs?: number; maxWaitMs?: number },
   ) {
     this._registry = registry;
     this._manager = manager;
     this._log = log;
     this._monitor = monitor;
+
+    const debounceMs = options?.debounceMs ?? 50;
+    const maxWaitMs = options?.maxWaitMs ?? Math.max(debounceMs * 4, 1000);
 
     // Wire the JobQueue listener to bridge queue events → scheduler monitor.
     const queueListener: JobQueueListener | undefined = monitor
@@ -136,7 +149,7 @@ export class ScanScheduler implements Disposable {
       }
     };
 
-    this._queue = new JobQueue(onFlush, queueListener);
+    this._queue = new JobQueue(onFlush, queueListener, { debounceMs, maxWaitMs });
 
     // The dispatcher delegates to DPM.refreshByNames through the per-provider
     // lock. log + monitor wiring preserve the legacy telemetry surface.
@@ -152,6 +165,22 @@ export class ScanScheduler implements Disposable {
     );
     // Start background reconciliation timer
     this.scheduleReconcile();
+  }
+
+  /**
+   * (R1) Hot‑reload the debounce window from the `problemExplorer.autoScanDelay`
+   * config setting. Applies only to slots created *after* this call (already‑
+   * armed pending slots keep their original timers — preserves the trailing
+   * debounce invariant). `maxWaitMs` is recomputed as `max(delay * 4, 1000)`.
+   *
+   * Called from `extension.ts` on `configManager.onDidChangeConfig`.
+   */
+  setDebounceMs(debounceMs: number): void {
+    this.ensureNotDisposed();
+    if (!Number.isFinite(debounceMs) || debounceMs <= 0) return;
+    const maxWaitMs = Math.max(debounceMs * 4, 1000);
+    this._queue.setOptions({ debounceMs, maxWaitMs });
+    this._log(`[SCAN-SCHEDULER] debounce -> ${debounceMs}ms (maxWait ${maxWaitMs}ms)`);
   }
 
   /** Attach or replace the monitor (useful when monitor is created after scheduler). */

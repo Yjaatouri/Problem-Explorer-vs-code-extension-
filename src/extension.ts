@@ -228,7 +228,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       manager: diagProviderManager,
       vscodeLanguagesDelegate,
     });
-    const scanScheduler = new ScanScheduler(providerRegistry, diagProviderManager, log, scanSchedulerMonitor);
+    const scanScheduler = new ScanScheduler(
+      providerRegistry, diagProviderManager, log, scanSchedulerMonitor,
+      {
+        debounceMs: configManager.getConfig().autoScanDelay,
+        maxWaitMs: Math.max(configManager.getConfig().autoScanDelay * 4, 1000),
+      },
+    );
     scanSchedulerRef.current = scanScheduler;
     const diagProvider = providerHandles['vscodeDiagnostics'] as VSCodeDiagnosticProvider;
     const tscProvider = providerHandles['tsc'] as TscDiagnosticProvider;
@@ -336,6 +342,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 
     let prevTscEnabled = tscCfg.enabled;
     let prevEslintEnabled = eslintCfg.enabled;
+    let prevAutoScanDelay = configManager.getConfig().autoScanDelay;
     context.subscriptions.push(
       configManager.onDidChangeConfig(() => {
         log('config changed');
@@ -348,6 +355,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         prevTscEnabled = currTsc.enabled;
         prevEslintEnabled = currEslint.enabled;
         autoScanController?.updateConfig(currCfg.autoScanEnabled);
+        // R1: hot-reload the JobQueue debounce window when the user changes
+        // problemExplorer.autoScanDelay. Applies only to future pending slots;
+        // in-flight and already-armed timers are untouched.
+        if (currCfg.autoScanDelay !== prevAutoScanDelay) {
+          scanScheduler.setDebounceMs(currCfg.autoScanDelay);
+          prevAutoScanDelay = currCfg.autoScanDelay;
+        }
         const reEnabled: string[] = [];
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');

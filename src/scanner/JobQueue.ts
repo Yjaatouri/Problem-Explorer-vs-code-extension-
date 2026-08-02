@@ -130,8 +130,17 @@ export class JobQueue {
 
   private readonly _flush: FlushHandler;
   private readonly _listener?: JobQueueListener;
-  private readonly _debounceMs: number;
-  private readonly _maxWaitMs: number;
+  /**
+   * Debounce window ms (R1): scheduled on first arrival, not reset on merge.
+   * Mutable via {@link setOptions} so config changes apply to *future* slots
+   * without disturbing already‑armed timers (preserves the trailing invariant).
+   */
+  private _debounceMs: number;
+  /**
+   * Hard latency ceiling ms; forces flush even under continuous arrivals.
+   * Mutable via {@link setOptions}.
+   */
+  private _maxWaitMs: number;
   private _disposed = false;
 
   constructor(
@@ -144,6 +153,26 @@ export class JobQueue {
     this._debounceMs = options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this._maxWaitMs = options?.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
   }
+
+  /**
+   * Update debounce/maxWait without disturbing already‑armed timers.
+   * Pending slots keep their original timers; only slots created *after* this
+   * call use the new values. This preserves the trailing‑debounce invariant
+   * (a config change in the middle of a burst cannot starve the in‑flight slot).
+   */
+  setOptions(options: { debounceMs?: number; maxWaitMs?: number }): void {
+    this.ensureNotDisposed();
+    if (options.debounceMs !== undefined && options.debounceMs > 0) {
+      this._debounceMs = options.debounceMs;
+    }
+    if (options.maxWaitMs !== undefined && options.maxWaitMs > 0) {
+      this._maxWaitMs = options.maxWaitMs;
+    }
+  }
+
+  /** Read‑only accessors for monitors/tests. */
+  getDebounceMs(): number { return this._debounceMs; }
+  getMaxWaitMs(): number { return this._maxWaitMs; }
 
   /**
    * Submit a request. The queue computes priority, assigns a jobId, and either:

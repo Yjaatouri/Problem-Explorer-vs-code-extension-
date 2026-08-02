@@ -270,4 +270,35 @@ suite('JobQueue', () => {
     const out = queue.submit({ providerNames: [], reason: 'x', source: 'autoscan' }, 10);
     assert.strictEqual((out as any).kind, 'rejected');
   });
+
+  // ── R1: setOptions hot‑reload (config → JobQueue) ─────────────────────
+
+  test('setOptions affects future pending slots but not already‑armed ones', async () => {
+    // Start with a long debounce; submit; then shorten via setOptions.
+    // The first slot must flush on its *original* schedule, not the new one.
+    queue = new JobQueue(collectingFlush(flushed), rec, {
+      debounceMs: 400,
+      maxWaitMs: 10_000,
+    });
+    queue.submit({ providerNames: ['tsc'], reason: 'save', source: 'autoscan', uris: [file1] }, 10);
+    // Wait past the original debounce early (can't fire under the NEW setting).
+    await wait(200);
+    assert.strictEqual(flushed.length, 1, 'first slot flushed on its original 400ms timer');
+    assert.strictEqual(queue.getDebounceMs(), 400);
+
+    // Now shorten the debounce to 30ms; the next submit should fire ~30ms.
+    queue.setOptions({ debounceMs: 30, maxWaitMs: 200 });
+    assert.strictEqual(queue.getDebounceMs(), 30);
+    assert.strictEqual(queue.getMaxWaitMs(), 200);
+    queue.submit({ providerNames: ['tsc'], reason: 'save2', source: 'autoscan', uris: [file2] }, 10);
+    await wait(80);
+    assert.strictEqual(flushed.length, 2, 'second slot flushed under the new 30ms debounce');
+  });
+
+  test('setOptions ignores non‑positive values (defensive)', () => {
+    const before = queue.getDebounceMs();
+    queue.setOptions({ debounceMs: 0, maxWaitMs: -1 });
+    assert.strictEqual(queue.getDebounceMs(), before, '0 debounce rejected');
+    assert.strictEqual(queue.getMaxWaitMs(), 80, 'negative maxWait rejected');
+  });
 });
