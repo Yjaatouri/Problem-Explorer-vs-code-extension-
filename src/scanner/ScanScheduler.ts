@@ -73,11 +73,13 @@ interface ScanSchedulerMonitor {
  * time, and end-to-end save-to-decoration latency.
  */
 export class ScanScheduler implements Disposable {
-  private readonly _registry: ProviderRegistry;
-  private readonly _manager: DiagnosticProviderManager;
-  private readonly _log: (msg: string) => void;
-  private _monitor?: ScanSchedulerMonitor;
-  private _disposed = false;
+   private readonly _registry: ProviderRegistry;
+   private readonly _manager: DiagnosticProviderManager;
+   private readonly _log: (msg: string) => void;
+   private _monitor?: ScanSchedulerMonitor;
+   private _disposed = false;
+   /** Count of mutation-based submissions since last reconciliation (R5). */
+   private _mutationsSinceReconcile = 0;
 
   /**
    * The coalescing queue (T3). Handles provider-keyed merge, trailing
@@ -198,41 +200,46 @@ export class ScanScheduler implements Disposable {
    *
    * Cancellation: handled by JobQueue's parked-slot and maxWait logic.
    */
-  async submit(request: ScanJobRequest): Promise<ScanJobResult> {
-    this.ensureNotDisposed();
-    const { providerNames, reason, source } = request;
+async submit(request: ScanJobRequest): Promise<ScanJobResult> {
+     this.ensureNotDisposed();
+     const { providerNames, reason, source } = request;
 
-    if (providerNames.length === 0) {
-      this._log(`[SCAN-SCHEDULER] ${source}: empty provider list — skipping (${reason})`);
-      return { submitted: false, providerNames: [], reason, source, skipReason: 'no providers' };
-    }
+     if (providerNames.length === 0) {
+       this._log(`[SCAN-SCHEDULER] ${source}: empty provider list — skipping (${reason})`);
+       return { submitted: false, providerNames: [], reason, source, skipReason: 'no providers' };
+     }
 
-    // Compute per-provider base priority from the registry.
-    // For multi-provider requests, use 0 (no per-provider boost).
-    const basePriority = providerNames.length === 1
-      ? this._registry.getPriority(providerNames[0]) ?? 0
-      : 0;
+     // Compute per-provider base priority from the registry.
+     // For multi-provider requests, use 0 (no per-provider boost).
+     const basePriority = providerNames.length === 1
+       ? this._registry.getPriority(providerNames[0]) ?? 0
+       : 0;
 
-    const outcome = this._queue.submit(request, basePriority);
+     const outcome = this._queue.submit(request, basePriority);
 
-    switch (outcome.kind) {
-      case 'rejected':
-        this._log(`[SCAN-SCHEDULER] ${source}: rejected — ${outcome.reason}`);
-        return { submitted: false, providerNames, reason, source, skipReason: outcome.reason };
+     // Track mutations for reconciliation gating (R5): increment for autoscan sources
+     if (source === 'autoscan') {
+       this._mutationsSinceReconcile++;
+     }
 
-      case 'submitted':
-        this._log(`[SCAN-SCHEDULER] ${source}: queued job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority} (${reason})`);
-        return { submitted: true, providerNames, reason, source, job: outcome.job };
+switch (outcome.kind) {
+        case 'rejected':
+          this._log(`[SCAN-SCHEDULER] ${source}: rejected — ${outcome.reason}`);
+          return { submitted: false, providerNames: [], reason, source, skipReason: outcome.reason };
 
-      case 'merged':
-        this._log(`[SCAN-SCHEDULER] ${source}: merged into job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
-        return { submitted: true, providerNames, reason, source, job: outcome.job };
+       case 'submitted':
+         this._log(`[SCAN-SCHEDULER] ${source}: queued job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority} (${reason})`);
+         return { submitted: true, providerNames, reason, source, job: outcome.job };
 
-      case 'parked':
-        this._log(`[SCAN-SCHEDULER] ${source}: parked behind in-flight job for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
-        return { submitted: true, providerNames, reason, source, job: outcome.job };
-    }
-  }
+       case 'merged':
+         this._log(`[SCAN-SCHEDULER] ${source}: merged into job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
+         return { submitted: true, providerNames, reason, source, job: outcome.job };
+
+       case 'parked':
+         this._log(`[SCAN-SCHEDULER] ${source}: parked behind in-flight job for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
+         return { submitted: true, providerNames, reason, source, job: outcome.job };
+     }
+   }
 
   /**
    * Worker loop: drain the ready heap by priority, executing each job
@@ -316,29 +323,40 @@ export class ScanScheduler implements Disposable {
     }
   }
 
-  /** Execute the reconciliation job — scans for stale diagnostics and clears them. */
-  private async runReconcile(): Promise<void> {
-    if (this._disposed) return;
-    this._log('[SCAN-SCHEDULER] running background reconciliation');
+/** Execute the reconciliation job — scans for stale diagnostics and clears them. */
+   private async runReconcile(): Promise<void> {
+     if (this._disposed) return;
+     this._log('[SCAN-SCHEDULER] running background reconciliation');
 
-    // Submit a reconcile job at lowest priority
-    const result = await this.submit({
-      providerNames: ['vscodeDiagnostics'],
-      reason: 'background reconciliation',
-      source: 'reconcile',
-      uris: [],
-    });
+     // R5: Skip reconciliation if no mutations since last run
+     if (this._mutationsSinceReconcile === 0) {
+       this._log('[SCAN-SCHEDULER] reconciliation skipped: no mutations since last run');
+       // Still schedule next reconciliation
+       this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
+       return;
+     }
 
-    if (result.submitted) {
-      this._log('[SCAN-SCHEDULER] reconciliation job submitted');
-      this._monitor?.onReconcileRun();
-    } else {
-      this._log('[SCAN-SCHEDULER] reconciliation skipped: ' + result.skipReason);
-    }
+     // Submit a reconcile job at lowest priority
+     const result = await this.submit({
+       providerNames: ['vscodeDiagnostics'],
+       reason: 'background reconciliation',
+       source: 'reconcile',
+       uris: [],
+     });
 
-    // Schedule next reconciliation
-    this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
-  }
+     if (result.submitted) {
+       this._log('[SCAN-SCHEDULER] reconciliation job submitted');
+       this._monitor?.onReconcileRun();
+     } else {
+       this._log('[SCAN-SCHEDULER] reconciliation skipped: ' + result.skipReason);
+     }
+
+     // Reset mutation counter after reconciliation attempt
+     this._mutationsSinceReconcile = 0;
+
+     // Schedule next reconciliation
+     this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
+   }
 
   /**
    * Route a file-save event to the owning scanner provider.
