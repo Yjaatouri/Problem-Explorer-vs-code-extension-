@@ -286,11 +286,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         delete process.env.PROBLEM_EXPLORER_DEBUG;
       }
       decorationEngine.setConfig(config);
-      diagProvider.setSeverityOverrides(config.severityOverrides);
-      diagProvider.setIgnorePatterns(config.ignorePatterns);
-      diagProvider.setReconcileInterval(config.reconcileIntervalMs);
-      tscProvider.updateConfig(config.typescript);
-      eslintProvider.updateConfig(config.eslint);
+diagProvider.setSeverityOverrides(config.severityOverrides);
+       diagProvider.setIgnorePatterns(config.ignorePatterns);
+       diagProvider.setReconcileInterval(0); // R5: Disable provider-owned reconciliation
+       diagProviderManager.setReconcileInterval(0); // R5: Disable manager-owned reconciliation (no-op)
+       tscProvider.updateConfig(config.typescript);
+       eslintProvider.updateConfig(config.eslint);
       // Restore invariant: registry ownership must reflect the current
       // enabled/disabled state of every provider after config changes.
       providerRegistry.rebuildOwnership();
