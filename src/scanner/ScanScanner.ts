@@ -1,4 +1,4 @@
-﻿import { Disposable, Uri } from 'vscode';
+import { Disposable, Uri } from 'vscode';
 import { ProviderRegistry } from '../providers/ProviderRegistry';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import {
@@ -32,9 +32,9 @@ interface ScanSchedulerMonitor {
 /**
  * The central `ScanScheduler` is the single entry point for all scan
  * requests in the extension. It wraps `DiagnosticProviderManager` and
- * `ProviderRegistry` so that every caller â€” `AutoScanController`,
+ * `ProviderRegistry` so that every caller — `AutoScanController`,
  * `StartupScanController`, `ScanWorkspaceButton`, `CommandManager`, and
- * `extension.ts` config-change handlers â€” routes through one funnel.
+ * `extension.ts` config-change handlers — routes through one funnel.
  *
  * **Task 4 scope:** The scheduler now owns all provider-routing logic.
  * Controllers emit raw events (file save, startup, config change, etc.);
@@ -45,7 +45,7 @@ interface ScanSchedulerMonitor {
  * **Task 5 scope (T3 redesign):** Job deduplication & debouncing. Multiple
  * rapid saves for the same file/provider are merged into a single scan job.
  * The coalesce key is the **provider id**, so 10 saves for the same TSC
- * provider â†’ 1 merged scan, not 10. A trailing debounce window collects
+ * provider → 1 merged scan, not 10. A trailing debounce window collects
  * bursts; the highest priority wins. The `JobQueue` handles this entirely.
  *
  * **Task 6 scope:** Cancellation. Obsolete jobs are cancelled when newer,
@@ -66,7 +66,7 @@ interface ScanSchedulerMonitor {
  * **T3 scope:** Queue management is delegated to the `JobQueue`, which
  * handles provider-keyed coalescing, trailing debounce, binary-heap priority
  * ordering, depth-1 parked slots, and cancellation. The scheduler bridges
- * the JobQueue â†’ Dispatcher pipeline and maintains the monitor interface.
+ * the JobQueue → Dispatcher pipeline and maintains the monitor interface.
  *
  * **Task 11 scope:** Performance metrics. Integrates with ScanSchedulerMonitor
  * to track queue lengths, job latency, merge/cancel counts, provider execution
@@ -84,7 +84,7 @@ export class ScanScheduler implements Disposable {
   /**
    * The coalescing queue (T3). Handles provider-keyed merge, trailing
    * debounce, binary-heap priority ordering, parked slots, and
-   * cancellation. Owns all scheduling state â€” the scheduler is the bridge.
+   * cancellation. Owns all scheduling state — the scheduler is the bridge.
    */
   private readonly _queue: JobQueue;
 
@@ -100,7 +100,7 @@ export class ScanScheduler implements Disposable {
   /** Inter-job debounce: wait this long after each job to let higher-priority jobs arrive. */
   private readonly _interJobDebounceMs = 25;
 
-  /** Task 9: Background reconciliation â€” runs only when scheduler is fully idle. */
+  /** Task 9: Background reconciliation — runs only when scheduler is fully idle. */
   private _reconcileTimer: ReturnType<typeof setTimeout> | undefined;
   /** How long to wait after queue empties before starting reconciliation. */
   private readonly _reconcileDelayMs = 5_000;
@@ -111,7 +111,7 @@ export class ScanScheduler implements Disposable {
    * Construct the scheduler.
    *
    * @param options (R1) overrides the JobQueue debounce/maxWait. When omitted,
-   *   the scheduler derives them from the userâ€‘facing `problemExplorer.autoScanDelay`
+   *   the scheduler derives them from the user‑facing `problemExplorer.autoScanDelay`
    *   config via {@link setDebounceMs}. Effective defaults when no config is
    *   supplied: `debounceMs=50, maxWaitMs=1000` (legacy). With config, the
    *   `autoScanDelay` knob is honored and `maxWaitMs = max(autoScanDelay * 4, 1000)`.
@@ -131,13 +131,13 @@ export class ScanScheduler implements Disposable {
     const debounceMs = options?.debounceMs ?? 50;
     const maxWaitMs = options?.maxWaitMs ?? Math.max(debounceMs * 4, 1000);
 
-    // Wire the JobQueue listener to bridge queue events â†’ scheduler monitor.
+    // Wire the JobQueue listener to bridge queue events → scheduler monitor.
     const queueListener: JobQueueListener | undefined = monitor
       ? {
           onSubmitted: (job, key) => monitor.onJobSubmitted(job, key),
           onMerged: (existingId, incomingId, key) => monitor.onJobMerged(existingId, incomingId, key),
           onReady: (job, heapSize) => monitor.onJobFlushed(job, heapSize),
-          onParked: () => {},   // parked is an internal queue state â€” no monitor surface yet
+          onParked: () => {},   // parked is an internal queue state — no monitor surface yet
           onCancelled: (job, reason) => monitor.onJobCancelled(job, reason),
         }
       : undefined;
@@ -170,9 +170,9 @@ export class ScanScheduler implements Disposable {
   }
 
   /**
-   * (R1) Hotâ€‘reload the debounce window from the `problemExplorer.autoScanDelay`
-   * config setting. Applies only to slots created *after* this call (alreadyâ€‘
-   * armed pending slots keep their original timers â€” preserves the trailing
+   * (R1) Hot‑reload the debounce window from the `problemExplorer.autoScanDelay`
+   * config setting. Applies only to slots created *after* this call (already‑
+   * armed pending slots keep their original timers — preserves the trailing
    * debounce invariant). `maxWaitMs` is recomputed as `max(delay * 4, 1000)`.
    *
    * Called from `extension.ts` on `configManager.onDidChangeConfig`.
@@ -196,7 +196,7 @@ export class ScanScheduler implements Disposable {
    *
    * Deduplication: multiple rapid requests for the same provider
    * are merged into a single job within the debounce window (T3).
-   * The coalesce key is the provider id â€” so 10 saves for TSC â†’ 1 scan.
+   * The coalesce key is the provider id — so 10 saves for TSC → 1 scan.
    *
    * Cancellation: handled by JobQueue's parked-slot and maxWait logic.
    */
@@ -205,7 +205,7 @@ async submit(request: ScanJobRequest): Promise<ScanJobResult> {
      const { providerNames, reason, source } = request;
 
      if (providerNames.length === 0) {
-       this._log(`[SCAN-SCHEDULER] ${source}: empty provider list â€” skipping (${reason})`);
+       this._log(`[SCAN-SCHEDULER] ${source}: empty provider list — skipping (${reason})`);
        return { submitted: false, providerNames: [], reason, source, skipReason: 'no providers' };
      }
 
@@ -224,7 +224,7 @@ async submit(request: ScanJobRequest): Promise<ScanJobResult> {
 
 switch (outcome.kind) {
         case 'rejected':
-          this._log(`[SCAN-SCHEDULER] ${source}: rejected â€” ${outcome.reason}`);
+          this._log(`[SCAN-SCHEDULER] ${source}: rejected — ${outcome.reason}`);
           return { submitted: false, providerNames: [], reason, source, skipReason: outcome.reason };
 
        case 'submitted':
@@ -282,7 +282,7 @@ switch (outcome.kind) {
         this._log(`[SCAN-SCHEDULER] job ${job.jobId} failed: ${error.message}`);
       } finally {
         const executionTimeMs = Date.now() - startTime;
-        // Complete in-flight in the queue â€” this promotes any parked slot.
+        // Complete in-flight in the queue — this promotes any parked slot.
         this._queue.completeInFlight(provider);
         if (success) {
           this._monitor?.onJobCompleted(job, executionTimeMs);
@@ -292,14 +292,14 @@ switch (outcome.kind) {
       }
 
       // Inter-job debounce: wait briefly to let higher-priority jobs arrive
-      // (but only if the queue might have more work â€” skip if promoted parked
+      // (but only if the queue might have more work — skip if promoted parked
       // job is the only thing left and it was already waiting).
       if (this._queue.getSizes().ready > 0) {
         await new Promise((r) => setTimeout(r, this._interJobDebounceMs));
       }
     }
     this._processing = false;
-    // Queue fully empty â€” schedule background reconciliation
+    // Queue fully empty — schedule background reconciliation
     this.scheduleReconcile();
   }
 
@@ -323,7 +323,7 @@ switch (outcome.kind) {
     }
   }
 
-/** Execute the reconciliation job â€” scans for stale diagnostics and clears them. */
+/** Execute the reconciliation job — scans for stale diagnostics and clears them. */
    private async runReconcile(): Promise<void> {
      if (this._disposed) return;
      this._log('[SCAN-SCHEDULER] running background reconciliation');
@@ -360,7 +360,7 @@ switch (outcome.kind) {
 
   /**
    * Route a file-save event to the owning scanner provider.
-   * Resolves extension â†’ owner, checks provider's autoScan config gate,
+   * Resolves extension → owner, checks provider's autoScan config gate,
    * and submits if appropriate.
    *
    * Every exit point is logged with a {@link ScanDecision} so that
@@ -374,42 +374,24 @@ switch (outcome.kind) {
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no extension' };
     }
     const ownerName = this._registry.getOwner(ext);
-    let providerNameToUse: string | undefined = ownerName;
     if (!ownerName) {
-      // No scanner owns this extension - fall back to realtime providers with autoScan enabled.
-      // This is what makes badges appear for .txt, .md, .json, etc. on save: vscodeDiagnostics
-      // is a realtime provider that doesn't claim extensions in the ownership map, so without
-      // this fallback, non-scanner files never get rescanned on save.
-      const realtimeProviders = this._registry.all().filter((rp) =>
-        rp.descriptor.type === 'realtime' &&
-        rp.provider.enabled &&
-        this._registry.getProviderConfig(rp.descriptor.id)?.autoScan !== false,
-      );
-      if (realtimeProviders.length > 0) {
-        // all() sorts by descending priority, so the first match is the highest-priority realtime provider.
-        providerNameToUse = realtimeProviders[0].descriptor.id;
-        this.logDecision(ScanDecision.Accepted, uri, 'file save', `no owner for ${ext}, using realtime provider ${providerNameToUse}`);
-      } else {
-        this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file save', `no owner for ${ext}`);
-        return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no owner for extension' };
-      }
+      this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file save', `no owner for ${ext}`);
+      return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no owner for extension' };
     }
-    // After the fallback above, providerNameToUse is guaranteed to be a real provider id.
-    const providerName: string = providerNameToUse!;
-    // Per-provider autoScan gate - user may disable auto-scan for specific providers.
-    const providerCfg = this._registry.getProviderConfig(providerName);
+    // Per-provider autoScan gate — user may disable auto-scan for specific providers.
+    const providerCfg = this._registry.getProviderConfig(ownerName);
     if (providerCfg && !providerCfg.autoScan) {
-      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file save', `${providerName}.autoScan=false`);
+      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file save', `${ownerName}.autoScan=false`);
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'provider autoScan disabled' };
     }
-    this.logDecision(ScanDecision.Accepted, uri, 'file save', `owner=${providerName}`);
-    const result = await this.submit({ providerNames: [providerName], reason: 'file save', source: 'autoscan', event: 'save', uris: [uri] });
+    this.logDecision(ScanDecision.Accepted, uri, 'file save', `owner=${ownerName}`);
+    const result = await this.submit({ providerNames: [ownerName], reason: 'file save', source: 'autoscan', event: 'save', uris: [uri] });
     return result;
   }
 
   /**
    * Log a single scan-routing decision. This is the "decision trace"
-   * â€” every silent exit in the routing pipeline emits one structured
+   * — every silent exit in the routing pipeline emits one structured
    * log line so users can see exactly WHERE a save event was rejected:
    *
    *   [SCAN-DECISION] Accepted src/main.ts file_save owner=tsc
@@ -433,30 +415,17 @@ switch (outcome.kind) {
       return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no extension' };
     }
     const ownerName = this._registry.getOwner(ext);
-    let providerNameToUse: string | undefined = ownerName;
     if (!ownerName) {
-      // No scanner owns this extension - fall back to realtime providers with autoScan enabled.
-      const realtimeProviders = this._registry.all().filter((rp) =>
-        rp.descriptor.type === 'realtime' &&
-        rp.provider.enabled &&
-        this._registry.getProviderConfig(rp.descriptor.id)?.autoScan !== false,
-      );
-      if (realtimeProviders.length > 0) {
-        providerNameToUse = realtimeProviders[0].descriptor.id;
-        this.logDecision(ScanDecision.Accepted, uri, 'file create', `no owner for ${ext}, using realtime provider ${providerNameToUse}`);
-      } else {
-        this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file create', `no owner for ${ext}`);
-        return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no owner for extension' };
-      }
+      this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file create', `no owner for ${ext}`);
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no owner for extension' };
     }
-    const providerName: string = providerNameToUse!;
-    const providerCfg = this._registry.getProviderConfig(providerName);
+    const providerCfg = this._registry.getProviderConfig(ownerName);
     if (providerCfg && !providerCfg.autoScan) {
-      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file create', `${providerName}.autoScan=false`);
+      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file create', `${ownerName}.autoScan=false`);
       return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'provider autoScan disabled' };
     }
-    this.logDecision(ScanDecision.Accepted, uri, 'file create', `owner=${providerName}`);
-    return this.submit({ providerNames: [providerName], reason: 'file create', source: 'autoscan', event: 'create', uris: [uri] });
+    this.logDecision(ScanDecision.Accepted, uri, 'file create', `owner=${ownerName}`);
+    return this.submit({ providerNames: [ownerName], reason: 'file create', source: 'autoscan', event: 'create', uris: [uri] });
   }
 
   /**
@@ -468,28 +437,18 @@ switch (outcome.kind) {
     const newExt = this.extractExtension(newUri);
     const ownerNames = new Set<string>();
 
-    // Old extension owner - may need cleanup (handled by diagnostics manager)
+    // Old extension owner — may need cleanup (handled by diagnostics manager)
     if (oldExt) {
       const oldOwner = this._registry.getOwner(oldExt);
       if (oldOwner) ownerNames.add(oldOwner);
     }
-    // New extension owner - trigger scan, falling back to realtime providers for unowned extensions
+    // New extension owner — trigger scan
     if (newExt) {
       const newOwner = this._registry.getOwner(newExt);
       if (newOwner) {
         const providerCfg = this._registry.getProviderConfig(newOwner);
         if (!providerCfg || providerCfg.autoScan) {
           ownerNames.add(newOwner);
-        }
-      } else {
-        // No scanner owns the new extension - fall back to realtime providers with autoScan enabled
-        const realtimeProviders = this._registry.all().filter((rp) =>
-          rp.descriptor.type === 'realtime' &&
-          rp.provider.enabled &&
-          this._registry.getProviderConfig(rp.descriptor.id)?.autoScan !== false,
-        );
-        if (realtimeProviders.length > 0) {
-          ownerNames.add(realtimeProviders[0].descriptor.id);
         }
       }
     }
@@ -566,12 +525,12 @@ switch (outcome.kind) {
 
   /**
    * Route a config change that disabled a provider.
-   * This is informational â€” we log and the scheduler does NOT submit a scan.
-   * Ownership is cleared via the provider's updateConfig() â†’ releaseOwnership().
+   * This is informational — we log and the scheduler does NOT submit a scan.
+   * Ownership is cleared via the provider's updateConfig() → releaseOwnership().
    */
   routeConfigDisable(providerIds: string[]): ScanJobResult {
     this.ensureNotDisposed();
-    this._log(`[SCAN-SCHEDULER] config-change: disabled [${providerIds.join(', ')}] â€” ownership released by providers`);
+    this._log(`[SCAN-SCHEDULER] config-change: disabled [${providerIds.join(', ')}] — ownership released by providers`);
     return { submitted: false, providerNames: [], reason: 'config disable', source: 'config-change', skipReason: 'ownership released by providers' };
   }
   async submitAll(source: ScanSource, reason: string, uris: readonly Uri[] = []): Promise<ScanJobResult> {
@@ -598,7 +557,7 @@ switch (outcome.kind) {
     if (!ownerName) {
       return { submitted: false, providerNames: [], reason, source, skipReason: 'no owner for extension' };
     }
-    // Fire-and-forget â€” callers that need to await should use submit().
+    // Fire-and-forget — callers that need to await should use submit().
     void this.submit({ providerNames: [ownerName], reason, source, uris });
     return { submitted: true, providerNames: [ownerName], reason, source };
   }

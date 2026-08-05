@@ -94,6 +94,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const decorationEngine = new DecorationEngine(problemStore, {
       getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
     });
+    decorationEngine.setLogger(log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
     setConfigManager(configManager);

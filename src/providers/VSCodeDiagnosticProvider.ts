@@ -10,7 +10,7 @@ export class VSCodeDiagnosticProvider implements DiagnosticProvider {
     extensions: [],
     realtime: true,
     manualScan: false,
-    startupScan: false,
+    startupScan: true,
   };
   private readonly manager: DiagnosticsManager;
   private readonly _onDidProgressScan = new EventEmitter<ScanProgress>();

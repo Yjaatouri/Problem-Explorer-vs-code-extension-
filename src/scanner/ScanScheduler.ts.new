@@ -1,0 +1,226 @@
+
+  /**
+   * Log a single scan-routing decision. This is the "decision trace"
+   * — every silent exit in the routing pipeline emits one structured
+   * log line so users can see exactly WHERE a save event was rejected:
+   *
+   *   [SCAN-DECISION] Accepted src/main.ts file_save owner=tsc
+   *   [SCAN-DECISION] AutoScanDisabled src/foo.ts file_save tsc.autoScan=false
+   */
+  private logDecision(decision: ScanDecision, uri: Uri, reason: string, detail: string): void {
+    const shortPath = uri.fsPath.split(/[\\/]/).slice(-2).join('/');
+    this._log(`[SCAN-DECISION] ${decision} ${shortPath} ${reason} ${detail}`);
+  }
+
+  /**
+   * Route a file-create event. Same ownership/autoScan-gate logic as save,
+   * but (R3) tagged with `event: 'create'` so it lands at priority tier 40
+   * (one notch below save's tier 50, per the design brief ladder).
+   */
+  async routeFileCreate(uri: Uri): Promise<ScanJobResult> {
+    this.ensureNotDisposed();
+    const ext = this.extractExtension(uri);
+    if (!ext) {
+      this.logDecision(ScanDecision.NoExtension, uri, 'file create', 'no extension');
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no extension' };
+    }
+    const ownerName = this._registry.getOwner(ext);
+    if (!ownerName) {
+      this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file create', `no owner for ${ext}`);
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no owner for extension' };
+    }
+    const providerCfg = this._registry.getProviderConfig(ownerName);
+    if (providerCfg && !providerCfg.autoScan) {
+      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file create', `${ownerName}.autoScan=false`);
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'provider autoScan disabled' };
+    }
+    this.logDecision(ScanDecision.Accepted, uri, 'file create', `owner=${ownerName}`);
+    return this.submit({ providerNames: [ownerName], reason: 'file create', source: 'autoscan', event: 'create', uris: [uri] });
+  }
+
+  /**
+   * Route a file-rename event. Checks both old and new extensions.
+   */
+  async routeFileRename(oldUri: Uri, newUri: Uri): Promise<ScanJobResult> {
+    this.ensureNotDisposed();
+    const oldExt = this.extractExtension(oldUri);
+    const newExt = this.extractExtension(newUri);
+    const ownerNames = new Set<string>();
+
+    // Old extension owner — may need cleanup (handled by diagnostics manager)
+    if (oldExt) {
+      const oldOwner = this._registry.getOwner(oldExt);
+      if (oldOwner) ownerNames.add(oldOwner);
+    }
+    // New extension owner — trigger scan
+    if (newExt) {
+      const newOwner = this._registry.getOwner(newExt);
+      if (newOwner) {
+        const providerCfg = this._registry.getProviderConfig(newOwner);
+        if (!providerCfg || providerCfg.autoScan) {
+          ownerNames.add(newOwner);
+        }
+      }
+    }
+
+    const owners = [...ownerNames];
+    if (owners.length === 0) {
+      return { submitted: false, providerNames: [], reason: 'file rename', source: 'autoscan', skipReason: 'no owner for extensions' };
+    }
+    return this.submit({ providerNames: owners, reason: 'file rename', source: 'autoscan', event: 'rename', uris: [oldUri, newUri] });
+  }
+
+  /**
+   * Route a file-delete event. For delete, we primarily need to clear
+   * ownership/stale badges. The diagnostics manager handles this via
+   * onDidDeleteFiles listeners. The scheduler can route to the old owner
+   * for any cleanup scan if needed.
+   */
+  async routeFileDelete(uri: Uri): Promise<ScanJobResult> {
+    this.ensureNotDisposed();
+    const ext = this.extractExtension(uri);
+    if (!ext) {
+      return { submitted: false, providerNames: [], reason: 'file delete', source: 'autoscan', skipReason: 'no extension' };
+    }
+    const ownerName = this._registry.getOwner(ext);
+    if (!ownerName) {
+      return { submitted: false, providerNames: [], reason: 'file delete', source: 'autoscan', skipReason: 'no owner for extension' };
+    }
+    // For delete, we could trigger a cleanup scan, but the diagnostics
+    // manager's onDidDeleteFiles + clearIfOwner handles badge removal.
+    // Submit a lightweight scan for the owner to refresh its state.
+    return this.submit({ providerNames: [ownerName], reason: 'file delete', source: 'autoscan', event: 'delete', uris: [uri] });
+  }
+
+  /**
+   * Route the startup scan event.
+   * Resolves all providers with startupScan capability that are enabled
+   * and not disabled by config (scanOnStartup: false).
+   */
+  async routeStartup(): Promise<ScanJobResult> {
+    this.ensureNotDisposed();
+    const candidates = this._registry.all().filter((rp) => {
+      const caps = rp.provider.capabilities;
+      if (!caps.startupScan) return false;
+      if (!rp.provider.enabled) return false;
+      const providerCfg = this._registry.getProviderConfig(rp.descriptor.id);
+      if (providerCfg && !providerCfg.scanOnStartup) return false;
+      return true;
+    });
+    const names = candidates.map((rp) => rp.descriptor.id);
+    if (names.length === 0) {
+      this._log('[SCAN-SCHEDULER] startup: no providers with startupScan enabled');
+      return { submitted: false, providerNames: [], reason: 'startup scan', source: 'startup', skipReason: 'no providers with startupScan' };
+    }
+    this._log(`[SCAN-SCHEDULER] startup: routing [${names.join(', ')}]`);
+    return this.submit({ providerNames: names, reason: 'startup scan', source: 'startup' });
+  }
+
+  /**
+   * Route a config-change re-enable event for specific providers.
+   * Accepts provider ids that were just enabled.
+   */
+  async routeConfigReEnable(providerIds: string[]): Promise<ScanJobResult> {
+    this.ensureNotDisposed();
+    const validNames = providerIds.filter((id) => {
+      const rp = this._registry.all().find((rp) => rp.descriptor.id === id);
+      return rp && rp.provider.enabled;
+    });
+    if (validNames.length === 0) {
+      return { submitted: false, providerNames: [], reason: 'config re-enable', source: 'config-change', skipReason: 'no valid enabled providers' };
+    }
+    this._log(`[SCAN-SCHEDULER] config-change: re-enabled [${validNames.join(', ')}]`);
+    return this.submit({ providerNames: validNames, reason: 'config re-enable', source: 'config-change' });
+  }
+
+  /**
+   * Route a config change that disabled a provider.
+   * This is informational — we log and the scheduler does NOT submit a scan.
+   * Ownership is cleared via the provider's updateConfig() → releaseOwnership().
+   */
+  routeConfigDisable(providerIds: string[]): ScanJobResult {
+    this.ensureNotDisposed();
+    this._log(`[SCAN-SCHEDULER] config-change: disabled [${providerIds.join(', ')}] — ownership released by providers`);
+    return { submitted: false, providerNames: [], reason: 'config disable', source: 'config-change', skipReason: 'ownership released by providers' };
+  }
+  async submitAll(source: ScanSource, reason: string, uris: readonly Uri[] = []): Promise<ScanJobResult> {
+    this.ensureNotDisposed();
+    const names = this._registry.all()
+      .filter((rp) => rp.provider.enabled)
+      .map((rp) => rp.descriptor.id);
+    return this.submit({ providerNames: names, reason, source, uris });
+  }
+
+  /**
+   * Look up the owner of a file extension and submit a scan for that
+   * provider. Returns the provider id that was scheduled, or `undefined`
+   * if no scanner owns the extension.
+   */
+  submitForExtension(
+    ext: string,
+    source: ScanSource,
+    reason: string,
+    uris: readonly Uri[] = [],
+  ): ScanJobResult {
+    this.ensureNotDisposed();
+    const ownerName = this._registry.getOwner(ext);
+    if (!ownerName) {
+      return { submitted: false, providerNames: [], reason, source, skipReason: 'no owner for extension' };
+    }
+    // Fire-and-forget — callers that need to await should use submit().
+    void this.submit({ providerNames: [ownerName], reason, source, uris });
+    return { submitted: true, providerNames: [ownerName], reason, source };
+  }
+
+  /**
+   * Cancel all pending and in-flight jobs for the specified providers.
+   * Useful when a provider is disabled via config or unregistered.
+   * Delegates to JobQueue.cancelProviders() which handles pending, parked,
+   * and ready entries. In-flight jobs are aborted via their AbortController.
+   */
+  cancelProviderJobs(providerNames: readonly string[]): void {
+    this.ensureNotDisposed();
+    const cancelled = this._queue.cancelProviders(providerNames, 'provider disabled/unregistered');
+    for (const job of cancelled) {
+      this._log(`[SCAN-SCHEDULER] cancelled job ${job.jobId} for [${providerNames.join(', ')}]`);
+    }
+  }
+
+  /** Get current queue sizes for monitoring. Delegates to JobQueue. */
+  getQueueSizes(): { pending: number; ready: number; inflight: number } {
+    return this._queue.getSizes();
+  }
+
+  /** Extract file extension from URI (lowercase, with leading dot). */
+  private extractExtension(uri: Uri): string | null {
+    const path = uri.fsPath;
+    const dot = path.lastIndexOf('.');
+    if (dot < 0) return null;
+    return path.slice(dot).toLowerCase();
+  }
+
+  /** The wrapped DiagnosticProviderManager (for back-compat). */
+  get manager(): DiagnosticProviderManager { return this._manager; }
+
+  /** The wrapped ProviderRegistry. */
+  get registry(): ProviderRegistry { return this._registry; }
+
+  dispose(): void {
+    this._disposed = true;
+    // Clear reconciliation timer
+    if (this._reconcileTimer) {
+      clearTimeout(this._reconcileTimer);
+      this._reconcileTimer = undefined;
+    }
+    // Dispose queue (cancels all pending/parked/ready jobs)
+    this._queue.dispose();
+    // Dispose dispatcher (clears lock state)
+    this._dispatcher.dispose();
+  }
+
+  private ensureNotDisposed(): void {
+    if (this._disposed) {
+      throw new Error('ScanScheduler is disposed');
+    }
+  }
+}
