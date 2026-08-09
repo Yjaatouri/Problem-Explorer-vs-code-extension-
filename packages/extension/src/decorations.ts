@@ -3,7 +3,6 @@ import { ProblemSeverity } from '@pe/core';
 import type { ProblemSummary } from '@pe/api';
 
 import { getBadge } from './badge.js';
-import type { BadgeStyle } from './badge.js';
 import { COLORS } from './constants.js';
 import type { ExtensionConfig } from './config.js';
 

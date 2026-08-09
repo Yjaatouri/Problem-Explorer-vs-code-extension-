@@ -8,10 +8,17 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/coverage/**',
-      '.vscode-test/**',
+      '**/.vscode-test/**',
       '**/*.md',
       'agentRead.md',
       '.changeset/**',
+      // v1 legacy tree + scratch — outside the v2 lint gate (M1 decision).
+      'src/**',
+      'experiments/**',
+      'out/**',
+      'webpack.config.js',
+      'test-error.ts',
+      '*.vsix',
     ],
   },
   eslint.configs.recommended,
@@ -21,6 +28,9 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
   {

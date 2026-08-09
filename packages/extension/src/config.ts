@@ -72,8 +72,6 @@ export interface SettingsReader {
   get<T>(key: string, fallback: T): T;
 }
 
-const prefix = (key: string): string => `problemExplorer.${key}`;
-
 const problemExplorerKeys = {
   enabled: 'enabled',
   showWarnings: 'showWarnings',
