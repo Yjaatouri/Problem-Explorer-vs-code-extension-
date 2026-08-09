@@ -1,0 +1,28 @@
+{
+  "name": "@pe/provider-ruff",
+  "description": "Ruff diagnostics provider: runs `ruff check --output-format json` over Python files.",
+  "version": "1.0.0",
+  "private": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck:tests": "tsc -p tsconfig.tests.json"
+  },
+  "dependencies": {
+    "@pe/provider-base": "workspace:*",
+    "@pe/provider-sdk": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ]
+}
