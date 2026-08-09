@@ -1,0 +1,11 @@
+node_modules/**
+src/**
+tests/**
+test-electron/**
+scripts/**
+tsconfig*.json
+*.map
+.gitignore
+dist/test/**
+dist/*.tsbuildinfo
+test-error.ts

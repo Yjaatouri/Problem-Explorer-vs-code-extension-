@@ -2,4 +2,6 @@ packages:
   - packages/*
   - packages/providers/*
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
+  '@vscode/vsce-sign': true
+  keytar: true
