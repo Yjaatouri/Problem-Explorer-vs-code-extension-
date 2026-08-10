@@ -225,11 +225,10 @@ export class ScanScheduler {
   }
 
   private drainQueue(): void {
-    for (;;) {
-      const job = this.queue.peekHighestPriority();
-      if (job === undefined) {
-        break;
-      }
+    // Priority order (manual → … → startup, FIFO within a tier). One pass:
+    // an unhealthy head job is left queued for a later health change instead
+    // of stalling the whole queue (§5.5).
+    for (const job of this.queue.inPriorityOrder()) {
       if (job.priority === 'periodic') {
         if (!this.isIdleForPeriodic()) {
           this.armIdleWatch(); // one idle-watch timer (§7.4.4)
@@ -247,9 +246,10 @@ export class ScanScheduler {
           this.queue.remove(job.id);
           continue;
         }
-        // Health may have drifted since registration — re-check and wait (§5.5).
+        // Health may have drifted since registration — re-check; the job
+        // stays queued and a health change re-pumps it (§5.5).
         void this.registry.healthCheckAll();
-        break;
+        continue;
       }
       const cost = provider.capabilities.cost;
       if (!this.hasFreeSlot(cost)) {

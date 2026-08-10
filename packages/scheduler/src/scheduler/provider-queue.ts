@@ -81,6 +81,13 @@ export class ProviderQueue {
     return Object.freeze([...this.jobs]);
   }
 
+  /** All queued jobs, highest priority first (priority, then FIFO). */
+  inPriorityOrder(): ScanJob[] {
+    return [...this.jobs].sort(
+      (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.enqueuedMs - b.enqueuedMs,
+    );
+  }
+
   hasQueuedWork(): boolean {
     return this.jobs.length > 0;
   }

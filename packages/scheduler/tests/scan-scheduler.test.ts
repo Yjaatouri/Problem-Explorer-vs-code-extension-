@@ -216,6 +216,27 @@ describe('ScanScheduler', () => {
     registry.dispose();
   });
 
+  it('does not let a job for an unhealthy provider stall other capabilities', async () => {
+    const registry = new ProviderRegistry();
+    const broken = makeProvider({ id: 'broken-ts', health: ProviderHealth.Failed });
+    const working = makeProvider({
+      id: 'working-py',
+      capabilities: { supportedConfigTypes: ['python'] },
+    });
+    registry.register(broken.provider);
+    registry.register(working.provider);
+    await waitFor(() => registry.getStatus('working-py')?.health === ProviderHealth.Ready);
+    const scheduler = setup(registry);
+    // Head of the queue: typescript has only an unhealthy provider.
+    scheduler.enqueue(plan());
+    scheduler.enqueue(plan({ capability: 'python' }));
+    await waitFor(() => working.calls.length === 1);
+    expect(broken.calls).toHaveLength(0);
+    expect(scheduler.queuedCount).toBe(1); // broken job waits, does not block
+    scheduler.dispose();
+    registry.dispose();
+  });
+
   it('overflows the bounded queue with an event, never an unbounded queue', async () => {
     const registry = new ProviderRegistry();
     const gate = deferred<void>();
