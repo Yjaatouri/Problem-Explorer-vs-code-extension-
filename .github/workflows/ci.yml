@@ -28,6 +28,11 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - uses: astral-sh/setup-ruff@v2
+        name: Install ruff
+        with:
+          version: latest
+
       - name: Tests
         run: pnpm test
 
@@ -37,11 +42,14 @@ jobs:
       - name: Package vsix
         run: pnpm --filter problem-explorer package
 
+      - name: Install xvfb (headless display for electron)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Smoke dev extension host
-        run: pnpm --filter problem-explorer test:electron
+        run: xvfb-run -a pnpm --filter problem-explorer test:electron
 
       - name: Smoke packaged extension
-        run: pnpm --filter problem-explorer test:electron:packaged
+        run: xvfb-run -a pnpm --filter problem-explorer test:electron:packaged
         timeout-minutes: 20
 
   ci-extension:
@@ -69,6 +77,11 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      - uses: astral-sh/setup-ruff@v2
+        name: Install ruff
+        with:
+          version: latest
 
       - name: Tests
         run: pnpm test
