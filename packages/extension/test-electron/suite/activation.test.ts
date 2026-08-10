@@ -21,7 +21,7 @@ import type { DiagnosticsAPI } from '@pe/api';
  *
  * The fixture workspace is scaffolded by runTest.ts (broken.ts under strict).
  */
-const EXTENSION_ID = 'problem-explorer.problem-explorer';
+const EXTENSION_ID = 'Yjaatouri.problem-explorer';
 
 interface HostApiLike {
   api(): DiagnosticsAPI | undefined;
