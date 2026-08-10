@@ -25,12 +25,17 @@ const FIXTURES = join(here, 'fixtures', 'tsc-workspace');
 const BIN = join(here, '..', '..', '..', 'node_modules', '.bin');
 
 function makeUri(fsPath: string): Uri {
+  const normalized = fsPath.replace(/\\/g, '/');
+  // Canonical form (matches Uri.file() / provider-reported keys):
+  // `file://` + absolute path (the path already starts with '/'). On
+  // Windows the drive path becomes `file:///C:/...` via the same rule.
+  const withScheme = normalized.startsWith('/') ? normalized : `/${normalized}`;
   return {
     scheme: 'file',
     authority: '',
-    path: fsPath.replace(/\\/g, '/'),
+    path: normalized,
     fsPath,
-    toString: () => `file:///${fsPath.replace(/\\/g, '/')}`,
+    toString: () => `file://${withScheme}`,
     with: (change: { path?: string }) => makeUri(change.path ?? fsPath),
   };
 }
