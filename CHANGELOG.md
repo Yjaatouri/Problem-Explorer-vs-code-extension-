@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.0 (2026-08-10)
+
+### Added
+
+- **Scanning engine** — first-class auto-scan: saved files are scanned by configured tools (tsc, eslint) and merged with the editor's realtime diagnostics
+- **Multi-provider scheduler** — queued scans with per-provider health checks, so one unhealthy tool can no longer stall the whole workspace
+- **Per-provider settings** — enable/disable, auto-scan on save, scan-on-startup, timeout, and extra CLI arguments for both the TypeScript and ESLint providers (`problemExplorer.typescript.*`, `problemExplorer.eslint.*`)
+- **ESLint diagnostics** — lint findings (errors, warnings, info) flow into badges via the same pipeline as TypeScript
+- **Provider SDK** — `@pe/provider-sdk` contract that scanners implement, shared across engines
+- **CI gate** — typecheck, lint, ruff, full test suite (200 tests), packaging, and real VS Code smoke tests (dev host and packaged vsix) run on every pull request, including under Xvfb on Linux
+
+### Changed
+
+- **Publisher** — extension now publishes under the `Yjaatouri` publisher id
+- **Timeout hardening** — provider health checks allow up to 30s so cold tool startups (e.g., `eslint --version` under Windows) don't false-fail
+
 ## 0.3.0 (2026-07-11)
 
 ### Added
