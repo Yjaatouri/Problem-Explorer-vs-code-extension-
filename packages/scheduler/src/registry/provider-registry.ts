@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs';
 export const HEALTH_CHECK_RETRY_MS = 10 * 60 * 1000;
 
 /** Per health-check timeout (a hung check must not block the event loop). */
-export const HEALTH_CHECK_TIMEOUT_MS = 10 * 1000;
+export const HEALTH_CHECK_TIMEOUT_MS = 30 * 1000;
 
 export interface ProviderRegistryOptions {
   /** Retry interval for MissingDependency / Failed states (default 10 min). */

@@ -216,7 +216,7 @@ export class BaseProvider implements Provider {
     }
     const result = await runExecutable(argv, {
       cwd: this.options.healthCwd ?? this.cwd,
-      timeoutMs: 10_000,
+      timeoutMs: 30_000,
     });
     if (result.missing) {
       return {
