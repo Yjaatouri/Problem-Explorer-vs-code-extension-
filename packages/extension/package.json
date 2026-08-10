@@ -2,8 +2,8 @@
   "name": "problem-explorer",
   "displayName": "Problem Explorer",
   "description": "Explorer badges with real-time diagnostics from your favorite tools (tsc, eslint) plus the editor's own diagnostics.",
-  "version": "0.12.0",
-  "publisher": "problem-explorer",
+  "version": "2.0.0",
+  "publisher": "Yjaatouri",
   "license": "MIT",
   "repository": {
     "type": "git",

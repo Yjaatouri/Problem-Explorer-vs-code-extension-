@@ -52,7 +52,7 @@ function installExtension(
 async function main(): Promise<void> {
   const extensionPath = path.resolve(__dirname, '../../');
   const extensionTestsPath = path.resolve(__dirname, './suite/index.js');
-  const vsixPath = process.argv[2] ?? path.resolve(extensionPath, 'problem-explorer-0.12.0.vsix');
+  const vsixPath = process.argv[2] ?? path.resolve(extensionPath, 'problem-explorer-2.0.0.vsix');
   if (!fs.existsSync(vsixPath)) {
     console.error(`VSIX not found at ${vsixPath} — run 'pnpm run package' first.`);
     process.exitCode = 1;
