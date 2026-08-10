@@ -28,7 +28,7 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - uses: astral-sh/setup-ruff@v2
+      - uses: astral-sh/ruff-action@v4.1.0
         name: Install ruff
         with:
           version: latest
@@ -78,7 +78,7 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - uses: astral-sh/setup-ruff@v2
+      - uses: astral-sh/ruff-action@v4.1.0
         name: Install ruff
         with:
           version: latest
