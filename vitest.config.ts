@@ -7,6 +7,10 @@ export default defineConfig({
     testTimeout: 120_000,
     hookTimeout: 120_000,
     include: ['packages/**/*.{test,spec}.ts'],
-    exclude: ['packages/extension/test-electron/**'],
+    // Custom include replaces vitest's default excludes; nested copies of the
+    // same packages live under packages/*/node_modules/@pe/* (pnpm symlinks)
+    // and must not run: they double-collect every suite and their .bin lacks
+    // the e2e tools (tsc/eslint), which stalls scans and times out.
+    exclude: ['**/node_modules/**', 'packages/extension/test-electron/**'],
   },
 });
