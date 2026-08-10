@@ -28,10 +28,24 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - uses: astral-sh/ruff-action@v4.1.0
-        name: Install ruff
-        with:
-          version: latest
+      - name: Install ruff
+        shell: bash
+        run: |
+          set -e
+          case "$RUNNER_OS" in
+            Linux)
+              curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
+              tar -xzf /tmp/ruff.tar.gz -C /usr/local/bin
+              ;;
+            Windows)
+              curl -fsSL -o /tmp/ruff.zip https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
+              unzip -o /tmp/ruff.zip -d /tmp/ruff >/dev/null
+              mkdir -p "$HOME/.local/bin"
+              cp /tmp/ruff/ruff.exe "$HOME/.local/bin/"
+              echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+              ;;
+          esac
+          ruff --version
 
       - name: Tests
         run: pnpm test
@@ -78,10 +92,24 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - uses: astral-sh/ruff-action@v4.1.0
-        name: Install ruff
-        with:
-          version: latest
+      - name: Install ruff
+        shell: bash
+        run: |
+          set -e
+          case "$RUNNER_OS" in
+            Linux)
+              curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
+              tar -xzf /tmp/ruff.tar.gz -C /usr/local/bin
+              ;;
+            Windows)
+              curl -fsSL -o /tmp/ruff.zip https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
+              unzip -o /tmp/ruff.zip -d /tmp/ruff >/dev/null
+              mkdir -p "$HOME/.local/bin"
+              cp /tmp/ruff/ruff.exe "$HOME/.local/bin/"
+              echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+              ;;
+          esac
+          ruff --version
 
       - name: Tests
         run: pnpm test
