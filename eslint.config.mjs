@@ -1,42 +1,44 @@
-import tsParser from '@typescript-eslint/parser';
-import tsPlugin from '@typescript-eslint/eslint-plugin';
-import prettierConfig from 'eslint-config-prettier';
+import eslint from '@eslint/js';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
 
-export default [
+export default tseslint.config(
   {
-    ignores: ['out/', 'dist/', 'node_modules/', '.vscode-test/'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
+      '**/.vscode-test/**',
+      '**/*.md',
+      'agentRead.md',
+      '.changeset/**',
+      // v1 legacy tree + scratch — outside the v2 lint gate (M1 decision).
+      'src/**',
+      'experiments/**',
+      'out/**',
+      'webpack.config.js',
+      'test-error.ts',
+      '*.vsix',
+    ],
   },
+  eslint.configs.recommended,
+  ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.ts'],
+    files: ['**/*.ts'],
     languageOptions: {
-      parser: tsParser,
-      parserOptions: {
-        ecmaVersion: 2022,
-        sourceType: 'module',
-      },
-    },
-    plugins: {
-      '@typescript-eslint': tsPlugin,
+      ecmaVersion: 2022,
+      sourceType: 'module',
     },
     rules: {
-      ...tsPlugin.configs.recommended.rules,
-      ...prettierConfig.rules,
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/explicit-function-return-type': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
-      'no-console': 'off',
-      'no-throw-literal': 'error',
-      'prefer-const': 'error',
-      'no-var': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
   {
-    files: ['src/test/**/*.ts'],
-    rules: {
-      '@typescript-eslint/no-require-imports': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
-      'no-console': 'off',
+    files: ['**/*.mjs', '**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: globals.node,
     },
   },
-];
+);

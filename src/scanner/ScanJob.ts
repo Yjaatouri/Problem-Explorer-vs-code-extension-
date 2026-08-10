@@ -9,7 +9,8 @@ export type ScanSource =
   | 'startup'
   | 'manual'
   | 'config-change'
-  | 'realtime';
+  | 'realtime'
+  | 'reconcile';
 
 /**
  * Priority tiers for scan jobs. Higher values execute first.
@@ -60,6 +61,22 @@ export interface ScanJob {
 }
 
 /**
+ * (R3) Fine-grained file‑event discriminator. Used together with {@link ScanJobRequest.source}
+ * to compute priority. `save` outranks `rename` outranks `delete` outranks
+ * `create` (per the design brief's priority ladder), all above realtime and reconcile.
+ *
+ * `reconcile` is wired in R4. `other` covers non‑file events (manual, startup,
+ * config‑change) where the source alone determines tier.
+ */
+export type ScanEventKind =
+  | 'save'
+  | 'create'
+  | 'rename'
+  | 'delete'
+  | 'reconcile'
+  | 'other';
+
+/**
  * Request payload for submitting a scan job to the scheduler.
  * The scheduler enriches this with timestamp, jobId, and priority.
  */
@@ -69,7 +86,9 @@ export interface ScanJobRequest {
   /** Human-readable reason for the scan (for logs/telemetry). */
   readonly reason: string;
   /** Source subsystem (for telemetry). */
-  readonly source: 'autoscan' | 'startup' | 'manual' | 'config-change' | 'realtime';
+  readonly source: 'autoscan' | 'startup' | 'manual' | 'config-change' | 'realtime' | 'reconcile';
+  /** (R3) Fine-grained file‑event discriminator. Defaults to 'other'. */
+  readonly event?: ScanEventKind;
   /** Specific file(s) that triggered this request. Empty = full workspace. */
   readonly uris?: readonly Uri[];
   /** Optional override — otherwise computed from event type + provider priority. */

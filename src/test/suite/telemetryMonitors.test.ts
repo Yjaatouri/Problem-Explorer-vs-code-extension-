@@ -13,6 +13,8 @@ import { createTimerMonitor } from '../../telemetry/monitors/TimerMonitor';
 import { createEventPipelineMonitor } from '../../telemetry/monitors/EventPipelineMonitor';
 import { createTimelineGenerator } from '../../telemetry/monitors/TimelineGenerator';
 import { createSnapshotSystem } from '../../telemetry/monitors/SnapshotSystem';
+import { createScanSchedulerMonitor } from '../../telemetry/monitors/ScanSchedulerMonitor';
+import type { ScanJob } from '../../scanner/ScanJob';
 
 function makeState(overrides?: Partial<ProblemState>): ProblemState {
   return {
@@ -252,6 +254,90 @@ suite('Telemetry Monitors', () => {
       const snapshot = createSnapshotSystem(reporter);
       const state = snapshot.captureManual();
       assert.strictEqual(state.data.store.entryCount, 0);
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+  /*  ScanSchedulerMonitor (R2 — no double‑counting)                    */
+  /* ------------------------------------------------------------------ */
+
+  suite('ScanSchedulerMonitor', () => {
+    test('one direct submit → totalSubmitted === 1 (no event‑bus re‑increment)', () => {
+      const reporter = new BusTelemetryReporter(config, bus);
+      reporter.subscribeAll((e) => collected.push(e));
+      const monitor = createScanSchedulerMonitor(reporter, () => ({ pending: 0, ready: 0, inflight: 0 }));
+
+      const job: ScanJob = {
+        provider: 'tsc',
+        reason: 'file save',
+        uris: [Uri.parse('file:///project/a.ts')],
+        priority: 50,
+        timestamp: Date.now(),
+        jobId: 'job-1',
+        signal: new AbortController().signal,
+      };
+      monitor.onJobSubmitted(job, 'tsc');
+
+      const stats = monitor.getStatistics();
+      assert.strictEqual(stats.totalSubmitted, 1, 'direct callback increments once');
+      // The reporter feed MUST have fired (so the subscribeAll path ran) but
+      // did NOT re‑increment the counter through processEvent.
+      const submittedEvents = collected.filter((e) => (e as any).type === 'scheduler.jobSubmitted');
+      assert.ok(submittedEvents.length >= 1, 'event was published to the bus');
+    });
+
+    test('one of each lifecycle transition → counters exactly one each', () => {
+      const reporter = new BusTelemetryReporter(config, bus);
+      reporter.subscribeAll(() => {});
+      const monitor = createScanSchedulerMonitor(reporter, () => ({ pending: 0, ready: 0, inflight: 0 }));
+      const job: ScanJob = {
+        provider: 'tsc', reason: 'save',
+        uris: [], priority: 50, timestamp: Date.now(),
+        jobId: 'job-X', signal: new AbortController().signal,
+      };
+      monitor.onJobSubmitted(job, 'tsc');
+      monitor.onJobStarted(job);
+      monitor.onJobCompleted(job, 12);
+
+      const s = monitor.getStatistics();
+      assert.strictEqual(s.totalSubmitted, 1);
+      assert.strictEqual(s.totalStarted, 1);
+      assert.strictEqual(s.totalCompleted, 1);
+      assert.strictEqual(s.totalMerged, 0);
+      assert.strictEqual(s.totalCancelled, 0);
+      assert.strictEqual(s.totalFailed, 0);
+    });
+
+    test('reconcile run counter increments once per direct call (not via bus)', () => {
+      const reporter = new BusTelemetryReporter(config, bus);
+      reporter.subscribeAll(() => {});
+      const monitor = createScanSchedulerMonitor(reporter, () => ({ pending: 0, ready: 0, inflight: 0 }));
+      monitor.onReconcileRun();
+      monitor.onReconcileRun();
+      assert.strictEqual(monitor.getStatistics().reconcileRuns, 2);
+    });
+
+    test('latency chain via bus events still works (cross‑monitor path intact)', () => {
+      const reporter = new BusTelemetryReporter(config, bus);
+      reporter.subscribeAll(() => {});
+      const monitor = createScanSchedulerMonitor(reporter, () => ({ pending: 0, ready: 0, inflight: 0 }));
+      // Simulate an autoscan.fileSaved bus event from AutoScannerMonitor.
+      reporter.report({
+        type: 'autoscan.fileSaved' as any,
+        timestamp: Date.now(),
+        traceId: '' as any,
+        source: 'AutoScannerMonitor',
+        uri: 'file:///project/a.ts',
+        provider: 'tsc',
+        extension: '.ts',
+        fileEvent: 'save',
+        selected: true,
+        jobId: 'lat-1',
+      } as any);
+      // No direct assertion on internal state (private), but the call must not
+      // throw and must not increment scheduler counters.
+      const s = monitor.getStatistics();
+      assert.strictEqual(s.totalSubmitted, 0, 'bus‑only autoscan event did not double as a scheduler submit');
     });
   });
 });

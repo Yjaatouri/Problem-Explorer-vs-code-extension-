@@ -1,4 +1,4 @@
-import { Disposable, Uri } from 'vscode';
+﻿import { Disposable, Uri } from 'vscode';
 import { ProviderRegistry } from '../providers/ProviderRegistry';
 import { DiagnosticProviderManager } from '../providers/DiagnosticProviderManager';
 import {
@@ -6,22 +6,15 @@ import {
   ScanJobRequest,
   ScanJobResult,
   ScanJob,
-  ScanPriority,
   ScanDecision,
-  computeScanPriority,
-  generateJobId,
 } from './ScanJob';
-
-/** Pending job with debounce metadata. */
-interface PendingJob {
-  request: ScanJobRequest;
-  job: ScanJob;
-  timer: ReturnType<typeof setTimeout>;
-  /** AbortController for cooperative cancellation. */
-  abort: AbortController;
-  /** True if this job has been superseded by a higher-priority job. */
-  superseded: boolean;
-}
+import { Dispatcher } from './Dispatcher';
+import {
+  JobQueue,
+  JobQueueListener,
+  ReadyEntry,
+  FlushHandler,
+} from './JobQueue';
 
 /** Telemetry monitor for scheduler metrics */
 interface ScanSchedulerMonitor {
@@ -39,9 +32,9 @@ interface ScanSchedulerMonitor {
 /**
  * The central `ScanScheduler` is the single entry point for all scan
  * requests in the extension. It wraps `DiagnosticProviderManager` and
- * `ProviderRegistry` so that every caller — `AutoScanController`,
+ * `ProviderRegistry` so that every caller â€” `AutoScanController`,
  * `StartupScanController`, `ScanWorkspaceButton`, `CommandManager`, and
- * `extension.ts` config-change handlers — routes through one funnel.
+ * `extension.ts` config-change handlers â€” routes through one funnel.
  *
  * **Task 4 scope:** The scheduler now owns all provider-routing logic.
  * Controllers emit raw events (file save, startup, config change, etc.);
@@ -49,9 +42,11 @@ interface ScanSchedulerMonitor {
  * (extension ownership, capability filtering, enabled state, config gates).
  * No hardcoded provider names or capability checks remain in controllers.
  *
- * **Task 5 scope:** Job deduplication & debouncing. Multiple rapid saves
- * for the same file/provider are merged into a single scan job. A short
- * debounce window collects bursts; the highest priority wins.
+ * **Task 5 scope (T3 redesign):** Job deduplication & debouncing. Multiple
+ * rapid saves for the same file/provider are merged into a single scan job.
+ * The coalesce key is the **provider id**, so 10 saves for the same TSC
+ * provider â†’ 1 merged scan, not 10. A trailing debounce window collects
+ * bursts; the highest priority wins. The `JobQueue` handles this entirely.
  *
  * **Task 6 scope:** Cancellation. Obsolete jobs are cancelled when newer,
  * higher-priority jobs supersede them. Each job gets an AbortController;
@@ -61,63 +56,133 @@ interface ScanSchedulerMonitor {
  *
  * **Task 7 scope:** Concurrency. Different providers run concurrently,
  * but two scans for the same provider never execute simultaneously.
- * A per-provider lock (Promise chain) serializes same-provider scans;
- * a waiting job checks its abort signal before acquiring the lock.
+ * The Dispatcher's per-provider lock (Promise chain) serializes same-
+ * provider scans; a waiting job checks its abort signal before acquiring.
+ *
+ * **T2 scope:** Execution is delegated to the `Dispatcher`, which owns
+ * the per-provider serialization lock and provider invocation. The scheduler
+ * retains scheduling decisions (when/whether) and hands off execution.
+ *
+ * **T3 scope:** Queue management is delegated to the `JobQueue`, which
+ * handles provider-keyed coalescing, trailing debounce, binary-heap priority
+ * ordering, depth-1 parked slots, and cancellation. The scheduler bridges
+ * the JobQueue â†’ Dispatcher pipeline and maintains the monitor interface.
  *
  * **Task 11 scope:** Performance metrics. Integrates with ScanSchedulerMonitor
  * to track queue lengths, job latency, merge/cancel counts, provider execution
  * time, and end-to-end save-to-decoration latency.
  */
 export class ScanScheduler implements Disposable {
-  private readonly _registry: ProviderRegistry;
-  private readonly _manager: DiagnosticProviderManager;
-  private readonly _log: (msg: string) => void;
-  private _monitor?: ScanSchedulerMonitor;
-  private _disposed = false;
+   private readonly _registry: ProviderRegistry;
+   private readonly _manager: DiagnosticProviderManager;
+   private readonly _log: (msg: string) => void;
+   private _monitor?: ScanSchedulerMonitor;
+   private _disposed = false;
+   /** Count of mutation-based submissions since last reconciliation (R5). */
+   private _mutationsSinceReconcile = 0;
 
-  /** Debounce window in ms for coalescing rapid same-file/provider events. */
-  private readonly _debounceMs = 50;
+  /**
+   * The coalescing queue (T3). Handles provider-keyed merge, trailing
+   * debounce, binary-heap priority ordering, parked slots, and
+   * cancellation. Owns all scheduling state â€” the scheduler is the bridge.
+   */
+  private readonly _queue: JobQueue;
 
-  /** Pending jobs keyed by deduplication key. */
-  private readonly _pending = new Map<string, PendingJob>();
+  /**
+   * Per-provider execution dispatcher (T2). Owns the per-provider
+   * serialization lock + provider invocation.
+   */
+  private readonly _dispatcher: Dispatcher;
 
-  /** In-flight jobs keyed by job id (currently executing). */
-  private readonly _inFlight = new Map<string, PendingJob>();
-
-  /** Per-provider locks — serializes same-provider scans. */
-  private readonly _providerLocks = new Map<string, Promise<void>>();
-
-  /** Timer to flush the pending queue. */
-  private _flushTimer: ReturnType<typeof setTimeout> | undefined;
-
-  /** Task 8: Priority queue of jobs ready to execute (highest priority first). */
-  private readonly _readyQueue: PendingJob[] = [];
-
-  /** True while the worker loop is processing the queue. */
+  /** True while the worker loop is processing the ready heap. */
   private _processing = false;
 
   /** Inter-job debounce: wait this long after each job to let higher-priority jobs arrive. */
   private readonly _interJobDebounceMs = 25;
 
-  /** Task 9: Background reconciliation — runs only when scheduler is fully idle. */
+  /** Task 9: Background reconciliation â€” runs only when scheduler is fully idle. */
   private _reconcileTimer: ReturnType<typeof setTimeout> | undefined;
   /** How long to wait after queue empties before starting reconciliation. */
   private readonly _reconcileDelayMs = 5_000;
   /** Interval between reconciliation runs. */
   private readonly _reconcileIntervalMs = 60_000;
 
+  /**
+   * Construct the scheduler.
+   *
+   * @param options (R1) overrides the JobQueue debounce/maxWait. When omitted,
+   *   the scheduler derives them from the userâ€‘facing `problemExplorer.autoScanDelay`
+   *   config via {@link setDebounceMs}. Effective defaults when no config is
+   *   supplied: `debounceMs=50, maxWaitMs=1000` (legacy). With config, the
+   *   `autoScanDelay` knob is honored and `maxWaitMs = max(autoScanDelay * 4, 1000)`.
+   */
   constructor(
     registry: ProviderRegistry,
     manager: DiagnosticProviderManager,
     log: (msg: string) => void,
     monitor?: ScanSchedulerMonitor,
+    options?: { debounceMs?: number; maxWaitMs?: number },
   ) {
     this._registry = registry;
     this._manager = manager;
     this._log = log;
     this._monitor = monitor;
+
+    const debounceMs = options?.debounceMs ?? 50;
+    const maxWaitMs = options?.maxWaitMs ?? Math.max(debounceMs * 4, 1000);
+
+    // Wire the JobQueue listener to bridge queue events â†’ scheduler monitor.
+    const queueListener: JobQueueListener | undefined = monitor
+      ? {
+          onSubmitted: (job, key) => monitor.onJobSubmitted(job, key),
+          onMerged: (existingId, incomingId, key) => monitor.onJobMerged(existingId, incomingId, key),
+          onReady: (job, heapSize) => monitor.onJobFlushed(job, heapSize),
+          onParked: () => {},   // parked is an internal queue state â€” no monitor surface yet
+          onCancelled: (job, reason) => monitor.onJobCancelled(job, reason),
+        }
+      : undefined;
+
+    // The flush handler is called by JobQueue whenever a job clears debounce.
+    // It starts the worker loop if not already running.
+    const onFlush: FlushHandler = (_entry: ReadyEntry) => {
+      if (!this._processing) {
+        this._processing = true;
+        this.processQueue();
+      }
+    };
+
+    this._queue = new JobQueue(onFlush, queueListener, { debounceMs, maxWaitMs });
+
+    // The dispatcher delegates to DPM.refreshByNames through the per-provider
+    // lock. log + monitor wiring preserve the legacy telemetry surface.
+    this._dispatcher = new Dispatcher(
+      (names, uris) => this._manager.refreshByNames([...names], uris),
+      log,
+      monitor
+        ? {
+            onProviderStart: () => {},
+            onProviderFinish: () => {},
+          }
+        : undefined,
+    );
     // Start background reconciliation timer
     this.scheduleReconcile();
+  }
+
+  /**
+   * (R1) Hotâ€‘reload the debounce window from the `problemExplorer.autoScanDelay`
+   * config setting. Applies only to slots created *after* this call (alreadyâ€‘
+   * armed pending slots keep their original timers â€” preserves the trailing
+   * debounce invariant). `maxWaitMs` is recomputed as `max(delay * 4, 1000)`.
+   *
+   * Called from `extension.ts` on `configManager.onDidChangeConfig`.
+   */
+  setDebounceMs(debounceMs: number): void {
+    this.ensureNotDisposed();
+    if (!Number.isFinite(debounceMs) || debounceMs <= 0) return;
+    const maxWaitMs = Math.max(debounceMs * 4, 1000);
+    this._queue.setOptions({ debounceMs, maxWaitMs });
+    this._log(`[SCAN-SCHEDULER] debounce -> ${debounceMs}ms (maxWait ${maxWaitMs}ms)`);
   }
 
   /** Attach or replace the monitor (useful when monitor is created after scheduler). */
@@ -129,192 +194,74 @@ export class ScanScheduler implements Disposable {
    * Submit a scan request. Creates a ScanJob, computes priority,
    * and delegates to `DiagnosticProviderManager.refreshByNames()`.
    *
-   * Deduplication: multiple rapid requests for the same provider+URI+source
-   * are merged into a single job within the debounce window. The highest
-   * priority wins; URIs are unioned.
+   * Deduplication: multiple rapid requests for the same provider
+   * are merged into a single job within the debounce window (T3).
+   * The coalesce key is the provider id â€” so 10 saves for TSC â†’ 1 scan.
    *
-   * Cancellation: if a new job for the same provider arrives with higher
-   * priority than a pending or in-flight job, the older job is aborted and
-   * removed from the queue. This ensures outdated scans never run.
+   * Cancellation: handled by JobQueue's parked-slot and maxWait logic.
    */
-  async submit(request: ScanJobRequest): Promise<ScanJobResult> {
-    this.ensureNotDisposed();
-    const { providerNames, reason, source, uris = [] } = request;
+async submit(request: ScanJobRequest): Promise<ScanJobResult> {
+     this.ensureNotDisposed();
+     const { providerNames, reason, source } = request;
 
-    if (providerNames.length === 0) {
-      this._log(`[SCAN-SCHEDULER] ${source}: empty provider list — skipping (${reason})`);
-      return { submitted: false, providerNames: [], reason, source, skipReason: 'no providers' };
-    }
+     if (providerNames.length === 0) {
+       this._log(`[SCAN-SCHEDULER] ${source}: empty provider list â€” skipping (${reason})`);
+       return { submitted: false, providerNames: [], reason, source, skipReason: 'no providers' };
+     }
 
-    // Compute priority: event tier + provider base priority
-    const eventTier = this.sourceToTier(source);
-    const basePriority = providerNames.length === 1
-      ? this._registry.getPriority(providerNames[0]) ?? 0
-      : 0;
-    const priority = computeScanPriority(eventTier, basePriority);
+     // Compute per-provider base priority from the registry.
+     // For multi-provider requests, use 0 (no per-provider boost).
+     const basePriority = providerNames.length === 1
+       ? this._registry.getPriority(providerNames[0]) ?? 0
+       : 0;
 
-    // Cancel obsolete pending/in-flight jobs for the same providers
-    this.cancelObsoleteJobs(providerNames, priority, reason);
+     const outcome = this._queue.submit(request, basePriority);
 
-    const abort = new AbortController();
+     // Track mutations for reconciliation gating (R5): increment for autoscan sources
+     if (source === 'autoscan') {
+       this._mutationsSinceReconcile++;
+     }
 
-    const job: ScanJob = {
-      provider: providerNames[0], // primary provider
-      reason,
-      uris,
-      priority,
-      timestamp: Date.now(),
-      signal: abort.signal,
-      jobId: generateJobId(),
-    };
+switch (outcome.kind) {
+        case 'rejected':
+          this._log(`[SCAN-SCHEDULER] ${source}: rejected â€” ${outcome.reason}`);
+          return { submitted: false, providerNames: [], reason, source, skipReason: outcome.reason };
 
-    // Deduplication key: provider(s) + URI(s) + source + reason
-    // For autoscan, merge rapid saves on same file+provider.
-    const dedupKey = this.makeDedupKey(providerNames, uris, source, reason);
+       case 'submitted':
+         this._log(`[SCAN-SCHEDULER] ${source}: queued job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority} (${reason})`);
+         return { submitted: true, providerNames, reason, source, job: outcome.job };
 
-    const existing = this._pending.get(dedupKey);
-    if (existing) {
-      // Merge: union URIs, take max priority, update timestamp
-      const incomingUris = uris ?? [];
-      const existingUris = existing.request.uris ?? [];
-      const mergedUris = this.unionUris(existingUris, incomingUris);
-      const mergedPriority = Math.max(existing.job.priority, priority);
-      const mergedReason = this.mergeReason(existing.request.reason, reason);
+       case 'merged':
+         this._log(`[SCAN-SCHEDULER] ${source}: merged into job ${outcome.job.jobId} for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
+         return { submitted: true, providerNames, reason, source, job: outcome.job };
 
-      existing.request = { ...existing.request, uris: mergedUris, priority: mergedPriority, reason: mergedReason };
-      existing.job = { ...existing.job, uris: mergedUris, priority: mergedPriority, timestamp: Date.now(), reason: mergedReason };
-      // Reset the debounce timer
-      clearTimeout(existing.timer);
-      existing.timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
-
-      this._log(`[SCAN-SCHEDULER] ${source}: merged job ${job.jobId} into ${existing.job.jobId} (key=${dedupKey})`);
-      this._monitor?.onJobMerged(existing.job.jobId, job.jobId, dedupKey);
-      return { submitted: true, providerNames, reason: mergedReason, source, job: existing.job };
-    }
-
-    // New pending job — schedule flush
-    const timer = setTimeout(() => this.flushOne(dedupKey), this._debounceMs);
-    this._pending.set(dedupKey, { request, job, timer, abort, superseded: false });
-
-    this._log(`[SCAN-SCHEDULER] ${source}: queued job ${job.jobId} for [${providerNames.join(', ')}] pri=${priority} (${reason})`);
-    this._monitor?.onJobSubmitted(job, dedupKey);
-
-    // Return immediately; actual execution happens on flush
-    return { submitted: true, providerNames, reason, source, job };
-  }
+       case 'parked':
+         this._log(`[SCAN-SCHEDULER] ${source}: parked behind in-flight job for [${providerNames.join(', ')}] pri=${outcome.job.priority}`);
+         return { submitted: true, providerNames, reason, source, job: outcome.job };
+     }
+   }
 
   /**
-   * Cancel pending and in-flight jobs for the given providers if the new
-   * job has higher priority. A job is obsolete if:
-   *   - It is still pending (not yet flushed) and the new job has higher priority
-   *   - It is in-flight and the new job has higher or equal priority (newer wins)
-   */
-  private cancelObsoleteJobs(providerNames: readonly string[], newPriority: number, newReason: string): void {
-    const providerSet = new Set(providerNames);
-
-    // Cancel pending jobs for the same providers with lower priority
-    for (const [key, pending] of this._pending) {
-      const pendingProviders = pending.request.providerNames;
-      const overlaps = pendingProviders.some((p) => providerSet.has(p));
-      if (!overlaps) continue;
-
-      if (pending.job.priority < newPriority) {
-        pending.superseded = true;
-        pending.abort.abort();
-        clearTimeout(pending.timer);
-        this._pending.delete(key);
-        this._log(`[SCAN-SCHEDULER] cancelled pending job ${pending.job.jobId} (pri=${pending.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
-        this._monitor?.onJobCancelled(pending.job, `superseded by ${newReason}`);
-      }
-    }
-
-    // Abort in-flight jobs for the same providers with lower priority
-    for (const [jobId, inflight] of this._inFlight) {
-      const inflightProviders = inflight.request.providerNames;
-      const overlaps = inflightProviders.some((p) => providerSet.has(p));
-      if (!overlaps) continue;
-
-      if (inflight.job.priority <= newPriority) {
-        inflight.abort.abort();
-        this._log(`[SCAN-SCHEDULER] aborted in-flight job ${jobId} (pri=${inflight.job.priority}) superseded by ${newReason} (pri=${newPriority})`);
-        this._monitor?.onJobCancelled(inflight.job, `superseded by ${newReason}`);
-      }
-    }
-  }
-
-  /** Build a deduplication key from request parameters. */
-  private makeDedupKey(
-    providerNames: readonly string[],
-    uris: readonly Uri[],
-    source: ScanSource,
-    reason: string,
-  ): string {
-    const providers = [...providerNames].sort().join(',');
-    const uriKeys = [...uris].map(u => u.fsPath).sort().join(',');
-    return `${providers}|${uriKeys}|${source}|${reason}`;
-  }
-
-  /** Union two URI arrays (by fsPath). */
-  private unionUris(a: readonly Uri[], b: readonly Uri[]): readonly Uri[] {
-    const map = new Map<string, Uri>();
-    for (const u of a) map.set(u.fsPath, u);
-    for (const u of b) map.set(u.fsPath, u);
-    return Array.from(map.values());
-  }
-
-  /** Merge two reasons, preferring the more specific one. */
-  private mergeReason(a: string, b: string): string {
-    if (a === b) return a;
-    // Prefer non-generic reasons
-    if (a === 'file save' && b !== 'file save') return b;
-    if (b === 'file save' && a !== 'file save') return a;
-    return `${a};${b}`;
-  }
-
-  /** Flush a single pending job by key — moves it to the ready queue for priority scheduling. */
-  private flushOne(key: string): void {
-    const pending = this._pending.get(key);
-    if (!pending) return;
-    this._pending.delete(key);
-
-    // Cancellation: skip if this job was superseded by a higher-priority one
-    if (pending.superseded || pending.abort.signal.aborted) {
-      this._log(`[SCAN-SCHEDULER] flush: skipping superseded job ${pending.job.jobId}`);
-      return;
-    }
-
-    // Insert into ready queue sorted by priority (highest first), then by timestamp (FIFO for ties)
-    const idx = this._readyQueue.findIndex((p) => p.job.priority < pending.job.priority);
-    if (idx === -1) {
-      this._readyQueue.push(pending);
-    } else {
-      this._readyQueue.splice(idx, 0, pending);
-    }
-
-    this._log(`[SCAN-SCHEDULER] queued job ${pending.job.jobId} (pri=${pending.job.priority}) — queue length: ${this._readyQueue.length}`);
-    this._monitor?.onJobFlushed(pending.job, this._readyQueue.length);
-
-    // Start worker if not already running
-    if (!this._processing) {
-      this._processing = true;
-      this.processQueue();
-    }
-  }
-
-  /**
-   * Worker loop: process ready queue by priority.
-   * After each job, wait a short inter-job debounce to allow higher-priority jobs to arrive.
+   * Worker loop: drain the ready heap by priority, executing each job
+   * through the Dispatcher. After each job, wait a short inter-job
+   * debounce to allow higher-priority jobs to arrive.
+   *
+   * Execution is delegated to the Dispatcher (T2), which owns the
+   * per-provider serialization lock. The scheduler retains in-flight
+   * tracking via the JobQueue's beginInFlight/completeInFlight lifecycle.
    */
   private async processQueue(): Promise<void> {
-    while (this._readyQueue.length > 0) {
-      // Pop highest priority job
-      const pending = this._readyQueue.shift()!;
-      const { request, job, abort } = pending;
+    while (true) {
+      const entry = this._queue.popReady();
+      if (!entry) break;
 
-      // Track as in-flight so newer jobs can abort it
-      this._inFlight.set(job.jobId, pending);
+      const { job, request, abort } = entry;
+      const provider = job.provider;
 
-      this._log(`[SCAN-SCHEDULER] executing job ${job.jobId} for [${request.providerNames.join(', ')}] (pri=${job.priority})`);
+      // Mark the provider in-flight in the queue (enables parked-slot logic).
+      this._queue.beginInFlight(provider);
+
+      this._log(`[SCAN-SCHEDULER] executing job ${job.jobId} for ${provider} (pri=${job.priority})`);
       this._monitor?.onJobStarted(job);
 
       const startTime = Date.now();
@@ -325,17 +272,18 @@ export class ScanScheduler implements Disposable {
         if (abort.signal.aborted) {
           this._log(`[SCAN-SCHEDULER] execution aborted before start ${job.jobId}`);
         } else {
-          // Refresh each provider through its per-provider lock with specific URIs (if any)
-          const uris = request.uris ?? [];
-          await this.refreshWithLocks(request.providerNames, uris, abort.signal);
+          const result = await this._dispatcher.execute(request, abort.signal);
+          success = result.success;
+          error = result.error;
         }
       } catch (e) {
         success = false;
         error = e instanceof Error ? e : new Error(String(e));
         this._log(`[SCAN-SCHEDULER] job ${job.jobId} failed: ${error.message}`);
       } finally {
-        this._inFlight.delete(job.jobId);
         const executionTimeMs = Date.now() - startTime;
+        // Complete in-flight in the queue â€” this promotes any parked slot.
+        this._queue.completeInFlight(provider);
         if (success) {
           this._monitor?.onJobCompleted(job, executionTimeMs);
         } else {
@@ -344,12 +292,14 @@ export class ScanScheduler implements Disposable {
       }
 
       // Inter-job debounce: wait briefly to let higher-priority jobs arrive
-      if (this._readyQueue.length > 0) {
+      // (but only if the queue might have more work â€” skip if promoted parked
+      // job is the only thing left and it was already waiting).
+      if (this._queue.getSizes().ready > 0) {
         await new Promise((r) => setTimeout(r, this._interJobDebounceMs));
       }
     }
     this._processing = false;
-    // Queue fully empty — schedule background reconciliation
+    // Queue fully empty â€” schedule background reconciliation
     this.scheduleReconcile();
   }
 
@@ -364,8 +314,8 @@ export class ScanScheduler implements Disposable {
     if (this._reconcileTimer) {
       clearTimeout(this._reconcileTimer);
     }
-    // Only start reconcile timer if not already processing and queue is empty
-    if (!this._processing && this._readyQueue.length === 0 && this._pending.size === 0 && this._inFlight.size === 0) {
+    // Only start reconcile timer if queue is completely idle
+    if (this._queue.isIdle()) {
       this._reconcileTimer = setTimeout(() => this.runReconcile(), this._reconcileDelayMs);
     } else {
       // If busy, try again after a short delay
@@ -373,63 +323,44 @@ export class ScanScheduler implements Disposable {
     }
   }
 
-  /** Execute the reconciliation job — scans for stale diagnostics and clears them. */
-  private async runReconcile(): Promise<void> {
-    if (this._disposed) return;
-    this._log('[SCAN-SCHEDULER] running background reconciliation');
+/** Execute the reconciliation job â€” scans for stale diagnostics and clears them. */
+   private async runReconcile(): Promise<void> {
+     if (this._disposed) return;
+     this._log('[SCAN-SCHEDULER] running background reconciliation');
 
-    // Submit a reconcile job at lowest priority
-    const result = await this.submit({
-      providerNames: ['vscodeDiagnostics'],
-      reason: 'background reconciliation',
-      source: 'realtime', // will be mapped to Reconcile priority via sourceToTier
-      uris: [],
-    });
+     // R5: Skip reconciliation if no mutations since last run
+     if (this._mutationsSinceReconcile === 0) {
+       this._log('[SCAN-SCHEDULER] reconciliation skipped: no mutations since last run');
+       // Still schedule next reconciliation
+       this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
+       return;
+     }
 
-    if (result.submitted) {
-      this._log('[SCAN-SCHEDULER] reconciliation job submitted');
-      this._monitor?.onReconcileRun();
-    } else {
-      this._log('[SCAN-SCHEDULER] reconciliation skipped: ' + result.skipReason);
-    }
+     // Submit a reconcile job at lowest priority
+     const result = await this.submit({
+       providerNames: ['vscodeDiagnostics'],
+       reason: 'background reconciliation',
+       source: 'reconcile',
+       uris: [],
+     });
 
-    // Schedule next reconciliation
-    this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
-  }
+     if (result.submitted) {
+       this._log('[SCAN-SCHEDULER] reconciliation job submitted');
+       this._monitor?.onReconcileRun();
+     } else {
+       this._log('[SCAN-SCHEDULER] reconciliation skipped: ' + result.skipReason);
+     }
 
-  /**
-   * Refresh providers concurrently, each through its own per-provider lock.
-   * Different providers run in parallel; same-provider scans are serialized.
-   * If the abort signal fires while waiting for a lock, the scan is skipped.
-   */
-  private async refreshWithLocks(providerNames: readonly string[], uris: readonly Uri[], signal: AbortSignal): Promise<void> {
-    const tasks = providerNames.map((name) => this.refreshOneWithLock(name, uris, signal));
-    await Promise.all(tasks);
-  }
+     // Reset mutation counter after reconciliation attempt
+     this._mutationsSinceReconcile = 0;
 
-  /** Refresh a single provider, acquiring its per-provider lock. */
-  private async refreshOneWithLock(name: string, uris: readonly Uri[], signal: AbortSignal): Promise<void> {
-    // Wait for any in-flight scan for this provider to finish.
-    const prev = this._providerLocks.get(name) ?? Promise.resolve();
-    const next = prev.then(async () => {
-      // Cancellation: if aborted while waiting for the lock, skip.
-      if (signal.aborted) {
-        this._log(`[SCAN-SCHEDULER] ${name}: skipped (aborted while waiting for lock)`);
-        return;
-      }
-      try {
-        await this._manager.refreshByNames([name], uris);
-      } catch (e) {
-        this._log(`[SCAN-SCHEDULER] ${name}: refresh failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    });
-    this._providerLocks.set(name, next);
-    await next;
-  }
+     // Schedule next reconciliation
+     this._reconcileTimer = setTimeout(() => this.scheduleReconcile(), this._reconcileIntervalMs);
+   }
 
   /**
    * Route a file-save event to the owning scanner provider.
-   * Resolves extension → owner, checks provider's autoScan config gate,
+   * Resolves extension â†’ owner, checks provider's autoScan config gate,
    * and submits if appropriate.
    *
    * Every exit point is logged with a {@link ScanDecision} so that
@@ -443,24 +374,42 @@ export class ScanScheduler implements Disposable {
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no extension' };
     }
     const ownerName = this._registry.getOwner(ext);
+    let providerNameToUse: string | undefined = ownerName;
     if (!ownerName) {
-      this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file save', `no owner for ${ext}`);
-      return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no owner for extension' };
+      // No scanner owns this extension - fall back to realtime providers with autoScan enabled.
+      // This is what makes badges appear for .txt, .md, .json, etc. on save: vscodeDiagnostics
+      // is a realtime provider that doesn't claim extensions in the ownership map, so without
+      // this fallback, non-scanner files never get rescanned on save.
+      const realtimeProviders = this._registry.all().filter((rp) =>
+        rp.descriptor.type === 'realtime' &&
+        rp.provider.enabled &&
+        this._registry.getProviderConfig(rp.descriptor.id)?.autoScan !== false,
+      );
+      if (realtimeProviders.length > 0) {
+        // all() sorts by descending priority, so the first match is the highest-priority realtime provider.
+        providerNameToUse = realtimeProviders[0].descriptor.id;
+        this.logDecision(ScanDecision.Accepted, uri, 'file save', `no owner for ${ext}, using realtime provider ${providerNameToUse}`);
+      } else {
+        this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file save', `no owner for ${ext}`);
+        return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'no owner for extension' };
+      }
     }
-    // Per-provider autoScan gate — user may disable auto-scan for specific providers.
-    const providerCfg = this._registry.getProviderConfig(ownerName);
+    // After the fallback above, providerNameToUse is guaranteed to be a real provider id.
+    const providerName: string = providerNameToUse!;
+    // Per-provider autoScan gate - user may disable auto-scan for specific providers.
+    const providerCfg = this._registry.getProviderConfig(providerName);
     if (providerCfg && !providerCfg.autoScan) {
-      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file save', `${ownerName}.autoScan=false`);
+      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file save', `${providerName}.autoScan=false`);
       return { submitted: false, providerNames: [], reason: 'file save', source: 'autoscan', skipReason: 'provider autoScan disabled' };
     }
-    this.logDecision(ScanDecision.Accepted, uri, 'file save', `owner=${ownerName}`);
-    const result = await this.submit({ providerNames: [ownerName], reason: 'file save', source: 'autoscan', uris: [uri] });
+    this.logDecision(ScanDecision.Accepted, uri, 'file save', `owner=${providerName}`);
+    const result = await this.submit({ providerNames: [providerName], reason: 'file save', source: 'autoscan', event: 'save', uris: [uri] });
     return result;
   }
 
   /**
    * Log a single scan-routing decision. This is the "decision trace"
-   * — every silent exit in the routing pipeline emits one structured
+   * â€” every silent exit in the routing pipeline emits one structured
    * log line so users can see exactly WHERE a save event was rejected:
    *
    *   [SCAN-DECISION] Accepted src/main.ts file_save owner=tsc
@@ -472,10 +421,42 @@ export class ScanScheduler implements Disposable {
   }
 
   /**
-   * Route a file-create event (same logic as save for now).
+   * Route a file-create event. Same ownership/autoScan-gate logic as save,
+   * but (R3) tagged with `event: 'create'` so it lands at priority tier 40
+   * (one notch below save's tier 50, per the design brief ladder).
    */
   async routeFileCreate(uri: Uri): Promise<ScanJobResult> {
-    return this.routeFileSave(uri); // same logic: extension → owner → autoScan gate
+    this.ensureNotDisposed();
+    const ext = this.extractExtension(uri);
+    if (!ext) {
+      this.logDecision(ScanDecision.NoExtension, uri, 'file create', 'no extension');
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no extension' };
+    }
+    const ownerName = this._registry.getOwner(ext);
+    let providerNameToUse: string | undefined = ownerName;
+    if (!ownerName) {
+      // No scanner owns this extension - fall back to realtime providers with autoScan enabled.
+      const realtimeProviders = this._registry.all().filter((rp) =>
+        rp.descriptor.type === 'realtime' &&
+        rp.provider.enabled &&
+        this._registry.getProviderConfig(rp.descriptor.id)?.autoScan !== false,
+      );
+      if (realtimeProviders.length > 0) {
+        providerNameToUse = realtimeProviders[0].descriptor.id;
+        this.logDecision(ScanDecision.Accepted, uri, 'file create', `no owner for ${ext}, using realtime provider ${providerNameToUse}`);
+      } else {
+        this.logDecision(ScanDecision.UnsupportedExtension, uri, 'file create', `no owner for ${ext}`);
+        return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'no owner for extension' };
+      }
+    }
+    const providerName: string = providerNameToUse!;
+    const providerCfg = this._registry.getProviderConfig(providerName);
+    if (providerCfg && !providerCfg.autoScan) {
+      this.logDecision(ScanDecision.AutoScanDisabled, uri, 'file create', `${providerName}.autoScan=false`);
+      return { submitted: false, providerNames: [], reason: 'file create', source: 'autoscan', skipReason: 'provider autoScan disabled' };
+    }
+    this.logDecision(ScanDecision.Accepted, uri, 'file create', `owner=${providerName}`);
+    return this.submit({ providerNames: [providerName], reason: 'file create', source: 'autoscan', event: 'create', uris: [uri] });
   }
 
   /**
@@ -487,18 +468,28 @@ export class ScanScheduler implements Disposable {
     const newExt = this.extractExtension(newUri);
     const ownerNames = new Set<string>();
 
-    // Old extension owner — may need cleanup (handled by diagnostics manager)
+    // Old extension owner - may need cleanup (handled by diagnostics manager)
     if (oldExt) {
       const oldOwner = this._registry.getOwner(oldExt);
       if (oldOwner) ownerNames.add(oldOwner);
     }
-    // New extension owner — trigger scan
+    // New extension owner - trigger scan, falling back to realtime providers for unowned extensions
     if (newExt) {
       const newOwner = this._registry.getOwner(newExt);
       if (newOwner) {
         const providerCfg = this._registry.getProviderConfig(newOwner);
         if (!providerCfg || providerCfg.autoScan) {
           ownerNames.add(newOwner);
+        }
+      } else {
+        // No scanner owns the new extension - fall back to realtime providers with autoScan enabled
+        const realtimeProviders = this._registry.all().filter((rp) =>
+          rp.descriptor.type === 'realtime' &&
+          rp.provider.enabled &&
+          this._registry.getProviderConfig(rp.descriptor.id)?.autoScan !== false,
+        );
+        if (realtimeProviders.length > 0) {
+          ownerNames.add(realtimeProviders[0].descriptor.id);
         }
       }
     }
@@ -507,7 +498,7 @@ export class ScanScheduler implements Disposable {
     if (owners.length === 0) {
       return { submitted: false, providerNames: [], reason: 'file rename', source: 'autoscan', skipReason: 'no owner for extensions' };
     }
-    return this.submit({ providerNames: owners, reason: 'file rename', source: 'autoscan', uris: [oldUri, newUri] });
+    return this.submit({ providerNames: owners, reason: 'file rename', source: 'autoscan', event: 'rename', uris: [oldUri, newUri] });
   }
 
   /**
@@ -529,7 +520,7 @@ export class ScanScheduler implements Disposable {
     // For delete, we could trigger a cleanup scan, but the diagnostics
     // manager's onDidDeleteFiles + clearIfOwner handles badge removal.
     // Submit a lightweight scan for the owner to refresh its state.
-    return this.submit({ providerNames: [ownerName], reason: 'file delete', source: 'autoscan', uris: [uri] });
+    return this.submit({ providerNames: [ownerName], reason: 'file delete', source: 'autoscan', event: 'delete', uris: [uri] });
   }
 
   /**
@@ -575,12 +566,12 @@ export class ScanScheduler implements Disposable {
 
   /**
    * Route a config change that disabled a provider.
-   * This is informational — we log and the scheduler does NOT submit a scan.
-   * Ownership is cleared via the provider's updateConfig() → releaseOwnership().
+   * This is informational â€” we log and the scheduler does NOT submit a scan.
+   * Ownership is cleared via the provider's updateConfig() â†’ releaseOwnership().
    */
   routeConfigDisable(providerIds: string[]): ScanJobResult {
     this.ensureNotDisposed();
-    this._log(`[SCAN-SCHEDULER] config-change: disabled [${providerIds.join(', ')}] — ownership released by providers`);
+    this._log(`[SCAN-SCHEDULER] config-change: disabled [${providerIds.join(', ')}] â€” ownership released by providers`);
     return { submitted: false, providerNames: [], reason: 'config disable', source: 'config-change', skipReason: 'ownership released by providers' };
   }
   async submitAll(source: ScanSource, reason: string, uris: readonly Uri[] = []): Promise<ScanJobResult> {
@@ -607,7 +598,7 @@ export class ScanScheduler implements Disposable {
     if (!ownerName) {
       return { submitted: false, providerNames: [], reason, source, skipReason: 'no owner for extension' };
     }
-    // Fire-and-forget — callers that need to await should use submit().
+    // Fire-and-forget â€” callers that need to await should use submit().
     void this.submit({ providerNames: [ownerName], reason, source, uris });
     return { submitted: true, providerNames: [ownerName], reason, source };
   }
@@ -615,52 +606,20 @@ export class ScanScheduler implements Disposable {
   /**
    * Cancel all pending and in-flight jobs for the specified providers.
    * Useful when a provider is disabled via config or unregistered.
+   * Delegates to JobQueue.cancelProviders() which handles pending, parked,
+   * and ready entries. In-flight jobs are aborted via their AbortController.
    */
   cancelProviderJobs(providerNames: readonly string[]): void {
     this.ensureNotDisposed();
-    const providerSet = new Set(providerNames);
-
-    // Cancel pending jobs
-    for (const [key, pending] of this._pending) {
-      const overlaps = pending.request.providerNames.some((p) => providerSet.has(p));
-      if (overlaps) {
-        pending.superseded = true;
-        pending.abort.abort();
-        clearTimeout(pending.timer);
-        this._pending.delete(key);
-        this._log(`[SCAN-SCHEDULER] cancelled pending job ${pending.job.jobId} for [${providerNames.join(', ')}]`);
-      }
-    }
-
-    // Abort in-flight jobs
-    for (const [jobId, inflight] of this._inFlight) {
-      const overlaps = inflight.request.providerNames.some((p) => providerSet.has(p));
-      if (overlaps) {
-        inflight.abort.abort();
-        this._log(`[SCAN-SCHEDULER] aborted in-flight job ${jobId} for [${providerNames.join(', ')}]`);
-      }
+    const cancelled = this._queue.cancelProviders(providerNames, 'provider disabled/unregistered');
+    for (const job of cancelled) {
+      this._log(`[SCAN-SCHEDULER] cancelled job ${job.jobId} for [${providerNames.join(', ')}]`);
     }
   }
 
-  /** Map a ScanSource to its ScanPriority tier. */
-  private sourceToTier(source: ScanSource): ScanPriority {
-    switch (source) {
-      case 'manual': return ScanPriority.Manual;
-      case 'config-change': return ScanPriority.ConfigChange;
-      case 'startup': return ScanPriority.Startup;
-      case 'autoscan': return ScanPriority.Save; // save is the primary autoscan trigger
-      case 'realtime': return ScanPriority.Realtime;
-      default: return ScanPriority.Save;
-    }
-  }
-
-  /** Get current queue sizes for monitoring. */
+  /** Get current queue sizes for monitoring. Delegates to JobQueue. */
   getQueueSizes(): { pending: number; ready: number; inflight: number } {
-    return {
-      pending: this._pending.size,
-      ready: this._readyQueue.length,
-      inflight: this._inFlight.size,
-    };
+    return this._queue.getSizes();
   }
 
   /** Extract file extension from URI (lowercase, with leading dot). */
@@ -684,27 +643,10 @@ export class ScanScheduler implements Disposable {
       clearTimeout(this._reconcileTimer);
       this._reconcileTimer = undefined;
     }
-    // Abort all pending jobs (waiting for debounce)
-    for (const [, pending] of this._pending) {
-      clearTimeout(pending.timer);
-      pending.abort.abort();
-    }
-    // Abort all queued jobs (waiting in ready queue)
-    for (const pending of this._readyQueue) {
-      pending.abort.abort();
-    }
-    // Abort all in-flight jobs
-    for (const [, inflight] of this._inFlight) {
-      inflight.abort.abort();
-    }
-    this._pending.clear();
-    this._readyQueue.length = 0;
-    this._inFlight.clear();
-    this._providerLocks.clear();
-    if (this._flushTimer) {
-      clearTimeout(this._flushTimer);
-      this._flushTimer = undefined;
-    }
+    // Dispose queue (cancels all pending/parked/ready jobs)
+    this._queue.dispose();
+    // Dispose dispatcher (clears lock state)
+    this._dispatcher.dispose();
   }
 
   private ensureNotDisposed(): void {

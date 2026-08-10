@@ -1,0 +1,28 @@
+{
+  "name": "@pe/provider-tsc",
+  "description": "TypeScript diagnostics provider: runs the `tsc` CLI over workspace/full or per-file incremental scan.",
+  "version": "1.0.0",
+  "private": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck:tests": "tsc -p tsconfig.tests.json"
+  },
+  "dependencies": {
+    "@pe/provider-base": "workspace:*",
+    "@pe/provider-sdk": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ]
+}

@@ -2,32 +2,126 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        node-version: [22.x]
-
-    runs-on: ${{ matrix.os }}
+  ci-gate:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 11.20.0
+
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
+          node-version: 22
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
-      - run: npm run lint
+      - name: Typecheck
+        run: pnpm run typecheck
 
-      - run: npm run build
+      - name: Install ruff
+        shell: bash
+        run: |
+          set -e
+          case "$RUNNER_OS" in
+            Linux)
+              curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
+              tar -xzf /tmp/ruff.tar.gz --strip-components=1 -C /usr/local/bin
+              ;;
+            Windows)
+              curl -fsSL -o /tmp/ruff.zip https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
+              unzip -o /tmp/ruff.zip -d /tmp/ruff >/dev/null
+              mkdir -p "$HOME/.local/bin"
+              cp /tmp/ruff/ruff.exe "$HOME/.local/bin/"
+              cygpath -w "$HOME/.local/bin" >> "$GITHUB_PATH"
+              ;;
+          esac
+          ruff --version
 
-      - name: Package
-        run: npx vsce package
+      - name: Tests
+        run: pnpm test
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Package vsix
+        run: pnpm --filter problem-explorer package
+
+      - name: Install xvfb (headless display for electron)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Smoke dev extension host
+        run: xvfb-run -a pnpm --filter problem-explorer test:electron
+
+      - name: Smoke packaged extension
+        run: xvfb-run -a pnpm --filter problem-explorer test:electron:packaged
+        timeout-minutes: 20
+
+  ci-extension:
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Install ruff
+        shell: bash
+        run: |
+          set -e
+          case "$RUNNER_OS" in
+            Linux)
+              curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
+              tar -xzf /tmp/ruff.tar.gz --strip-components=1 -C /usr/local/bin
+              ;;
+            Windows)
+              curl -fsSL -o /tmp/ruff.zip https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
+              unzip -o /tmp/ruff.zip -d /tmp/ruff >/dev/null
+              mkdir -p "$HOME/.local/bin"
+              cp /tmp/ruff/ruff.exe "$HOME/.local/bin/"
+              cygpath -w "$HOME/.local/bin" >> "$GITHUB_PATH"
+              ;;
+          esac
+          ruff --version
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Package vsix
+        run: pnpm --filter problem-explorer package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: problem-explorer-vsix-${{ matrix.os }}
+          path: packages/extension/*.vsix
+          if-no-files-found: error

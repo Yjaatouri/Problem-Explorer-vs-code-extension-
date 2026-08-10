@@ -394,40 +394,15 @@ export class ScanSchedulerMonitor implements Disposable {
   }
 
   private processEvent(event: any): void {
-    const now = Date.now();
-
+    // (R2) NOTE: `scheduler.*` events are emitted by this monitor's own direct
+    // callbacks (onJobSubmitted/onJobMerged/onJobCancelled/onJobStarted/
+    // onJobCompleted/onJobFlushed/onReconcileRun), which already mutate the
+    // counters and the `jobs` map. Re‑processing them here would double‑count
+    // every statistic. The subscribeAll stream is therefore used ONLY for
+    // cross‑monitor latency‑chain events from *other* monitors
+    // (autoscan.fileSaved, provider.scan, store.set, folder.updateAncestors,
+    // decoration.fire).
     switch (event.type) {
-      case 'scheduler.jobSubmitted': {
-        this.handleJobSubmitted(event);
-        break;
-      }
-      case 'scheduler.jobMerged': {
-        this.handleJobMerged(event);
-        break;
-      }
-      case 'scheduler.jobCancelled': {
-        this.handleJobCancelled(event);
-        break;
-      }
-      case 'scheduler.jobStarted': {
-        this.handleJobStarted(event);
-        break;
-      }
-      case 'scheduler.jobCompleted': {
-        this.handleJobCompleted(event);
-        break;
-      }
-      case 'scheduler.queue': {
-        this.updatePeakQueueSizes(event);
-        break;
-      }
-      case 'scheduler.reconcile': {
-        if (event.submitted) {
-          this.reconcileRuns++;
-          this.lastReconcileTimestamp = now;
-        }
-        break;
-      }
       /* Latency chain events from existing monitors */
       case 'autoscan.fileSaved': {
         this.startLatencyChain(event.jobId, event.uri);
@@ -458,83 +433,11 @@ export class ScanSchedulerMonitor implements Disposable {
     }
   }
 
-  private handleJobSubmitted(event: ScanSchedulerJobSubmittedEvent): void {
-    const job: JobTracking = {
-      jobId: event.jobId,
-      providerNames: event.providerNames,
-      priority: event.priority,
-      submittedAt: event.timestamp,
-      stage: 'pending',
-      uriCount: event.uriCount,
-    };
-    this.jobs.set(event.jobId, job);
-    this.totalSubmitted++;
-    this.updatePeaks();
-    
-    /* Start latency chain if we have URIs */
-    void event.providerNames.length; // URIs tracked via autoscan.fileSaved
-  }
-
-  private handleJobMerged(event: ScanSchedulerJobMergedEvent): void {
-    this.totalMerged++;
-    const existing = this.jobs.get(event.existingJobId);
-    if (existing) {
-      existing.uriCount = Math.max(existing.uriCount, event.mergedUriCount);
-    }
-  }
-
-  private handleJobCancelled(event: ScanSchedulerJobCancelledEvent): void {
-    this.totalCancelled++;
-    const job = this.jobs.get(event.jobId);
-    if (job) {
-      job.stage = 'cancelled';
-      job.completedAt = event.timestamp;
-    }
-    this.updatePeaks();
-  }
-
-  private handleJobStarted(event: ScanSchedulerJobStartedEvent): void {
-    this.totalStarted++;
-    const job = this.jobs.get(event.jobId);
-    if (job) {
-      job.stage = 'inflight';
-      job.startedAt = event.timestamp;
-      job.waitTimeMs = event.waitTimeMs;
-      this.totalWaitTimeMs += event.waitTimeMs;
-    }
-    this.updatePeaks();
-  }
-
-  private handleJobCompleted(event: ScanSchedulerJobCompletedEvent): void {
-    const job = this.jobs.get(event.jobId);
-    if (job) {
-      job.stage = event.success ? 'completed' : 'cancelled';
-      job.completedAt = event.timestamp;
-      job.executionTimeMs = event.executionTimeMs;
-      if (job.startedAt) {
-        this.totalExecutionTimeMs += event.executionTimeMs;
-      }
-      if (event.success) {
-        this.totalCompleted++;
-        this.completedCount++;
-      } else {
-        this.totalFailed++;
-      }
-    }
-    this.updatePeaks();
-  }
-
   private updatePeaks(): void {
     const sizes = this.getQueueSizes();
     this.peakPendingCount = Math.max(this.peakPendingCount, sizes.pending);
     this.peakReadyCount = Math.max(this.peakReadyCount, sizes.ready);
     this.peakInFlightCount = Math.max(this.peakInFlightCount, sizes.inflight);
-  }
-
-  private updatePeakQueueSizes(event: ScanSchedulerQueueEvent): void {
-    this.peakPendingCount = Math.max(this.peakPendingCount, event.pendingCount);
-    this.peakReadyCount = Math.max(this.peakReadyCount, event.readyCount);
-    this.peakInFlightCount = Math.max(this.peakInFlightCount, event.inflightCount);
   }
 
   private startLatencyChain(jobId: string, uri: string): void {

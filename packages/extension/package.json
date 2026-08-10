@@ -1,0 +1,213 @@
+{
+  "name": "problem-explorer",
+  "displayName": "Problem Explorer",
+  "description": "Explorer badges with real-time diagnostics from your favorite tools (tsc, eslint) plus the editor's own diagnostics.",
+  "version": "2.0.0",
+  "publisher": "Yjaatouri",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yjaatouri/Problem-Explorer-vs-code-extension-.git"
+  },
+  "main": "./dist/extension.cjs",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "activationEvents": ["onStartupFinished"],
+  "categories": ["Linters", "Other"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "problemExplorer.refresh",
+        "title": "Problem Explorer: Rescan Workspace",
+        "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.scanWorkspace",
+        "title": "Problem Explorer: Scan Workspace",
+        "category": "Problem Explorer"
+      },
+      {
+        "command": "problemExplorer.toggle",
+        "title": "Problem Explorer: Toggle Badges",
+        "category": "Problem Explorer"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "problemExplorer.refresh",
+        "key": "ctrl+shift+alt+p"
+      }
+    ],
+    "menus": {
+      "explorer/title": [
+        {
+          "command": "problemExplorer.scanWorkspace",
+          "when": "resourceScheme == file"
+        }
+      ]
+    },
+    "colors": [
+      { "id": "problemExplorer.errorForeground", "description": "Color of error badges." },
+      { "id": "problemExplorer.warningForeground", "description": "Color of warning badges." },
+      { "id": "problemExplorer.infoForeground", "description": "Color of info badges." }
+    ],
+    "configuration": {
+      "title": "Problem Explorer",
+      "properties": {
+        "problemExplorer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Master switch. When disabled, no badges are shown and no scans run."
+        },
+        "problemExplorer.showWarnings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show badges for files with only warnings/info. When false, only error-bearing files get badges."
+        },
+        "problemExplorer.badgeStyle": {
+          "type": "string",
+          "enum": ["letter", "count", "dot", "none"],
+          "default": "letter",
+          "description": "Badge style: E/W/I letters, per-severity counts, a dot, or none."
+        },
+        "problemExplorer.ignorePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/.next/**",
+            "**/target/**",
+            "**/__pycache__/**",
+            "**/vendor/**",
+            "**/.tox/**"
+          ],
+          "description": "Glob patterns of files/folders to skip (no badges, no auto-scans)."
+        },
+        "problemExplorer.errorColor": {
+          "type": "string",
+          "default": "",
+          "description": "Legacy: use the workbench color problemExplorer.errorForeground instead."
+        },
+        "problemExplorer.warningColor": {
+          "type": "string",
+          "default": "",
+          "description": "Legacy: use the workbench color problemExplorer.warningForeground instead."
+        },
+        "problemExplorer.infoColor": {
+          "type": "string",
+          "default": "",
+          "description": "Legacy: use the workbench color problemExplorer.infoForeground instead."
+        },
+        "problemExplorer.severityOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "Per-file-extension severity overrides applied to editor diagnostics, e.g. { \".py\": { \"Error\": \"Warning\" } }."
+        },
+        "problemExplorer.autoScan.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan saved files with the enabled providers."
+        },
+        "problemExplorer.autoScanDelay": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 500,
+          "description": "Debounce window (ms) between a file change and a scan request."
+        },
+        "problemExplorer.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Verbose trace logging to the Problem Explorer output channel."
+        },
+        "problemExplorer.typescript.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the TypeScript scanner (tsc --noEmit project scans)."
+        },
+        "problemExplorer.typescript.autoScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan TypeScript files on save."
+        },
+        "problemExplorer.typescript.scanOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run a full TypeScript scan when the workspace opens."
+        },
+        "problemExplorer.typescript.timeout": {
+          "type": "number",
+          "default": 120000,
+          "description": "Max time (ms) for a single tsc scan before it is killed."
+        },
+        "problemExplorer.typescript.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra command-line arguments appended to the tsc scan command."
+        },
+        "problemExplorer.eslint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the ESLint scanner."
+        },
+        "problemExplorer.eslint.autoScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan lintable files on save."
+        },
+        "problemExplorer.eslint.scanOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run a full ESLint scan when the workspace opens."
+        },
+        "problemExplorer.eslint.timeout": {
+          "type": "number",
+          "default": 120000,
+          "description": "Max time (ms) for a single eslint scan before it is killed."
+        },
+        "problemExplorer.eslint.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra command-line arguments appended to the eslint scan command."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@pe/api": "workspace:*",
+    "@pe/core": "workspace:*",
+    "@pe/provider-sdk": "workspace:*",
+    "@pe/provider-eslint": "workspace:*",
+    "@pe/provider-tsc": "workspace:*",
+    "@pe/provider-vscode-realtime": "workspace:*",
+    "minimatch": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.21.0",
+    "glob": "^11.0.0",
+    "mocha": "^11.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "vscode:prepublish": "node scripts/build.mjs",
+    "typecheck": "tsc -b --force",
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:electron": "pnpm run typecheck && node scripts/build.mjs && tsc -p tsconfig.test.json && node ../../scripts/ensure-test-cjs.mjs && node dist/test/runTest.js",
+    "package": "pnpm exec vsce package --no-dependencies",
+    "test:electron:packaged": "node scripts/build.mjs && tsc -p tsconfig.test.json && node ../../scripts/ensure-test-cjs.mjs && pnpm run package && node dist/test/runTestPackaged.js"
+  }
+}

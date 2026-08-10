@@ -97,6 +97,15 @@ public get eventCount(): number { return this.diagEventCount; }
         this.dirtyUris.clear();
         this._log(`[VS-DIAG] decorationEngine.fireDidChange: ${uris.length} URIs`);
         this.decorationEngine.fireDidChange(uris);
+        // Forced full refresh fallback: targeted URI invalidation can be missed by VS Code
+        // when the explorer has stale `undefined` cache for invisible/collapsed files.
+        // Fire `undefined` 250ms later to nudge VS Code into re-querying ALL visible file
+        // decorations. This is the insurance policy that makes badges appear reliably for
+        // files the user hasn't yet clicked.
+        setTimeout(() => {
+          this.decorationEngine.fireDidChange(undefined);
+          this._log('[VS-DIAG] decorationEngine.fireDidChange: undefined (fallback full refresh)');
+        }, 250);
       } else {
         this._log('[VS-DIAG] flushUpdates: no dirty URIs to refresh');
       }

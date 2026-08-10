@@ -7,7 +7,7 @@ const DESCRIPTOR = {
   displayName: 'VS Code Diagnostics',
   priority: 5,
   type: 'realtime' as const,
-  capabilities: { extensions: [], realtime: true, manualScan: false, startupScan: false },
+  capabilities: { extensions: [], realtime: true, manualScan: false, startupScan: true },
   defaultEnabled: true,
   configSection: 'vscodeDiagnostics',
 };

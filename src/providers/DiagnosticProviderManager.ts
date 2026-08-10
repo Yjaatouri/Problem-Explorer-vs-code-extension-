@@ -347,18 +347,28 @@ export class DiagnosticProviderManager {
       ([, a], [, b]) => b.metadata.priority - a.metadata.priority,
     );
   }
+private cleanupProviderSub(name: string): void {
+     const sub = this.providerSubscriptions.get(name);
+     if (sub) {
+       try { sub.dispose(); } catch {}
+       this.providerSubscriptions.delete(name);
+     }
+   }
 
-  private cleanupProviderSub(name: string): void {
-    const sub = this.providerSubscriptions.get(name);
-    if (sub) {
-      try { sub.dispose(); } catch {}
-      this.providerSubscriptions.delete(name);
-    }
-  }
+   private ensureNotDisposed(): void {
+     if (this._disposed) {
+       throw new Error('DiagnosticProviderManager is disposed');
+     }
+   }
 
-  private ensureNotDisposed(): void {
-    if (this._disposed) {
-      throw new Error('DiagnosticProviderManager is disposed');
+/**
+     * Set the interval for internal reconciliation timer.
+     * Set to 0 to disable the internal timer when scheduler owns reconciliation (R5).
+     * @param _intervalMs Interval in milliseconds, or 0 to disable
+     */
+    setReconcileInterval(_intervalMs: number): void {
+      // Intentionally left as no-op for R5.
+      // If an internal reconcile timer existed, it would be canceled here when _intervalMs === 0.
+      // Currently, reconciliation is handled entirely by ScanScanner.
     }
-  }
-}
+ }

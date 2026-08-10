@@ -30,6 +30,8 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
   private config: Config | undefined;
+  /** Optional logger — when provided, forensic trace logs are routed here. */
+  private _log: (msg: string) => void = () => {};
 
   // Coalescing state: batch multiple fireDidChange calls into a single array fire
   private _coalesceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -45,12 +47,25 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     this.config = config;
   }
 
+  /** Set the logger for forensic trace lines (e.g. `[DECO:QUERY] ...`). */
+  setLogger(log: (msg: string) => void): void {
+    this._log = log;
+  }
+
   provideFileDecoration(
     uri: Uri,
     _token: CancellationToken,
   ): FileDecoration | undefined {
     const folder = this.delegate.getWorkspaceFolder(uri);
     const status = this.problemStore.get(uri);
+
+    // Forensic trace — runs unconditionally so we can confirm VS Code is actually
+    // querying us after fireDidChange fires. Off by default; toggled by setting
+    // problemExplorer.debug in settings.json AND process.env.PROBLEM_EXPLORER_DEBUG.
+    if (process.env.PROBLEM_EXPLORER_DEBUG === '1' && folder) {
+      const sev = status ? status.severity : 'none';
+      this._log(`[DECO:QUERY] ${uri.fsPath} sev=${sev}`);
+    }
 
     if (!folder) {
       return undefined;

@@ -78,6 +78,21 @@ class MockSlowProvider {
     this._runScan();
   }
 
+  /**
+   * (R1+T3 compatibility) Called by `DiagnosticProviderManager.refreshByNames`
+   * when the caller passes a URI list. The coalescing JobQueue merges 10
+   * rapid saves into 1 job whose `uris` array is the union of every merged
+   * request. A provider that wants all of those URIs scanned must implement
+   * this — the legacy `refresh()` path ignores URIs and was wired only when
+   * the scheduler was per-URI non-coalescing. Without `refreshUris`, the
+   * merged scan would only cover whichever URI the legacy `_runScan`
+   * happened to pick this cycle — the very "dropped providers" regression
+   * this suite was written to catch.
+   */
+  refreshUris(uris: readonly Uri[]): void | Promise<void> {
+    this._runScan(uris);
+  }
+
   dispose(): void {
     this._disposed = true;
     this._onDidUpdate.dispose();
@@ -92,20 +107,29 @@ class MockSlowProvider {
     this._scanDelayMs = ms;
   }
 
-  private async _runScan(): Promise<void> {
+  /**
+   * Simulate a slow scan. When `uris` is provided (the coalesced path), every
+   * URI in the list is scanned and written to the store. When `uris` is
+   * omitted (the legacy `refresh()` path), one URI is scanned per call,
+   * cycling through file1/2/3 via `_fileCounter`.
+   */
+  private async _runScan(uris?: readonly Uri[]): Promise<void> {
     if (this._disposed || !this._enabled) return;
     this._scanning = true;
 
     await new Promise(resolve => setTimeout(resolve, this._scanDelayMs));
 
-    const file = this._fileCounter % 3 === 0 ? file1 : (this._fileCounter % 3 === 1 ? file2 : file3);
-    this._fileCounter++;
+    const targets: readonly Uri[] = uris && uris.length > 0
+      ? uris
+      : [this._fileCounter % 3 === 0 ? file1 : (this._fileCounter % 3 === 1 ? file2 : file3)];
 
-    const state = { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 };
-    const changed = this._store.set(file, state, this.name);
-
-    if (changed) {
-      this._onDidUpdate.fire([file]);
+    for (const file of targets) {
+      if (!uris) this._fileCounter++; // legacy cycle only increments on the legacy path
+      const state = { severity: ProblemSeverity.Error, errorCount: 1, warningCount: 0, infoCount: 0, fileCount: 1 };
+      const changed = this._store.set(file, state, this.name);
+      if (changed) {
+        this._onDidUpdate.fire([file]);
+      }
     }
 
     this._scanning = false;

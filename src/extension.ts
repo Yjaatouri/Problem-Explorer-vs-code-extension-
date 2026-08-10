@@ -94,6 +94,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const decorationEngine = new DecorationEngine(problemStore, {
       getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
     });
+    decorationEngine.setLogger(log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
     setConfigManager(configManager);
@@ -228,7 +229,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       manager: diagProviderManager,
       vscodeLanguagesDelegate,
     });
-    const scanScheduler = new ScanScheduler(providerRegistry, diagProviderManager, log, scanSchedulerMonitor);
+    const scanScheduler = new ScanScheduler(
+      providerRegistry, diagProviderManager, log, scanSchedulerMonitor,
+      {
+        debounceMs: configManager.getConfig().autoScanDelay,
+        maxWaitMs: Math.max(configManager.getConfig().autoScanDelay * 4, 1000),
+      },
+    );
     scanSchedulerRef.current = scanScheduler;
     const diagProvider = providerHandles['vscodeDiagnostics'] as VSCodeDiagnosticProvider;
     const tscProvider = providerHandles['tsc'] as TscDiagnosticProvider;
@@ -280,11 +287,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         delete process.env.PROBLEM_EXPLORER_DEBUG;
       }
       decorationEngine.setConfig(config);
-      diagProvider.setSeverityOverrides(config.severityOverrides);
-      diagProvider.setIgnorePatterns(config.ignorePatterns);
-      diagProvider.setReconcileInterval(config.reconcileIntervalMs);
-      tscProvider.updateConfig(config.typescript);
-      eslintProvider.updateConfig(config.eslint);
+diagProvider.setSeverityOverrides(config.severityOverrides);
+       diagProvider.setIgnorePatterns(config.ignorePatterns);
+       diagProvider.setReconcileInterval(0); // R5: Disable provider-owned reconciliation
+       diagProviderManager.setReconcileInterval(0); // R5: Disable manager-owned reconciliation (no-op)
+       tscProvider.updateConfig(config.typescript);
+       eslintProvider.updateConfig(config.eslint);
       // Restore invariant: registry ownership must reflect the current
       // enabled/disabled state of every provider after config changes.
       providerRegistry.rebuildOwnership();
@@ -336,6 +344,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 
     let prevTscEnabled = tscCfg.enabled;
     let prevEslintEnabled = eslintCfg.enabled;
+    let prevAutoScanDelay = configManager.getConfig().autoScanDelay;
     context.subscriptions.push(
       configManager.onDidChangeConfig(() => {
         log('config changed');
@@ -348,6 +357,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         prevTscEnabled = currTsc.enabled;
         prevEslintEnabled = currEslint.enabled;
         autoScanController?.updateConfig(currCfg.autoScanEnabled);
+        // R1: hot-reload the JobQueue debounce window when the user changes
+        // problemExplorer.autoScanDelay. Applies only to future pending slots;
+        // in-flight and already-armed timers are untouched.
+        if (currCfg.autoScanDelay !== prevAutoScanDelay) {
+          scanScheduler.setDebounceMs(currCfg.autoScanDelay);
+          prevAutoScanDelay = currCfg.autoScanDelay;
+        }
         const reEnabled: string[] = [];
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
