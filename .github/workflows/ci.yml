@@ -28,24 +28,28 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Install ruff
+      - name: Install ruff (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -e
-          case "$RUNNER_OS" in
-            Linux)
-              curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
-              tar -xzf /tmp/ruff.tar.gz --strip-components=1 -C /usr/local/bin
-              ;;
-            Windows)
-              curl -fsSL -o /tmp/ruff.zip https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
-              unzip -o /tmp/ruff.zip -d /tmp/ruff >/dev/null
-              mkdir -p "$HOME/.local/bin"
-              cp /tmp/ruff/ruff.exe "$HOME/.local/bin/"
-              cygpath -w "$HOME/.local/bin" >> "$GITHUB_PATH"
-              ;;
-          esac
+          curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
+          tar -xzf /tmp/ruff.tar.gz --strip-components=1 -C /usr/local/bin
           ruff --version
+
+      - name: Install ruff (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $zip = "$env:TEMP\ruff.zip"
+          Invoke-WebRequest -Uri "https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip" -OutFile $zip
+          $dest = "$env:TEMP\ruff"
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $bin = "$env:USERPROFILE\.local\bin"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Copy-Item "$dest\ruff.exe" "$bin\" -Force
+          "$bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding ascii
+          & "$bin\ruff.exe" --version
 
       - name: Tests
         run: pnpm test
@@ -92,24 +96,28 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Install ruff
+      - name: Install ruff (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -e
-          case "$RUNNER_OS" in
-            Linux)
-              curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
-              tar -xzf /tmp/ruff.tar.gz --strip-components=1 -C /usr/local/bin
-              ;;
-            Windows)
-              curl -fsSL -o /tmp/ruff.zip https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
-              unzip -o /tmp/ruff.zip -d /tmp/ruff >/dev/null
-              mkdir -p "$HOME/.local/bin"
-              cp /tmp/ruff/ruff.exe "$HOME/.local/bin/"
-              cygpath -w "$HOME/.local/bin" >> "$GITHUB_PATH"
-              ;;
-          esac
+          curl -fsSL -o /tmp/ruff.tar.gz https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz
+          tar -xzf /tmp/ruff.tar.gz --strip-components=1 -C /usr/local/bin
           ruff --version
+
+      - name: Install ruff (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $zip = "$env:TEMP\ruff.zip"
+          Invoke-WebRequest -Uri "https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip" -OutFile $zip
+          $dest = "$env:TEMP\ruff"
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $bin = "$env:USERPROFILE\.local\bin"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Copy-Item "$dest\ruff.exe" "$bin\" -Force
+          "$bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding ascii
+          & "$bin\ruff.exe" --version
 
       - name: Tests
         run: pnpm test
