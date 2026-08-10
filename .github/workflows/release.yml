@@ -29,12 +29,16 @@ jobs:
 
       - run: pnpm run typecheck
 
+      - name: Package the extension
+        run: pnpm --filter problem-explorer package
+
       - name: Publish to VS Code Marketplace
         continue-on-error: true
         uses: HaaLeo/publish-vscode-extension@v2
         with:
           pat: ${{ secrets.VSCE_PAT }}
           registryUrl: https://marketplace.visualstudio.com
+          extensionFile: packages/extension/problem-explorer-2.0.0.vsix
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
