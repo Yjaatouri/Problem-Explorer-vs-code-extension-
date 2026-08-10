@@ -2,13 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   ci:gate:
-    if: ${{ github.event_name == 'pull_request' }}
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -47,7 +45,7 @@ jobs:
         timeout-minutes: 20
 
   ci:extension:
-    if: ${{ github.event_name == 'push' }}
+    if: github.ref == 'refs/heads/main'
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
