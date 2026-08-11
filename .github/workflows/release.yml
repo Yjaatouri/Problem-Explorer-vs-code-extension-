@@ -39,9 +39,11 @@ jobs:
           pat: ${{ secrets.VSCE_PAT }}
           registryUrl: https://marketplace.visualstudio.com
           extensionFile: packages/extension/problem-explorer-2.0.0.vsix
+          dryRun: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: packages/extension/*.vsix
           generate_release_notes: true
+          prerelease: true
