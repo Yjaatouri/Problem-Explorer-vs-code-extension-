@@ -3,6 +3,7 @@ import { DiagnosticsAPI } from '@pe/api';
 import type { Provider, Uri } from '@pe/api';
 import { TscProvider } from '@pe/provider-tsc';
 import { EslintProvider } from '@pe/provider-eslint';
+import { RuffProvider } from '@pe/provider-ruff';
 import { RealtimeDiagnosticsProvider } from '@pe/provider-vscode-realtime';
 import { ScanType } from '@pe/provider-sdk';
 
@@ -38,6 +39,14 @@ export function createEngine(
           timeoutMs: config.eslint.timeout,
         }),
       );
+    } else if (id === 'ruff') {
+      providers.push(
+        new RuffProvider({
+          enabled: config.ruff.enabled,
+          extraArgs: config.ruff.extraArgs,
+          timeoutMs: config.ruff.timeout,
+        }),
+      );
     }
   }
 
@@ -51,7 +60,8 @@ export function createEngine(
 }
 
 export async function startScans(engine: EngineApi, config: ExtensionConfig): Promise<void> {
-  const manualStartup = config.typescript.scanOnStartup || config.eslint.scanOnStartup;
+  const manualStartup =
+    config.typescript.scanOnStartup || config.eslint.scanOnStartup || config.ruff.scanOnStartup;
   if (manualStartup) {
     await engine.api.scan(ScanType.Startup);
   }

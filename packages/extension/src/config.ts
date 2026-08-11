@@ -19,6 +19,14 @@ export interface EslintProviderSettings {
   readonly extraArgs: readonly string[];
 }
 
+export interface RuffProviderSettings {
+  readonly enabled: boolean;
+  readonly autoScan: boolean;
+  readonly scanOnStartup: boolean;
+  readonly timeout: number;
+  readonly extraArgs: readonly string[];
+}
+
 export interface ExtensionConfig {
   readonly enabled: boolean;
   readonly showWarnings: boolean;
@@ -30,6 +38,7 @@ export interface ExtensionConfig {
   readonly debug: boolean;
   readonly typescript: TscProviderSettings;
   readonly eslint: EslintProviderSettings;
+  readonly ruff: RuffProviderSettings;
 }
 
 export const DEFAULT_CONFIG: ExtensionConfig = {
@@ -65,6 +74,13 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
     timeout: 120_000,
     extraArgs: [],
   },
+  ruff: {
+    enabled: true,
+    autoScan: true,
+    scanOnStartup: false,
+    timeout: 120_000,
+    extraArgs: [],
+  },
 };
 
 /** Generic settings reader, implemented against vscode.workspace in extension.ts. */
@@ -91,6 +107,11 @@ const problemExplorerKeys = {
   eslintScanOnStartup: 'eslint.scanOnStartup',
   eslintTimeout: 'eslint.timeout',
   eslintExtraArgs: 'eslint.extraArgs',
+  ruffEnabled: 'ruff.enabled',
+  ruffAutoScan: 'ruff.autoScan',
+  ruffScanOnStartup: 'ruff.scanOnStartup',
+  ruffTimeout: 'ruff.timeout',
+  ruffExtraArgs: 'ruff.extraArgs',
 } as const;
 
 export function readConfig(reader: SettingsReader): ExtensionConfig {
@@ -135,6 +156,16 @@ export function readConfig(reader: SettingsReader): ExtensionConfig {
         DEFAULT_CONFIG.eslint.extraArgs,
       ),
     },
+    ruff: {
+      enabled: reader.get(problemExplorerKeys.ruffEnabled, DEFAULT_CONFIG.ruff.enabled),
+      autoScan: reader.get(problemExplorerKeys.ruffAutoScan, DEFAULT_CONFIG.ruff.autoScan),
+      scanOnStartup: reader.get(
+        problemExplorerKeys.ruffScanOnStartup,
+        DEFAULT_CONFIG.ruff.scanOnStartup,
+      ),
+      timeout: reader.get(problemExplorerKeys.ruffTimeout, DEFAULT_CONFIG.ruff.timeout),
+      extraArgs: reader.get(problemExplorerKeys.ruffExtraArgs, DEFAULT_CONFIG.ruff.extraArgs),
+    },
   };
 }
 
@@ -150,7 +181,11 @@ export function toEngineConfig(config: ExtensionConfig): EngineConfig {
     batchMs: 50,
     idleWindowMs: 2000,
     queueSize: 100,
-    scanTimeoutMs: Math.max(config.typescript.timeout, config.eslint.timeout),
+    scanTimeoutMs: Math.max(
+      config.typescript.timeout,
+      config.eslint.timeout,
+      config.ruff.timeout,
+    ),
     maxConcurrency,
   };
 }
@@ -163,6 +198,9 @@ export function providerList(config: ExtensionConfig): string[] {
   }
   if (config.eslint.enabled) {
     ids.push('eslint');
+  }
+  if (config.ruff.enabled) {
+    ids.push('ruff');
   }
   return ids;
 }

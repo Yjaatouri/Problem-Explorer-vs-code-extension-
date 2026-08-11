@@ -33,8 +33,12 @@ async function main(): Promise<void> {
   );
   fs.writeFileSync(path.join(srcDir, 'broken.ts'), "const value: number = 'not-a-number';\n");
   fs.writeFileSync(path.join(srcDir, 'clean.ts'), 'export const ok: number = 42;\n');
-  // No scanner owns .py here, so realtime ownership kicks in for the smoke.
+  // Ruff owns .py once registered: broken.py must surface an F821 without
+  // anyone opening the file.
+  fs.writeFileSync(path.join(srcDir, 'broken.py'), 'print(undefined_variable)\n');
   fs.writeFileSync(path.join(srcDir, 'app.py'), 'def greet():\n    return "hello"\n');
+  // .txt is not scanner-owned: realtime diagnostics own it in the smoke.
+  fs.writeFileSync(path.join(srcDir, 'notes.txt'), 'plain text\n');
 
   try {
     await runTests({

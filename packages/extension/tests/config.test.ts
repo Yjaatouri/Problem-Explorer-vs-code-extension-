@@ -20,6 +20,10 @@ describe('readConfig', () => {
     expect(config.autoScanDelay).toBe(2000);
     expect(config.typescript.scanOnStartup).toBe(true);
     expect(config.eslint.scanOnStartup).toBe(false);
+    expect(config.ruff.scanOnStartup).toBe(false);
+    expect(config.ruff.enabled).toBe(true);
+    expect(config.ruff.timeout).toBe(120_000);
+    expect(config.ruff.extraArgs).toEqual([]);
     expect(config.ignorePatterns).toContain('**/node_modules/**');
   });
 
@@ -29,11 +33,17 @@ describe('readConfig', () => {
         'typescript.enabled': false,
         'autoScanDelay': 1500,
         'badgeStyle': 'count',
+        'ruff.enabled': false,
+        'ruff.timeout': 90_000,
+        'ruff.extraArgs': ['--select', 'F821'],
       }),
     );
     expect(config.typescript.enabled).toBe(false);
     expect(config.autoScanDelay).toBe(1500);
     expect(config.badgeStyle).toBe('count');
+    expect(config.ruff.enabled).toBe(false);
+    expect(config.ruff.timeout).toBe(90_000);
+    expect(config.ruff.extraArgs).toEqual(['--select', 'F821']);
   });
 });
 
@@ -47,8 +57,25 @@ describe('toEngineConfig', () => {
   });
 
   it('scan timeout follows the largest provider timeout', () => {
-    const config = readConfig(reader({ 'typescript.timeout': 90_000, 'eslint.timeout': 30_000 }));
+    const config = readConfig(
+      reader({
+        'typescript.timeout': 90_000,
+        'eslint.timeout': 30_000,
+        'ruff.timeout': 30_000,
+      }),
+    );
     expect(toEngineConfig(config).scanTimeoutMs).toBe(90_000);
+  });
+
+  it('ruff timeout participates in the scan timeout', () => {
+    const config = readConfig(
+      reader({
+        'typescript.timeout': 30_000,
+        'eslint.timeout': 30_000,
+        'ruff.timeout': 75_000,
+      }),
+    );
+    expect(toEngineConfig(config).scanTimeoutMs).toBe(75_000);
   });
 });
 
@@ -58,10 +85,22 @@ describe('providerList', () => {
     expect(providerList(config)[0]).toBe('vscode');
     expect(providerList(config)).toContain('tsc');
     expect(providerList(config)).toContain('eslint');
+    expect(providerList(config)).toContain('ruff');
   });
 
   it('disabled providers are excluded', () => {
-    const config = readConfig(reader({ 'typescript.enabled': false, 'eslint.enabled': false }));
+    const config = readConfig(
+      reader({
+        'typescript.enabled': false,
+        'eslint.enabled': false,
+        'ruff.enabled': false,
+      }),
+    );
     expect(providerList(config)).toEqual(['vscode']);
+  });
+
+  it('ruff disabled removes ruff but keeps the rest', () => {
+    const config = readConfig(reader({ 'ruff.enabled': false }));
+    expect(providerList(config)).toEqual(['vscode', 'tsc', 'eslint']);
   });
 });
