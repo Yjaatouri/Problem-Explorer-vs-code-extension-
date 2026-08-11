@@ -1,1 +1,0 @@
-export { setConfigManager, getConfigManager } from '../config/configHolder';
