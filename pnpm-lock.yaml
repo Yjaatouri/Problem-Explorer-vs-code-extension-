@@ -85,6 +85,9 @@ importers:
       '@pe/provider-eslint':
         specifier: workspace:*
         version: link:../providers/eslint
+      '@pe/provider-ruff':
+        specifier: workspace:*
+        version: link:../providers/ruff
       '@pe/provider-sdk':
         specifier: workspace:*
         version: link:../provider-sdk

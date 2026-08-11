@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import * as vscode from 'vscode';
+import { spawnSync } from 'child_process';
 
 import type { DiagnosticsAPI } from '@pe/api';
 
@@ -36,6 +37,7 @@ suite('extension host smoke', () => {
   let brokenUri: vscode.Uri;
   let cleanUri: vscode.Uri;
   let pyUri: vscode.Uri;
+  let notesUri: vscode.Uri;
 
   suiteSetup(async () => {
     // VS Code restores PATH from the registry in the ext host on Windows;
@@ -53,7 +55,10 @@ suite('extension host smoke', () => {
     folder = folderUri;
     brokenUri = vscode.Uri.file(path.join(folder.fsPath, 'src', 'broken.ts'));
     cleanUri = vscode.Uri.file(path.join(folder.fsPath, 'src', 'clean.ts'));
-    pyUri = vscode.Uri.file(path.join(folder.fsPath, 'src', 'app.py'));
+    // ruff-owned fixture: undefined name → F821 error.
+    pyUri = vscode.Uri.file(path.join(folder.fsPath, 'src', 'broken.py'));
+    // .txt is not scanner-owned: realtime diagnostics own it in the smoke.
+    notesUri = vscode.Uri.file(path.join(folder.fsPath, 'src', 'notes.txt'));
 
     const initial = handle.api();
     assert.ok(initial, 'a live API exists after activation');
@@ -76,7 +81,14 @@ suite('extension host smoke', () => {
     fs.writeFileSync(brokenUri.fsPath, "const value: number = 'not-a-number';\n", { mode: 0o666 });
     api.scanOnSave(brokenUri);
     await api.scan('manual' as never, [folder]);
-    await untilHits(() => api.getTotals().errors >= 1, 'tsc error surfaced', 60_000, 200);
+    // Per-file wait: folder totals can already include ruff's broken.py error,
+    // which must not satisfy the tsc-specific assertion below.
+    await untilHits(
+      () => api.getProblems(brokenUri).errorCount >= 1,
+      'tsc error surfaced for broken.ts',
+      60_000,
+      200,
+    );
 
     // The real registered provider renders a letter badge for the broken file.
     const badge = handle.renderDecoration(brokenUri);
@@ -88,31 +100,65 @@ suite('extension host smoke', () => {
     assert.ok(clean === undefined, 'clean.ts gets no decoration');
   });
 
+  test('ruff: broken python file surfaces an F821 error AND an explorer badge', async function () {
+    if (!ruffAvailable()) {
+      this.skip();
+      return;
+    }
+    this.timeout(120_000);
+
+    api = handle.api()!;
+    // Touch first: the analyzer coalesces identical requests away, so a raw
+    // manual folder scan right after startup can be deduped/ignored.
+    fs.writeFileSync(pyUri.fsPath, 'print(undefined_variable)\n');
+    api.scanOnSave(pyUri);
+    await api.scan('manual' as never, [folder]);
+    await untilHits(
+      () => api.getProblems(pyUri).errorCount >= 1,
+      'ruff F821 surfaced for broken.py',
+      60_000,
+      200,
+    );
+
+    // The real registered provider renders a letter badge for the broken
+    // python file — without anyone opening it.
+    const badge = handle.renderDecoration(pyUri);
+    assert.ok(badge, 'broken.py gets a decoration through the registered provider');
+    assert.ok(badge.badge === 'E', `expected letter badge "E", got ${JSON.stringify(badge.badge)}`);
+    assert.ok(
+      String(badge.tooltip).includes('1 error'),
+      `tooltip mentions the error: ${badge.tooltip}`,
+    );
+
+    // The scanner claims python ownership now (the provider-architecture proof).
+    assert.ok(handle.api()!.getOwners(pyUri).includes('ruff'), 'ruff owns broken.py');
+  });
+
   test('realtime: host-set diagnostics land in the store and clear again', async function () {
     this.timeout(120_000);
 
     api = handle.api()!;
-    // .py is NOT scanned by tsc here → realtime owns it → pushes are accepted
-    // (broken.ts is scanner-owned and gates editor pushes by design).
-    const baselineErrors = api.getProblems(pyUri).errorCount;
+    // .txt is NOT scanner-owned → realtime owns it → pushes are accepted
+    // (broken.ts/broken.py are scanner-owned and gate editor pushes by design).
+    const baselineErrors = api.getProblems(notesUri).errorCount;
     const range = new vscode.Range(0, 0, 0, 12);
 
     // A real DiagnosticCollection fires the same onDidChangeDiagnostics events
     // real extensions go through (and is stable API on every host).
     const collection = vscode.languages.createDiagnosticCollection('pe-smoke');
     try {
-      collection.set(pyUri, [
+      collection.set(notesUri, [
         new vscode.Diagnostic(range, 'synthetic realtime error', vscode.DiagnosticSeverity.Error),
       ]);
       await untilHits(
-        () => api.getProblems(pyUri).errorCount > baselineErrors,
+        () => api.getProblems(notesUri).errorCount > baselineErrors,
         'editor diagnostics pushed into the store',
         30_000,
       );
 
-      collection.delete(pyUri);
+      collection.delete(notesUri);
       await untilHits(
-        () => api.getProblems(pyUri).errorCount === baselineErrors,
+        () => api.getProblems(notesUri).errorCount === baselineErrors,
         'cleared editor diagnostics drop out of the store',
         30_000,
       );
@@ -185,7 +231,9 @@ suite('extension host smoke', () => {
     api = handle.api()!;
 
     await api.scan('manual' as never, [folder]);
-    await untilHits(() => api.getTotals().errors >= 1, 'new engine scans', 60_000);
+    // Per-file wait, same reason as the scan test: ruff's broken.py error can
+    // satisfy totals before tsc reports broken.ts.
+    await untilHits(() => api.getProblems(brokenUri).errorCount >= 1, 'new engine scans', 60_000);
     await untilHits(() => handle.renderDecoration(brokenUri) !== undefined, 'badge returns', 30_000);
 
     assert.ok(oldEvents === 0, 'old engine emitted no totals events after dispose');
@@ -205,6 +253,15 @@ suite('extension host smoke', () => {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Follows the repo's e2e-ruff convention: skip ruff assertions when the binary is missing. */
+function ruffAvailable(): boolean {
+  try {
+    return spawnSync('ruff', ['--version'], { windowsHide: true }).status === 0;
+  } catch {
+    return false;
+  }
 }
 
 async function untilHits(

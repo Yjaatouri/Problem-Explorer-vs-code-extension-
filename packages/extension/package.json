@@ -175,6 +175,32 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Extra command-line arguments appended to the eslint scan command."
+        },
+        "problemExplorer.ruff.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Ruff scanner."
+        },
+        "problemExplorer.ruff.autoScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan Python files on save."
+        },
+        "problemExplorer.ruff.scanOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run a full Ruff scan when the workspace opens."
+        },
+        "problemExplorer.ruff.timeout": {
+          "type": "number",
+          "default": 120000,
+          "description": "Max time (ms) for a single ruff scan before it is killed."
+        },
+        "problemExplorer.ruff.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra command-line arguments appended to the ruff scan command."
         }
       }
     }
@@ -184,6 +210,7 @@
     "@pe/core": "workspace:*",
     "@pe/provider-sdk": "workspace:*",
     "@pe/provider-eslint": "workspace:*",
+    "@pe/provider-ruff": "workspace:*",
     "@pe/provider-tsc": "workspace:*",
     "@pe/provider-vscode-realtime": "workspace:*",
     "minimatch": "^9.0.0"
