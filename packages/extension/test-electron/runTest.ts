@@ -39,6 +39,13 @@ async function main(): Promise<void> {
   fs.writeFileSync(path.join(srcDir, 'app.py'), 'def greet():\n    return "hello"\n');
   // .txt is not scanner-owned: realtime diagnostics own it in the smoke.
   fs.writeFileSync(path.join(srcDir, 'notes.txt'), 'plain text\n');
+  // .js is exclusively eslint-owned (tsc only claims .ts/.tsx/.mts/.cts/.d.ts):
+  // deterministic no-unused-vars violation via a flat config in the fixture.
+  fs.writeFileSync(path.join(srcDir, 'lintme.js'), 'const unused = 1;\n');
+  fs.writeFileSync(
+    path.join(fixtureRoot, 'eslint.config.mjs'),
+    "export default [{ rules: { 'no-unused-vars': 'error' } }];\n",
+  );
 
   try {
     await runTests({
