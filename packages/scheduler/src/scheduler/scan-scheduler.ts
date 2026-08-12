@@ -111,11 +111,13 @@ export class ScanScheduler {
         // Superseded: the merged URI set is empty → cancel the queued job (§7.4.3).
         this.queue.remove(existing.id);
       } else {
+        const priority = this.higherPriority(existing.priority, job.priority);
         this.queue.remove(existing.id);
         this.queue.enqueue({
           ...existing,
           uris: union,
-          priority: this.higherPriority(existing.priority, job.priority),
+          priority,
+          type: TYPE_BY_PRIORITY[priority],
         });
       }
       this.emitState();

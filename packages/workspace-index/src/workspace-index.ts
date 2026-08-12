@@ -206,7 +206,8 @@ export class WorkspaceIndex {
 
   /**
    * Re-walk the workspace and diff against the previous state (and persisted
-   * metadata). Emits onDidChangeFiles with add / change / remove batches.
+   * metadata). Emits onDidChangeFiles with add / change / remove batches —
+   * only when at least one change was detected (a no-op re-walk stays silent).
    */
   rebuildDiagnostics(): void {
     const changes: FileChange[] = [];
@@ -222,7 +223,9 @@ export class WorkspaceIndex {
       }
     }
     this.files = fresh;
-    this.fileChangeEmitter.fire({ changes });
+    if (changes.length > 0) {
+      this.fileChangeEmitter.fire({ changes });
+    }
   }
 
   /** Record that a scan covered a file. Updates lastScanned + owning provider. */

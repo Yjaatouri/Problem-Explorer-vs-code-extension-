@@ -91,6 +91,10 @@ async function runChild(
     child.stderr?.on('data', append('stderr'));
 
     child.on('error', (err: NodeJS.ErrnoException) => {
+      // A failed spawn never emits 'exit', so it must be removed here — it
+      // no longer exists as a process and must not accumulate (§8 resource
+      // safety). 'close' is not emitted after 'error'.
+      activeChildren.delete(child);
       clearTimeout(timer);
       resolve({
         stdout,
