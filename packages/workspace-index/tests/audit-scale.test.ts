@@ -1,5 +1,5 @@
-// TASK 9 — Large workspace baseline audit (§12).
-// Synthetic workspaces of 1k / 5k / 10k files: index construction time,
+// TASK 9/10 — Large workspace baseline audit (§12, M7).
+// Synthetic workspaces of 1k / 5k / 10k / 50k files: index construction time,
 // file counts, second-rebuild behavior (should detect zero changes), memory
 // behavior, and one-file-change detection among many. Audit-first: numbers
 // are recorded as baselines, not judged against invented targets.
@@ -46,7 +46,7 @@ function buildIndex(root: Uri): { index: WorkspaceIndex; elapsedMs: number; heap
 }
 
 describe('Task9 audit — large workspace baseline', () => {
-  for (const fileCount of [1000, 5000, 10_000]) {
+  for (const fileCount of [1000, 5000, 10_000, 50_000]) {
     it(`${fileCount} files: index baseline, zero change events on re-walk`, () => {
       makeWorkspace(fileCount);
       const root = fileUriFromPath(dir);
