@@ -87,6 +87,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
   };
 
   // -------- realtime bridge --------
+  // Debug trace -> the Problem Explorer output channel (problemExplorer.debug).
+  const log = (message: string): void => {
+    if (config.debug) {
+      output.appendLine(`[${new Date().toISOString()}] ${message}`);
+    }
+  };
   const languages: LanguagesBridge = {
     getDiagnostics: (uri) => vscode.languages.getDiagnostics(uri as vscode.Uri),
     getAllDiagnostics: () => vscode.languages.getDiagnostics(),
@@ -97,6 +103,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
     languages,
     (uri) => isIgnored(uri, config.ignorePatterns),
     config.severityOverrides,
+    log,
   );
   bridge.attach((listener) =>
     vscode.languages.onDidChangeDiagnostics((e) => listener(e.uris)),
@@ -206,10 +213,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
       statusBar.update();
       decorationEngine.notifyChanged(undefined);
     });
+    next.api.onProblemsChanged((e) => {
+      log(`store: ${e.providerId} ${e.uri.fsPath} -> ${e.diagnostics.length} diag(s)`);
+    });
     next.api.onScanStateChanged((state) => {
       statusBar.setScanning(state.phase === 'scanning');
     });
     engine = next;
+    log('engine created/rebuilt');
     // Backfill: diagnostics that changed before this engine existed (boot
     // race, rebuild swap) must still surface — snapshot, not polling.
     bridge.syncAll();
@@ -219,6 +230,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
   }
 
   // -------- boot --------
+  log(`activate: debug=${config.debug} enabled=${config.enabled} root=${workspaceRoot.fsPath}`);
   statusBar.setEnabled(config.enabled);
   decorationEngine.setConfig(config);
   rebuildEngine();

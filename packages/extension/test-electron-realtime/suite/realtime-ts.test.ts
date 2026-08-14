@@ -154,6 +154,64 @@ suite('realtime .ts badge (no scanner on PATH)', () => {
     }
   });
 
+  test('open broken .ts: REAL TypeScript server diagnostics produce a badge that STAYS', async function () {
+    this.timeout(120_000);
+
+    // The engine instance currently live (the previous test may have rebuilt).
+    const live = handle.api();
+    assert.ok(live, 'a live API exists');
+    const store = live;
+
+    assert.strictEqual(store.getProblems(brokenUri).errorCount, 0, 'no problems before opening');
+    assert.strictEqual(store.rejectedWriteCount, 0, 'no gated writes before opening');
+
+    // This is the real user scenario: the file is OPEN and the REAL TypeScript
+    // language server publishes diagnostics (source 'ts') into the editor.
+    const editor = await vscode.window.showTextDocument(brokenUri, { preview: false });
+    assert.ok(editor, 'file opened in an editor');
+    try {
+      await untilHits(
+        () => {
+          const diags = vscode.languages.getDiagnostics(brokenUri);
+          return diags.some((d) => d.source === 'ts');
+        },
+        'the real TypeScript server published ts-sourced diagnostics',
+        60_000,
+      );
+
+      // The realtime bridge must forward them into the store and render a badge.
+      await untilHits(
+        () => store.getProblems(brokenUri).errorCount >= 1,
+        'real TS diagnostics pushed into the store',
+        30_000,
+      );
+      await untilHits(
+        () => handle.renderDecoration(brokenUri) !== undefined,
+        'badge appears while the file is open',
+        30_000,
+      );
+      assert.ok(
+        !handle.api()!.getOwners(brokenUri).includes('tsc'),
+        'no scanner claimed ownership without a result',
+      );
+      assert.strictEqual(store.rejectedWriteCount, 0, 'real TS pushes were not gated');
+
+      // THE user's complaint: the badge must NOT vanish while the file stays
+      // open. Wait well past the boot backfill window and assert persistence.
+      await sleep(6_000);
+      assert.strictEqual(
+        store.getProblems(brokenUri).errorCount >= 1,
+        true,
+        'store still reports the error after 6s',
+      );
+      const badge = handle.renderDecoration(brokenUri);
+      assert.ok(badge !== undefined, 'badge is still rendered after 6s');
+      assert.strictEqual(badge!.badge, 'E', 'badge still shows the error letter');
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    }
+  });
+
   function configUpdate(key: string, value: unknown): Thenable<void> {
     return vscode.workspace
       .getConfiguration('problemExplorer')

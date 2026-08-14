@@ -55,7 +55,10 @@ describe('RealtimeDiagnosticsBridge', () => {
     const pushed: { uri: Uri; diagnostics: Diagnostic[] }[] = [];
     const handled: { uri: Uri; diagnostics: Diagnostic[] }[] = [];
     const engine = {
-      api: { reportEditorDiagnostics: (uri: Uri, diags: Diagnostic[]) => pushed.push({ uri, diagnostics: diags }) },
+      api: {
+        getOwners: () => [],
+        reportEditorDiagnostics: (uri: Uri, diags: Diagnostic[]) => pushed.push({ uri, diagnostics: diags }),
+      },
       realtime: { handle: (uri: Uri, diags: Diagnostic[]) => handled.push({ uri, diagnostics: diags }) },
     } as unknown as EngineApi;
 
@@ -107,7 +110,10 @@ describe('RealtimeDiagnosticsBridge', () => {
     const pushed: { uri: Uri; diagnostics: Diagnostic[] }[] = [];
     const handled: { uri: Uri; diagnostics: Diagnostic[] }[] = [];
     const engine = {
-      api: { reportEditorDiagnostics: (uri: Uri, diags: Diagnostic[]) => pushed.push({ uri, diagnostics: diags }) },
+      api: {
+        getOwners: () => [],
+        reportEditorDiagnostics: (uri: Uri, diags: Diagnostic[]) => pushed.push({ uri, diagnostics: diags }),
+      },
       realtime: { handle: (uri: Uri, diags: Diagnostic[]) => handled.push({ uri, diagnostics: diags }) },
     } as unknown as EngineApi;
 

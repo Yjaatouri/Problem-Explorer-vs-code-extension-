@@ -30,6 +30,7 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
     private readonly languages: LanguagesBridge,
     private readonly isIgnoredUri: (uri: FileLikeUri) => boolean,
     private readonly severityOverrides: SeverityOverrides | undefined,
+    private readonly log: (message: string) => void = () => {},
   ) {}
 
   /** Wire into `onDidChangeDiagnostics`; call once after the engine exists. */
@@ -54,6 +55,7 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
   pushUri(uri: Uri): void {
     const engine = this.engine;
     if (!engine) {
+      this.log(`pushUri DROPPED (no engine yet): ${uri.fsPath}`);
       return;
     }
     const mapped: Diagnostic[] = this.languages
@@ -61,6 +63,11 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
       .map((diag) => toEngineDiagnostic(diag, this.severityOverrides, uri.fsPath));
     engine.realtime.handle(uri, mapped);
     engine.api.reportEditorDiagnostics(uri, mapped);
+    this.log(
+      `pushUri ${uri.fsPath}: ${mapped.length} diag(s) -> owners=[${engine.api
+        .getOwners(uri)
+        .join(',')}]`,
+    );
   }
 
   /**
@@ -71,9 +78,12 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
   syncAll(): void {
     const engine = this.engine;
     if (!engine) {
+      this.log('syncAll skipped (no engine)');
       return;
     }
-    for (const [uri, diagnostics] of this.languages.getAllDiagnostics()) {
+    const snapshot = this.languages.getAllDiagnostics();
+    let pushed = 0;
+    for (const [uri, diagnostics] of snapshot) {
       if (!wantsIn(uri, this.workspaceRoot, this.isIgnoredUri)) {
         continue;
       }
@@ -82,7 +92,9 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
       );
       engine.realtime.handle(uri, mapped);
       engine.api.reportEditorDiagnostics(uri, mapped);
+      pushed += 1;
     }
+    this.log(`syncAll: ${snapshot.length} editor entries, ${pushed} in scope`);
   }
 
   clear(): void {
