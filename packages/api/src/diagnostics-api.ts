@@ -179,8 +179,9 @@ export class DiagnosticsAPI {
 
   /** Editor-pushed diagnostics for a file (e.g. from VS Code). Applied through the same store gate as scans.
    *  Ownership: when no scanner is (yet) Ready for the file's capability, the realtime provider takes
-   *  ownership — its problems are the only ones the user can see. As soon as a scanning provider
-   *  health-checks Ready and runs, ownership transfers per §9.3 and editor pushes become gated. */
+   *  ownership — its problems are the only ones the user can see. A Ready scanner only takes ownership
+   *  once it has actually produced a result for THIS file (§9.3); until then the editor's diagnostics
+   *  stay visible and editor pushes are not gated. */
   reportEditorDiagnostics(uri: Uri, diagnostics: readonly Diagnostic[]): void {
     const providerId = this.realtimeProviderId;
     if (providerId === undefined) {
@@ -190,7 +191,11 @@ export class DiagnosticsAPI {
     const owner =
       capability !== undefined ? (this.bestOwnerFor(capability) ?? providerId) : providerId;
     this.store.setDiagnostics(providerId, uri, diagnostics);
-    this.store.recordOwner(uri, owner);
+    // §9.3: a scanner may own the path only when it has data for it — claiming
+    // ownership without a result would hide the editor's live diagnostics.
+    if (owner === providerId || this.store.hasProviderData(owner, uri)) {
+      this.store.recordOwner(uri, owner);
+    }
   }
 
   /** Full rescan of the workspace; results treated as fresh (§7.2). */

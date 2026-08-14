@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "module": "CommonJS",
+    "moduleResolution": "Node10",
+    "ignoreDeprecations": "6.0",
+    "verbatimModuleSyntax": false,
+    "isolatedModules": false,
+    "outDir": "dist/test-realtime",
+    "rootDir": "test-electron-realtime",
+    "types": ["node", "mocha", "vscode"]
+  },
+  "include": ["test-electron-realtime/**/*.ts"],
+  "exclude": ["dist", "node_modules", "src", "test", "test-electron"]
+}

@@ -170,6 +170,12 @@ export class ProblemStore {
     return owner === undefined ? [] : [owner];
   }
 
+  /** Whether a provider has stored (any) diagnostics for a path — used to
+   *  decide if that provider may take ownership of the path (§9.3). */
+  hasProviderData(providerId: string, uri: Uri): boolean {
+    return this.byFile.get(normalizeUriKey(uri))?.has(providerId) ?? false;
+  }
+
   /**
    * Record the current owner of a path. Called by the orchestration layer
    * (registry/scheduler) when ownership is decided or transferred.

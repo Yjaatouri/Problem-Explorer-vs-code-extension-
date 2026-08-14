@@ -2,7 +2,7 @@
   "name": "problem-explorer",
   "displayName": "Problem Explorer",
   "description": "Explorer badges with real-time diagnostics from your favorite tools (tsc, eslint) plus the editor's own diagnostics.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "Yjaatouri",
   "license": "MIT",
   "repository": {
@@ -234,6 +234,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:electron": "pnpm run typecheck && node scripts/build.mjs && tsc -p tsconfig.test.json && node ../../scripts/ensure-test-cjs.mjs && node dist/test/runTest.js",
+    "test:electron:realtime": "pnpm run typecheck && node scripts/build.mjs && tsc -p tsconfig.test-realtime.json && node ../../scripts/ensure-test-cjs.mjs dist/test-realtime && node dist/test-realtime/runTest.js",
     "package": "pnpm exec vsce package --no-dependencies",
     "test:electron:packaged": "node scripts/build.mjs && tsc -p tsconfig.test.json && node ../../scripts/ensure-test-cjs.mjs && pnpm run package && node dist/test/runTestPackaged.js"
   }

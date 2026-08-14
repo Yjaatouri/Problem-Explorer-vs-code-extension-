@@ -1,5 +1,11 @@
 # @pe/api
 
+## Unreleased
+
+### Changed
+
+- `reportEditorDiagnostics` no longer transfers a file's ownership to a Ready scanner unless that scanner has already produced a result for the file. Editor diagnostics stay visible until the scanner actually scans it (§9.3); once it does, scanner ownership and write gating behave as before.
+
 ## 1.0.0
 
 ### Major Changes

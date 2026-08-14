@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Automatic badges for existing diagnostics** — editor diagnostics that arrived before the engine existed (window restore, config-change rebuild) are now backfilled into the engine on creation, so a broken file that is never touched still gets its badge
+- **Editor diagnostics hidden by scanner ownership without evidence** — a Ready scanner (tsc/eslint) no longer claims a file it has never scanned; editor diagnostics stay visible until the scanner has actually produced a result for that file (§9.3)
+
 ## 2.0.0 (2026-08-10)
 
 ### Added

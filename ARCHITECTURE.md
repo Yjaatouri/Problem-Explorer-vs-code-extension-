@@ -56,8 +56,10 @@ VS Code Explorer
 - `src/config.ts` — reads `problemExplorer.*` settings (enable, provider toggles per tool, timeouts, badges, realtime, ruff options).
 - `src/engine.ts` — wires the installed `@pe/*` engine (scheduler/provider registration) and configures scan startup.
 - `src/decorations.ts`, `src/badge.ts` — `FileDecorationProvider` implementation and badge formatting.
-- `src/realtime.ts` — bridges VS Code diagnostic events and save events into incremental scans.
+- `src/realtime.ts` — bridges VS Code diagnostic events and save events into incremental scans. `syncAll()` backfills the editor's current diagnostics whenever an engine is created or rebuilt (plus one shot shortly after boot), so diagnostics that changed before the engine existed still surface.
 - `src/severity.ts`, `src/ignore.ts`, `src/commands.ts`, `src/statusBar.ts` — severity mapping, ignore patterns, commands, status bar.
+
+Ownership (§9.2/§9.3): while a scanner is Ready for a file's capability it ultimately owns the file, but only once it has produced a result for that file. Until then the editor's realtime diagnostics stay visible — a Ready scanner never hides live editor data it has not checked.
 
 The extension is packaged with vsce into `packages/extension/*.vsix` (`.vscodeignore` lives in `packages/extension/`).
 

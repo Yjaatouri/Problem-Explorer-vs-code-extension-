@@ -8,12 +8,18 @@ import type { FileLikeUri } from './ignore.js';
 
 export interface LanguagesBridge {
   getDiagnostics(uri: Uri): readonly EditorDiagnosticLike[];
+  /** Every diagnostic the editor currently knows, keyed by URI (backfill source). */
+  getAllDiagnostics(): [Uri, readonly EditorDiagnosticLike[]][];
 }
 
 /**
  * Forwards VS Code editor diagnostics into the engine's realtime provider.
  * Ownership rules live in the engine: while a scanner is Ready for a file's
  * capability it wins; otherwise the editor owns the file (§9.2).
+ *
+ * syncAll() is a snapshot/backfill, NOT a poller: it is called when an engine
+ * is created or rebuilt (and once more shortly after boot) so diagnostics
+ * that changed before the engine existed are not lost forever.
  */
 export class RealtimeDiagnosticsBridge implements DisposableLike {
   private readonly subscriptions: DisposableLike[] = [];
@@ -55,6 +61,28 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
       .map((diag) => toEngineDiagnostic(diag, this.severityOverrides, uri.fsPath));
     engine.realtime.handle(uri, mapped);
     engine.api.reportEditorDiagnostics(uri, mapped);
+  }
+
+  /**
+   * Backfill the engine with the editor's current diagnostics. Snapshot only:
+   * call at engine creation/rebuild (and once after boot) to recover pushes
+   * that raced ahead of the engine. Never a polling loop.
+   */
+  syncAll(): void {
+    const engine = this.engine;
+    if (!engine) {
+      return;
+    }
+    for (const [uri, diagnostics] of this.languages.getAllDiagnostics()) {
+      if (!wantsIn(uri, this.workspaceRoot, this.isIgnoredUri)) {
+        continue;
+      }
+      const mapped: Diagnostic[] = diagnostics.map((diag) =>
+        toEngineDiagnostic(diag, this.severityOverrides, uri.fsPath),
+      );
+      engine.realtime.handle(uri, mapped);
+      engine.api.reportEditorDiagnostics(uri, mapped);
+    }
   }
 
   clear(): void {

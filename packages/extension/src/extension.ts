@@ -89,6 +89,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
   // -------- realtime bridge --------
   const languages: LanguagesBridge = {
     getDiagnostics: (uri) => vscode.languages.getDiagnostics(uri as vscode.Uri),
+    getAllDiagnostics: () => vscode.languages.getDiagnostics(),
   };
   const bridge = new RealtimeDiagnosticsBridge(
     () => engine,
@@ -209,6 +210,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
       statusBar.setScanning(state.phase === 'scanning');
     });
     engine = next;
+    // Backfill: diagnostics that changed before this engine existed (boot
+    // race, rebuild swap) must still surface — snapshot, not polling.
+    bridge.syncAll();
     decorationEngine.notifyChanged(undefined);
     statusBar.setEnabled(true);
     void startScans(next, config);
@@ -218,6 +222,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
   statusBar.setEnabled(config.enabled);
   decorationEngine.setConfig(config);
   rebuildEngine();
+  // One delayed backfill so language servers that publish after startup are
+  // not missed (single shot — syncAll is a snapshot, never a poller).
+  const bootBackfillTimer = setTimeout(() => {
+    bridge.syncAll();
+  }, 1500);
+  context.subscriptions.push(new vscode.Disposable(() => clearTimeout(bootBackfillTimer)));
   // A real (uncancelled) token; `provideFileDecoration` is sync, so the
     // token value doesn't matter for rendering.
     const renderToken = new vscode.CancellationTokenSource().token;

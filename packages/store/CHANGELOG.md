@@ -1,5 +1,11 @@
 # @pe/store
 
+## Unreleased
+
+### Added
+
+- `hasProviderData(providerId, uri)` — lets the orchestration layer check whether a provider has stored diagnostics for a path before transferring ownership (§9.3).
+
 ## 1.0.0
 
 ### Major Changes

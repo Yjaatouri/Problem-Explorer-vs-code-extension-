@@ -66,6 +66,70 @@ function diag(message: string): Diagnostic {
   return { line: 0, column: 0, severity: ProblemSeverity.Error, message, source: 'editor' };
 }
 
+/** A Ready tsc-like scanner; scan results are supplied per test. */
+function tscProvider(
+  scanResult: (uris: readonly Uri[]) => {
+    files?: { uri: Uri; diagnostics: readonly Diagnostic[] }[];
+  },
+): Provider {
+  return {
+    id: 'tsc',
+    displayName: 'TypeScript',
+    capabilities: {
+      confidenceTier: 3,
+      supportedConfigTypes: ['typescript'],
+      workspaceScan: true,
+      incrementalScan: true,
+      realtime: false,
+      extensions: ['.ts'],
+      cost: 'expensive' as const,
+    },
+    configSchema: { type: 'object' },
+    defaultConfig: {},
+    async healthCheck() {
+      return { health: ProviderHealth.Ready };
+    },
+    async scan(context: { uris?: readonly Uri[] }) {
+      const uris = context.uris ?? [];
+      return { changedUris: uris, ...scanResult(uris) };
+    },
+  };
+}
+
+/** Wait until a provider health-checks Ready (health checks run async at registration). */
+async function untilProviderReady(api: DiagnosticsAPI, providerId: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = (): void => {
+      if (Date.now() > deadline) {
+        reject(new Error(`provider ${providerId} never became Ready`));
+        return;
+      }
+      const disposable = api.onProviderStatusChanged((event) => {
+        if (event.providerId === providerId && event.status.health === ProviderHealth.Ready) {
+          disposable.dispose();
+          resolve();
+        }
+      });
+      setTimeout(() => {
+        disposable.dispose();
+        check();
+      }, 200);
+    };
+    check();
+  });
+}
+
+async function until(predicate: () => boolean, what: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!predicate()) {
+    throw new Error(`timeout waiting for: ${what}`);
+  }
+}
+
 describe('DiagnosticsAPI.reportEditorDiagnostics', () => {
   let api: DiagnosticsAPI | undefined;
 
@@ -96,6 +160,56 @@ describe('DiagnosticsAPI.reportEditorDiagnostics', () => {
       api = new DiagnosticsAPI({ workspaceRoot: makeUri(ws) });
       api.reportEditorDiagnostics(makeUri(file), [diag('ignored')]);
       expect(api.getProblems(makeUri(file)).errorCount).toBe(0);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a Ready scanner without a result for the file does not take ownership — editor diagnostics stay visible', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'pe-rt3-'));
+    const file = join(ws, 'x.ts');
+    const workspaceRoot = makeUri(ws);
+    const uri = makeUri(file);
+    try {
+      const instance = new DiagnosticsAPI({
+        workspaceRoot,
+        providers: [railtimeProvider(), tscProvider(() => ({}))],
+      });
+      api = instance;
+      await untilProviderReady(instance, 'tsc');
+      instance.reportEditorDiagnostics(uri, [diag('red squiggle')]);
+      expect(instance.getProblems(uri).severity).toBe(ProblemSeverity.Error);
+      expect(instance.getOwners(uri)).toEqual([]); // no ownership claimed without a result
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('once the scanner has a result for the file, ownership transfers and editor pushes are gated', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'pe-rt4-'));
+    const file = join(ws, 'x.ts');
+    const workspaceRoot = makeUri(ws);
+    const uri = makeUri(file);
+    try {
+      const instance = new DiagnosticsAPI({
+        workspaceRoot,
+        providers: [
+          railtimeProvider(),
+          tscProvider((uris) => ({
+            files: uris.map((u) => ({ uri: u, diagnostics: [diag('tsc verdict')] })),
+          })),
+        ],
+      });
+      api = instance;
+      await untilProviderReady(instance, 'tsc');
+      await instance.scan('manual' as never, [uri]);
+      await until(() => instance.getOwners(uri).includes('tsc'), 'tsc owns the scanned file');
+      expect(instance.getProblems(uri).errorCount).toBe(1);
+
+      // A later editor push for the scanner-owned file is gated (§9.3).
+      instance.reportEditorDiagnostics(uri, [diag('editor edit')]);
+      expect(instance.rejectedWriteCount).toBeGreaterThan(0);
+      expect(instance.getProblems(uri).errorCount).toBe(1); // tsc's verdict, not the editor's
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

@@ -11,6 +11,6 @@ export default defineConfig({
     // same packages live under packages/*/node_modules/@pe/* (pnpm symlinks)
     // and must not run: they double-collect every suite and their .bin lacks
     // the e2e tools (tsc/eslint), which stalls scans and times out.
-    exclude: ['**/node_modules/**', 'packages/extension/test-electron/**'],
+    exclude: ['**/node_modules/**', 'packages/extension/test-electron/**', 'packages/extension/test-electron-realtime/**'],
   },
 });
