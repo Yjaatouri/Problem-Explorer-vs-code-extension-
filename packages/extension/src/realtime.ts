@@ -76,7 +76,9 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
         .map((diag) => toEngineDiagnostic(diag, this.severityOverrides, uri.fsPath));
       
       // If no editor diagnostics, fall back to engine diagnostics for this URI
-      if (mapped.length === 0) {
+      // BUT only if editor diagnostics were NOT explicitly cleared (empty array means user fixed the file)
+      const editorDiagnosticsWereEmpty = editorDiagnostics.length === 0;
+      if (!editorDiagnosticsWereEmpty && mapped.length === 0) {
         const engineDiags = engine.api.getDiagnostics(uri);
         if (engineDiags.length > 0) {
           mapped = engineDiags;
