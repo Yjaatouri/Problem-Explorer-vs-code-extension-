@@ -25,8 +25,8 @@ export class StatusBarManager {
     private readonly totals: TotalsProvider,
     private readonly item: StatusBarItemLike,
   ) {
-    this.item.command = 'problemExplorer.showStatus';
-    this.item.tooltip = 'Problem Explorer — click to open Problems panel';
+    this.item.command = 'problemExplorer.scanWorkspace';
+    this.item.tooltip = 'Problem Explorer — click to scan workspace';
   }
 
   /** Re-render from the current engine totals. */
@@ -44,12 +44,6 @@ export class StatusBarManager {
     }
 
     const totals = this.totals.getTotals();
-    const hasAny = totals.errors + totals.warnings + totals.info > 0;
-    if (!hasAny) {
-      this.item.hide();
-      return;
-    }
-
     const parts: string[] = [];
     if (totals.errors > 0) {
       parts.push(`$(error)${totals.errors}`);
@@ -60,8 +54,13 @@ export class StatusBarManager {
     if (totals.info > 0) {
       parts.push(`$(info)${totals.info}`);
     }
-    this.item.text = parts.join('  ');
-    this.item.tooltip = 'Problem Explorer — click to open Problems panel';
+
+    if (parts.length > 0) {
+      this.item.text = parts.join('  ');
+    } else {
+      this.item.text = '$(search) Scan';
+    }
+    this.item.tooltip = 'Problem Explorer — click to scan workspace';
     this.item.show();
   }
 
