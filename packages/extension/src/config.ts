@@ -115,8 +115,12 @@ const problemExplorerKeys = {
 } as const;
 
 export function readConfig(reader: SettingsReader): ExtensionConfig {
+  const enabled = reader.get(problemExplorerKeys.enabled, DEFAULT_CONFIG.enabled);
+  if (!enabled) {
+    console.warn('[Problem Explorer] Extension is disabled via settings. Set problemExplorer.enabled=true to enable.');
+  }
   return {
-    enabled: reader.get(problemExplorerKeys.enabled, DEFAULT_CONFIG.enabled),
+    enabled,
     showWarnings: reader.get(problemExplorerKeys.showWarnings, DEFAULT_CONFIG.showWarnings),
     badgeStyle: reader.get(problemExplorerKeys.badgeStyle, DEFAULT_CONFIG.badgeStyle),
     ignorePatterns: reader.get(problemExplorerKeys.ignorePatterns, DEFAULT_CONFIG.ignorePatterns),
