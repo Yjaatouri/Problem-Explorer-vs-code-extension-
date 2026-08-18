@@ -51,23 +51,54 @@ export class RealtimeDiagnosticsBridge implements DisposableLike {
     return this.getEngine();
   }
 
-  /** Push the current editor diagnostics for one URI into the engine. */
+  /** Push the current editor diagnostics for one URI into the engine with retry logic. */
   pushUri(uri: Uri): void {
+    this.attemptPush(uri, 0);
+  }
+
+  /** Attempt to push diagnostics with retry logic. */
+  private attemptPush(uri: Uri, retryCount: number): void {
     const engine = this.engine;
     if (!engine) {
-      this.log(`pushUri DROPPED (no engine yet): ${uri.fsPath}`);
+      if (retryCount >= 3) {
+        this.log(`pushUri FAILED after ${retryCount} retries (no engine): ${uri.fsPath}`);
+        return;
+      }
+      this.log(`pushUri RETRY ${retryCount + 1}/3 (no engine yet): ${uri.fsPath}`);
+      setTimeout(() => this.attemptPush(uri, retryCount + 1), 100 * (retryCount + 1)); // 100ms, 200ms, 300ms
       return;
     }
-    const mapped: Diagnostic[] = this.languages
-      .getDiagnostics(uri)
-      .map((diag) => toEngineDiagnostic(diag, this.severityOverrides, uri.fsPath));
-    engine.realtime.handle(uri, mapped);
-    engine.api.reportEditorDiagnostics(uri, mapped);
-    this.log(
-      `pushUri ${uri.fsPath}: ${mapped.length} diag(s) -> owners=[${engine.api
-        .getOwners(uri)
-        .join(',')}]`,
-    );
+    
+    try {
+      // First try editor diagnostics
+      const editorDiagnostics = this.languages.getDiagnostics(uri);
+      let mapped: readonly Diagnostic[] = editorDiagnostics
+        .map((diag) => toEngineDiagnostic(diag, this.severityOverrides, uri.fsPath));
+      
+      // If no editor diagnostics, fall back to engine diagnostics for this URI
+      if (mapped.length === 0) {
+        const engineDiags = engine.api.getDiagnostics(uri);
+        if (engineDiags.length > 0) {
+          mapped = engineDiags;
+          this.log(`pushUri ${uri.fsPath}: using engine diagnostics fallback (${mapped.length} diag(s))`);
+        }
+      }
+      
+      engine.realtime.handle(uri, mapped);
+      engine.api.reportEditorDiagnostics(uri, mapped);
+      this.log(
+        `pushUri ${uri.fsPath}: ${mapped.length} diag(s) -> owners=[${engine.api
+          .getOwners(uri)
+          .join(',')}]`,
+      );
+    } catch (error) {
+      if (retryCount >= 3) {
+        this.log(`pushUri FAILED after ${retryCount} retries (error): ${uri.fsPath} - ${error}`);
+        return;
+      }
+      this.log(`pushUri RETRY ${retryCount + 1}/3 (error): ${uri.fsPath} - ${error}`);
+      setTimeout(() => this.attemptPush(uri, retryCount + 1), 100 * (retryCount + 1)); // 100ms, 200ms, 300ms
+    }
   }
 
   /**

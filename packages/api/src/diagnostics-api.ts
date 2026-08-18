@@ -156,6 +156,11 @@ export class DiagnosticsAPI {
     return this.store.getOwners(uri);
   }
 
+  /** Engine diagnostics for a URI (scanner + realtime), regardless of editor state. */
+  getDiagnostics(uri: Uri): readonly Diagnostic[] {
+    return this.store.getDiagnostics(uri);
+  }
+
   /**
    * Request a scan (§5.7). Manual jumps the queue; no uris = the whole
    * workspace. Resolves once the plans have been handed to the scheduler.
