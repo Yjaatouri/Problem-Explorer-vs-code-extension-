@@ -148,12 +148,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
       if (rebuildTimer) {
         clearTimeout(rebuildTimer);
       }
-      rebuildTimer = setTimeout(() => {
-        rebuildEngine();
-      }, 300);
+rebuildTimer = setTimeout(async () => {
+      await rebuildEngine();
+    }, 300);
     }),
   );
 
+
+  // -------- commands --------
+  registerCommands(
+    vscode.commands,
+    engineProvider,
+    { showInformationMessage: (m) => void vscode.window.showInformationMessage(m) },
+    {
+      isEnabled: () => config.enabled,
+      setEnabled: async (enabled) => {
+        await vscode.workspace
+          .getConfiguration('problemExplorer')
+          .update('enabled', enabled, vscode.ConfigurationTarget.Global);
+      },
+    },
+  );
+
+  // -------- engine lifecycle --------
+  async function rebuildEngine(): Promise<void> {
+    if (engine) {
+      engine.api.dispose();
+      engine = undefined;
+    }
+    if (!config.enabled) {
+      log('Extension disabled (problemExplorer.enabled=false). Enable in settings to activate.');
+      decorationEngine.notifyChanged(undefined);
+      statusBar.setEnabled(false);
+      return;
+    }
+    const next = createEngine(workspaceRoot!, config);
+    next.api.onTotalsChanged(() => {
+      statusBar.update();
+      decorationEngine.notifyChanged(undefined);
+    });
+    next.api.onProblemsChanged((e) => {
+      log(`store: ${e.providerId} ${e.uri.fsPath} -> ${e.diagnostics.length} diag(s)`);
+    });
+    next.api.onScanStateChanged((state) => {
+      statusBar.setScanning(state.phase === 'scanning');
+    });
+    engine = next;
+    log('engine created/rebuilt');
+    // Startup scan runs first so its results are in the store before we backfill.
+    await startScans(next, config);
+    // Backfill: diagnostics that changed before this engine existed (boot
+    // race, rebuild swap) must still surface — snapshot, not polling.
+    bridge.syncAll();
+    decorationEngine.notifyChanged(undefined);
+    statusBar.setEnabled(true);
+  }
+
+  // -------- boot --------
+  log(`activate: debug=${config.debug} enabled=${config.enabled} root=${workspaceRoot.fsPath}`);
+  statusBar.setEnabled(config.enabled);
+  decorationEngine.setConfig(config);
+  rebuildEngine();
   // -------- auto scans --------
   const scanUri = (uri: vscode.Uri): void => {
     if (!config.autoScanEnabled || isIgnored(uri, config.ignorePatterns)) {
@@ -181,65 +236,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<HostAp
       }
     }),
   );
-
-  // -------- commands --------
-  registerCommands(
-    vscode.commands,
-    engineProvider,
-    { showInformationMessage: (m) => void vscode.window.showInformationMessage(m) },
-    {
-      isEnabled: () => config.enabled,
-      setEnabled: async (enabled) => {
-        await vscode.workspace
-          .getConfiguration('problemExplorer')
-          .update('enabled', enabled, vscode.ConfigurationTarget.Global);
-      },
-    },
+  // -------- targeted active-editor sync --------
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor?.document && !isIgnored(editor.document.uri, config.ignorePatterns)) {
+        bridge.pushUri(editor.document.uri);
+      }
+    })
   );
 
-  // -------- engine lifecycle --------
-  function rebuildEngine(): void {
-    if (engine) {
-      engine.api.dispose();
-      engine = undefined;
+  // -------- event-driven TS backfill --------
+  let hasSeenTsDiagnostics = false;
+  const tsDiagnosticListener = vscode.languages.onDidChangeDiagnostics((e) => {
+    const hasTsFile = e.uris.some((u) => u.fsPath.endsWith('.ts') || u.fsPath.endsWith('.tsx'));
+    if (hasTsFile && !hasSeenTsDiagnostics) {
+      hasSeenTsDiagnostics = true;
+      bridge.syncAll();
+      tsDiagnosticListener.dispose();
     }
-    if (!config.enabled) {
-      decorationEngine.notifyChanged(undefined);
-      statusBar.setEnabled(false);
-      return;
-    }
-    const next = createEngine(workspaceRoot!, config);
-    next.api.onTotalsChanged(() => {
-      statusBar.update();
-      decorationEngine.notifyChanged(undefined);
-    });
-    next.api.onProblemsChanged((e) => {
-      log(`store: ${e.providerId} ${e.uri.fsPath} -> ${e.diagnostics.length} diag(s)`);
-    });
-    next.api.onScanStateChanged((state) => {
-      statusBar.setScanning(state.phase === 'scanning');
-    });
-    engine = next;
-    log('engine created/rebuilt');
-    // Backfill: diagnostics that changed before this engine existed (boot
-    // race, rebuild swap) must still surface — snapshot, not polling.
-    bridge.syncAll();
-    decorationEngine.notifyChanged(undefined);
-    statusBar.setEnabled(true);
-    void startScans(next, config);
-  }
+  });
+  context.subscriptions.push(tsDiagnosticListener);
 
-  // -------- boot --------
-  log(`activate: debug=${config.debug} enabled=${config.enabled} root=${workspaceRoot.fsPath}`);
-  statusBar.setEnabled(config.enabled);
-  decorationEngine.setConfig(config);
-  rebuildEngine();
-  // One delayed backfill so language servers that publish after startup are
-  // not missed (single shot — syncAll is a snapshot, never a poller).
-  const bootBackfillTimer = setTimeout(() => {
-    bridge.syncAll();
-  }, 1500);
-  context.subscriptions.push(new vscode.Disposable(() => clearTimeout(bootBackfillTimer)));
+  // Fallback: if no TS diagnostics after 10s, sync anyway
+  const fallbackTimer = setTimeout(() => {
+    if (!hasSeenTsDiagnostics) {
+      bridge.syncAll();
+    }
+    tsDiagnosticListener.dispose();
+  }, 10000);
+  context.subscriptions.push(new vscode.Disposable(() => clearTimeout(fallbackTimer)));
   // A real (uncancelled) token; `provideFileDecoration` is sync, so the
     // token value doesn't matter for rendering.
     const renderToken = new vscode.CancellationTokenSource().token;

@@ -64,5 +64,6 @@ export async function startScans(engine: EngineApi, config: ExtensionConfig): Pr
     config.typescript.scanOnStartup || config.eslint.scanOnStartup || config.ruff.scanOnStartup;
   if (manualStartup) {
     await engine.api.scan(ScanType.Startup);
+    await engine.api.awaitStartupScan();
   }
 }

@@ -88,7 +88,6 @@ export class DiagnosticsAPI {
     this.store = new ProblemStore();
     this.index = new WorkspaceIndex({ roots: [options.workspaceRoot] });
     this.index.load();
-    this.index.rebuildDiagnostics();
     this.cache = new DiagnosticCache();
     this.analyzer = new ImpactAnalyzer(this.index, this.cache, {
       debounceMs: options.config?.debounceMs,
@@ -117,6 +116,7 @@ export class DiagnosticsAPI {
         this.providerStatusEmitter.fire(event);
       }),
     );
+    this.index.rebuildDiagnostics();
 
     void this.registry.healthCheckAll();
 
@@ -162,6 +162,21 @@ export class DiagnosticsAPI {
    */
   async scan(type: ScanType, uris?: readonly Uri[]): Promise<void> {
     this.analyzer.requestScan(uris, PRIORITY_BY_SCAN_TYPE[type]);
+  }
+
+  /** Wait for the next startup scan to complete. Resolves immediately if no startup scan is pending/running. */
+  async awaitStartupScan(): Promise<void> {
+    if (!this.scheduler.runningCount && this.scheduler.queuedCount === 0) {
+      return; // No scans running or queued
+    }
+    return new Promise<void>((resolve) => {
+      const disposable = this.scheduler.onScanJobComplete((event) => {
+        if (event.job.type === 'startup') {
+          disposable.dispose();
+          resolve();
+        }
+      });
+    });
   }
 
   /** Debounced per-file save scan (§5.7). */
