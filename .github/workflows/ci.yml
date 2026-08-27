@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node-version: [22.x]
 
     runs-on: ${{ matrix.os }}
@@ -28,6 +28,8 @@ jobs:
       - run: npm run lint
 
       - run: npm run build
+
+      - run: npm test
 
       - name: Package
         run: npx vsce package
