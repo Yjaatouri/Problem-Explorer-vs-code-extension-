@@ -144,6 +144,11 @@ export class ProblemStore {
     return this.storage.size;
   }
 
+  /** Debug/forensic: snapshot of entries as {key, severity} pairs. */
+  debugEntries(): { key: string; severity: number }[] {
+    return Array.from(this.storage.entries()).map(([key, s]) => ({ key, severity: s.severity }));
+  }
+
   deleteByPrefix(prefix: string): number {
     let count = 0;
     const prefixSlash = prefix + '/';

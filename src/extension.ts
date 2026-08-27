@@ -16,7 +16,10 @@ import { DiagnosticProviderManager } from './providers/DiagnosticProviderManager
 import { VSCodeDiagnosticProvider } from './providers/VSCodeDiagnosticProvider';
 import { TscDiagnosticProvider } from './providers/TscDiagnosticProvider';
 import { EslintDiagnosticProvider } from './providers/EslintDiagnosticProvider';
+import { RuffDiagnosticProvider } from './providers/RuffDiagnosticProvider';
 import { VSDiagnosticsProvider } from './providers/VSDiagnosticsProvider';
+import { OxlintDiagnosticProvider } from './providers/OxlintDiagnosticProvider';
+import { EslintProjectResolver } from './typescript/EslintProjectResolver';
 import { AutoScanController } from './scanner/AutoScanner';
 import { StartupScanController } from './scanner/StartupScanController';
 import { ScanWorkspaceButton } from './scanButton/ScanWorkspaceButton';
@@ -88,6 +91,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const decorationEngine = new DecorationEngine(problemStore, {
   getWorkspaceFolder: (uri) => workspace.getWorkspaceFolder(uri),
 });
+    decorationEngine.setLogger(log);
     const folderStatusManager = new FolderStatusManager(problemStore);
     const configManager = new ConfigManager();
     setConfigManager(configManager);
@@ -201,7 +205,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     const tscProvider = new TscDiagnosticProvider(problemStore, {
       timeoutMs: configManager.getConfig().typescript.timeout,
     });
-    const eslintProvider = new EslintDiagnosticProvider(problemStore, diagProviderManager);
+    const eslintResolver = new EslintProjectResolver();
+    const eslintProvider = new EslintDiagnosticProvider(
+      problemStore,
+      diagProviderManager,
+      undefined,
+      eslintResolver,
+      configManager.getConfig().eslint.timeout,
+      log,
+    );
+    eslintProvider.setExplicitEslintPath(configManager.getConfig().eslint.eslintPath);
+    const ruffProvider = new RuffDiagnosticProvider(problemStore, configManager.getConfig().ruff);
     const statusBarManager = new StatusBarManager(problemStore);
 
     // Provider priorities must match ProblemStore.configureProvider() values below.
@@ -218,6 +232,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     diagProviderManager.register('eslint', eslintProvider, {
       priority: 9,
       capabilities: ['diagnostics', 'eslint-scan'],
+    });
+    diagProviderManager.register('ruff', ruffProvider, {
+      priority: 8,
+      capabilities: ['diagnostics', 'ruff-scan'],
+    });
+    const oxlintProvider = new OxlintDiagnosticProvider(problemStore, log);
+    diagProviderManager.register('oxlint', oxlintProvider, {
+      priority: 6,
+      capabilities: ['diagnostics', 'oxlint-scan'],
     });
 
     const commandManager = new CommandManager(
@@ -248,6 +271,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     // Language server (vscodeDiagnostics) is least authoritative — editor-scoped, incremental.
     problemStore.configureProvider('tsc', 10);
     problemStore.configureProvider('eslint', 9);
+    problemStore.configureProvider('ruff', 8);
+    problemStore.configureProvider('oxlint', 6);
     problemStore.configureProvider('vscodeDiagnostics', 5);
 
     const vsDiagnosticsProvider = new VSDiagnosticsProvider(
@@ -270,6 +295,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
       diagProvider.setReconcileInterval(config.reconcileIntervalMs);
       tscProvider.updateConfig(config.typescript);
       eslintProvider.updateConfig(config.eslint);
+      oxlintProvider.updateConfig(config.oxlint);
+      // Ruff config handled by RuffDiagnosticProvider internally
     };
     applyConfig();
 
@@ -287,16 +314,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
     vsDiagnosticsProvider.start();
     log('[VERIFY] VSDiagnosticsProvider started');
     log(`[VERIFY] Store entries after init: ${problemStore.size()}`);
+    if (configManager.getConfig().debug) {
+      for (const e of problemStore.debugEntries().slice(0, 30)) {
+        log(`[STORE-DUMP] ${e.key} sev=${e.severity}`);
+      }
+    }
 
     const tscCfg = configManager.getConfig().typescript;
     const eslintCfg = configManager.getConfig().eslint;
-    log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled + ', eslint.enabled=' + eslintCfg.enabled);
+    const oxlintCfg = configManager.getConfig().oxlint;
+    log('config applied: enabled=' + configManager.getConfig().enabled + ', tsc.enabled=' + tscCfg.enabled + ', eslint.enabled=' + eslintCfg.enabled + ', oxlint.enabled=' + oxlintCfg.enabled);
 
     // Start all providers with startupScan capability (non-blocking)
     const startupController = new StartupScanController(
       diagProviderManager,
       log,
-      (name) => name === 'tsc' && !tscCfg.scanOnStartup,
+      (name) => (name === 'tsc' && !tscCfg.scanOnStartup) || (name === 'eslint' && !eslintCfg.scanOnStartup) || (name === 'oxlint' && !oxlintCfg.scanOnStartup),
     );
     startupController.run();
     context.subscriptions.push(startupController);
@@ -319,18 +352,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
 
     let prevTscEnabled = tscCfg.enabled;
     let prevEslintEnabled = eslintCfg.enabled;
+    let prevRuffEnabled = configManager.getConfig().ruff.enabled;
+    let prevOxlintEnabled = oxlintCfg.enabled;
     context.subscriptions.push(
       configManager.onDidChangeConfig(() => {
         log('config changed');
         const prevTsc = prevTscEnabled;
         const prevEslint = prevEslintEnabled;
+        const prevRuff = prevRuffEnabled;
+        const prevOxlint = prevOxlintEnabled;
         applyConfig();
         const currCfg = configManager.getConfig();
         const currTsc = currCfg.typescript;
         const currEslint = currCfg.eslint;
+        const currRuff = currCfg.ruff;
+        const currOxlint = currCfg.oxlint;
         prevTscEnabled = currTsc.enabled;
         prevEslintEnabled = currEslint.enabled;
+        prevRuffEnabled = currRuff.enabled;
+        prevOxlintEnabled = currOxlint.enabled;
         autoScanController?.updateConfig(currCfg.autoScanDelay, currCfg.autoScanEnabled);
+        tscProvider.updateConfig(currTsc);
+        eslintProvider.updateConfig(currEslint);
+        eslintProvider.setExplicitEslintPath(currEslint.eslintPath);
+        ruffProvider.updateConfig(currRuff);
+        oxlintProvider.updateConfig(currOxlint);
         if (currTsc.enabled && !prevTsc) {
           log('[TSC] Scan enabled via config change — triggering scan');
           tscProvider.refresh();
@@ -338,6 +384,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Proble
         if (currEslint.enabled && !prevEslint) {
           log('[ESLINT] Scan enabled via config change — triggering scan');
           eslintProvider.refresh();
+        }
+        if (!currEslint.enabled && prevEslint) {
+          // Ownership of JS/TS extensions now falls to oxlint (lazy ownership
+          // skips disabled providers) — let oxlint claim those files.
+          log('[ESLINT] Scan disabled via config change — triggering oxlint scan to take over JS/TS');
+          oxlintProvider.refresh();
+        }
+        if (currRuff.enabled && !prevRuff) {
+          log('[RUFF] Scan enabled via config change — triggering scan');
+          ruffProvider.refresh();
+        }
+        if (currOxlint.enabled && !prevOxlint) {
+          log('[OXLINT] Scan enabled via config change — triggering scan');
+          oxlintProvider.refresh();
         }
       }),
     );

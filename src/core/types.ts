@@ -28,6 +28,24 @@ export interface TscConfig {
 export interface EslintConfig {
   readonly enabled: boolean;
   readonly autoScan: boolean;
+  readonly scanOnStartup: boolean;
+  readonly timeout: number;
+  readonly maxConcurrentScans: number;
+  readonly eslintPath?: string;
+}
+
+export interface RuffConfig {
+  readonly enabled: boolean;
+  readonly autoScan: boolean;
+  readonly scanOnStartup: boolean;
+  readonly timeout: number;
+  readonly maxConcurrentScans: number;
+}
+
+export interface OxlintConfig {
+  readonly enabled: boolean;
+  readonly autoScan: boolean;
+  readonly scanOnStartup: boolean;
   readonly timeout: number;
   readonly maxConcurrentScans: number;
 }
@@ -59,6 +77,8 @@ export interface Config {
   readonly reconcileIntervalMs: number;
   readonly typescript: TscConfig;
   readonly eslint: EslintConfig;
+  readonly ruff: RuffConfig;
+  readonly oxlint: OxlintConfig;
 }
 
 /**

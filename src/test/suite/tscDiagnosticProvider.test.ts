@@ -352,13 +352,6 @@ suite('TscDiagnosticProvider', () => {
     provider.dispose();
   });
 
-  test('constructor accepts refreshDebounceMs', () => {
-    const store = new ProblemStore();
-    const provider = new TscDiagnosticProvider(store, { refreshDebounceMs: 500 });
-    assert.ok(provider);
-    provider.dispose();
-  });
-
   test('ScanTiming satisfies structural type', () => {
     const t: ScanTiming = {
       totalMs: 100, resolveProjectsMs: 10, tscRunsMs: 80, parseMs: 5, storeWriteMs: 5,

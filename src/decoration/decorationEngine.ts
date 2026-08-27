@@ -30,6 +30,8 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   readonly onDidChangeFileDecorations: Event<Uri | Uri[] | undefined> =
     this._onDidChangeFileDecorations.event;
   private config: Config | undefined;
+  private _logFn: ((msg: string) => void) | undefined;
+  private _probeCount = 0;
 
   // Coalescing state: batch multiple fireDidChange calls into a single array fire
   private _coalesceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -39,6 +41,11 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
     private readonly problemStore: ProblemStore,
     private readonly delegate: DecorationEngineDelegate = defaultDecorationDelegate,
   ) {
+  }
+
+  /** Optional logger used by the debug decoration probe. */
+  setLogger(log: (msg: string) => void): void {
+    this._logFn = log;
   }
 
   setConfig(config: Config | undefined): void {
@@ -51,6 +58,13 @@ export class DecorationEngine implements FileDecorationProvider, Disposable {
   ): FileDecoration | undefined {
     const folder = this.delegate.getWorkspaceFolder(uri);
     const status = this.problemStore.get(uri);
+
+    if (this.config?.debug && this._probeCount < 80 && this._logFn) {
+      this._probeCount++;
+      this._logFn(
+        `[DECO-PROBE] ${uri.toString()} | folder=${folder ? 'Y' : 'N'} status=${status ? `sev=${status.severity} e=${status.errorCount} w=${status.warningCount}` : 'MISS'}`,
+      );
+    }
 
     if (!folder) {
       return undefined;

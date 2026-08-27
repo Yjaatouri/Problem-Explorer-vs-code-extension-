@@ -33,8 +33,6 @@ export class DiagnosticProviderManager {
   private readonly entries = new Map<string, ProviderEntry>();
   private _started = false;
   private _disposed = false;
-  /** extension → canonical provider name */
-  private _ownershipMap = new Map<string, string>();
 
   private readonly _onDidRegister = new EventEmitter<ProviderInfo>();
   readonly onDidRegister: Event<ProviderInfo> = this._onDidRegister.event;
@@ -86,8 +84,6 @@ export class DiagnosticProviderManager {
       metadata: resolved,
       state: ProviderState.idle,
     });
-
-    this._rebuildOwnership();
   }
 
   unregister(name: string): boolean {
@@ -103,17 +99,21 @@ export class DiagnosticProviderManager {
     try { entry.provider.dispose(); } catch {}
     this.cleanupProviderSub(name);
     this._onDidUnregister.fire({ name });
-    this._rebuildOwnership();
     return true;
   }
 
   /**
    * Return the canonical provider name that owns the given extension,
    * or `undefined` if no scan provider claims it (falls to realtime).
+   *
+   * Ownership is computed lazily on each call so that providers which become
+   * disabled during/after `initialize()` (e.g. ESLint missing from the
+   * project) stop owning extensions and lower-priority providers can take
+   * over automatically.
    */
   getOwner(extension: string): string | undefined {
     this.ensureNotDisposed();
-    return this._ownershipMap.get(extension);
+    return this.computeOwnership().get(extension);
   }
 
   /**
@@ -122,7 +122,7 @@ export class DiagnosticProviderManager {
   getOwnedExtensions(providerName: string): readonly string[] {
     this.ensureNotDisposed();
     const result: string[] = [];
-    for (const [ext, owner] of this._ownershipMap) {
+    for (const [ext, owner] of this.computeOwnership()) {
       if (owner === providerName) result.push(ext);
     }
     return result;
@@ -133,7 +133,7 @@ export class DiagnosticProviderManager {
    */
   canProviderProcess(providerName: string, extension: string): boolean {
     this.ensureNotDisposed();
-    return this._ownershipMap.get(extension) === providerName;
+    return this.computeOwnership().get(extension) === providerName;
   }
 
   get(name: string): DiagnosticProvider | undefined {
@@ -287,26 +287,28 @@ export class DiagnosticProviderManager {
   }
 
   /**
-   * Rebuild the extension → owner map from all registered providers.
-   * For each extension, the highest-priority non-realtime provider that
-   * declares it wins. Ties are broken by first-registered-first.
+   * Compute the extension → owner map from all registered providers.
+   * For each extension, the highest-priority non-realtime, enabled provider
+   * that declares it wins. Ties are broken by first-registered-first.
+   * Disabled providers (provider.enabled === false) never own extensions.
    */
-  private _rebuildOwnership(): void {
-    const newMap = new Map<string, string>();
+  private computeOwnership(): Map<string, string> {
+    const map = new Map<string, string>();
     const sorted = this.sortedEntries();
     for (const [, entry] of sorted) {
       const providerName = entry.provider.name;
       const caps = entry.provider.capabilities;
       if (caps.realtime) continue;
+      if (entry.provider.enabled === false) continue;
       const extensions = caps.extensions;
       if (!extensions) continue;
       for (const ext of extensions) {
-        if (!newMap.has(ext)) {
-          newMap.set(ext, providerName);
+        if (!map.has(ext)) {
+          map.set(ext, providerName);
         }
       }
     }
-    this._ownershipMap = newMap;
+    return map;
   }
 
   private sortedEntries(): Array<[string, ProviderEntry]> {

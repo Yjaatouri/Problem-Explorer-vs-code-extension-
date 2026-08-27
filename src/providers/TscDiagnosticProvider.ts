@@ -28,8 +28,6 @@ export interface ScanTiming {
 
 type Mutable<T> = { -readonly [P in keyof T]: T[P] };
 
-const DEFAULT_DEBOUNCE_MS = 300;
-
 export class TscDiagnosticProvider implements DiagnosticProvider {
   readonly name = 'tsc';
   readonly capabilities: ProviderCapabilities = {
@@ -52,7 +50,6 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
   private readonly tscRunner: TscRunner;
   private readonly outputParser: TscOutputParser;
   private timeoutMs: number;
-  private readonly refreshDebounceMs: number;
   private abortController: AbortController | undefined;
   private _lastScanErrors: TscScanError[] = [];
   private _lastScanDurationMs = 0;
@@ -113,7 +110,6 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
       tscRunner?: TscRunner;
       outputParser?: TscOutputParser;
       timeoutMs?: number;
-      refreshDebounceMs?: number;
     },
   ) {
     this._store = store;
@@ -121,7 +117,6 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
     this.tscRunner = options?.tscRunner ?? new TscRunner();
     this.outputParser = options?.outputParser ?? new TscOutputParser();
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TSC_TIMEOUT_MS;
-    this.refreshDebounceMs = options?.refreshDebounceMs ?? DEFAULT_DEBOUNCE_MS;
   }
 
   async initialize(): Promise<void> {
@@ -150,22 +145,10 @@ export class TscDiagnosticProvider implements DiagnosticProvider {
 
   async refresh(): Promise<void> {
     this._clearDebounce();
-
-    return new Promise<void>((resolve) => {
-      this._refreshResolve = resolve;
-      this._debounceTimer = setTimeout(async () => {
-        this._refreshResolve = undefined;
-        this._debounceTimer = undefined;
-        try {
-          const changed = await this.runScan();
-          if (changed.length > 0 && !this._disposed) {
-            this._onDidUpdate.fire(changed);
-          }
-        } catch {
-        }
-        resolve();
-      }, this.refreshDebounceMs);
-    });
+    const changed = await this.runScan();
+    if (!this._disposed && changed.length > 0) {
+      this._onDidUpdate.fire(changed);
+    }
   }
 
   dispose(): void {

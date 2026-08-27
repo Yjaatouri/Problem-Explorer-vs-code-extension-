@@ -45,9 +45,13 @@ export class StartupScanController implements Disposable {
 
     const candidates: string[] = [];
     for (const info of this.manager.all()) {
-      if (!info.provider.capabilities.startupScan) continue;
-      if (!info.provider.enabled) continue;
-      if (this.skipProvider?.(info.name)) continue;
+      const hasStartupScan = info.provider.capabilities.startupScan;
+      const isEnabled = info.provider.enabled;
+      const shouldSkip = this.skipProvider?.(info.name);
+      this.log(`[STARTUP-SCAN] Checking ${info.name}: startupScan=${hasStartupScan}, enabled=${isEnabled}, skip=${shouldSkip}`);
+      if (!hasStartupScan) continue;
+      if (!isEnabled) continue;
+      if (shouldSkip) continue;
       candidates.push(info.name);
     }
 

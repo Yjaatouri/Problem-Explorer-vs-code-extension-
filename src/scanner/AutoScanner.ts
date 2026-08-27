@@ -11,14 +11,13 @@ export class AutoScanController implements Disposable {
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _debounceMs: number;
   private _enabled = true;
-  private _flushing = false;
 
   constructor(
     manager: DiagnosticProviderManager,
     statusBar: StatusBarManager,
     log: (msg: string) => void,
-    debounceMs: number = 300,
-    enabled: boolean = true,
+    debounceMs: number = 800,
+    enabled: boolean = false,
   ) {
     this.manager = manager;
     this.statusBar = statusBar;
@@ -74,9 +73,6 @@ export class AutoScanController implements Disposable {
   private _schedule(): void {
     if (this._debounceTimer) {
       clearTimeout(this._debounceTimer);
-    } else if (!this._flushing) {
-      this._cancelActiveScans();
-    } else {
     }
 
     this._debounceTimer = setTimeout(() => {
@@ -85,28 +81,10 @@ export class AutoScanController implements Disposable {
     }, this._debounceMs);
   }
 
-  private _cancelActiveScans(): void {
-    for (const providerName of this.queuedProviders) {
-      const provider = this.manager.get(providerName);
-      if (provider?.scanning) {
-        this.log(`[AUTO-SCAN] Cancelling in-progress ${providerName} scan`);
-        try {
-          provider.stop();
-        } catch (err) {
-          this.log(`[AUTO-SCAN] Error stopping ${providerName}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-    }
-  }
-
-  private async _flush(_callerTs?: number): Promise<void> {
+  private async _flush(): Promise<void> {
     if (this.queuedProviders.size === 0) {
       return;
     }
-    if (this._flushing) {
-      return;
-    }
-    this._flushing = true;
 
     const names = Array.from(this.queuedProviders);
     this.queuedProviders.clear();
@@ -142,7 +120,6 @@ export class AutoScanController implements Disposable {
       await Promise.all(promises);
     } finally {
       this.statusBar.setScanning(false);
-      this._flushing = false;
       if (this.queuedProviders.size > 0) {
         this._debounceTimer = setTimeout(() => {
           this._debounceTimer = undefined;

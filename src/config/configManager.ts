@@ -5,7 +5,7 @@ import {
   EventEmitter,
   workspace,
 } from 'vscode';
-import { Config, EslintConfig, TscConfig } from '../core/types';
+import { Config, EslintConfig, TscConfig, RuffConfig, OxlintConfig } from '../core/types';
 import { SETTINGS_SECTION } from '../core/constants';
 import { DEFAULT_IGNORE_PATTERNS } from '../core/constants';
 
@@ -64,11 +64,13 @@ private readConfig(): Config {
       infoColor: cfg.get<string | undefined>('infoColor', undefined),
       severityOverrides: cfg.get<Record<string, Record<string, string>> | undefined>('severityOverrides', undefined),
       autoScanEnabled: cfg.get<boolean>('autoScan.enabled', false),
-      autoScanDelay: cfg.get<number>('autoScanDelay', 2000),
+      autoScanDelay: cfg.get<number>('autoScanDelay', 800),
       debug: cfg.get<boolean>('debug', false),
       reconcileIntervalMs: cfg.get<number>('reconcileIntervalMs', 30000),
       typescript: this.readTscConfig(cfg),
       eslint: this.readEslintConfig(cfg),
+      ruff: this.readRuffConfig(cfg),
+      oxlint: this.readOxlintConfig(cfg),
     };
   }
 
@@ -87,8 +89,30 @@ private readConfig(): Config {
     return {
       enabled: cfg.get<boolean>('eslint.enabled', true),
       autoScan: cfg.get<boolean>('eslint.autoScan', false),
+      scanOnStartup: cfg.get<boolean>('eslint.scanOnStartup', true),
       timeout: cfg.get<number>('eslint.timeout', 120000),
       maxConcurrentScans: cfg.get<number>('eslint.maxConcurrentScans', 2),
+      eslintPath: cfg.get<string | undefined>('eslint.eslintPath', undefined),
+    };
+  }
+
+  private readRuffConfig(cfg: { get<T>(key: string, defaultValue?: T): T }): RuffConfig {
+    return {
+      enabled: cfg.get<boolean>('ruff.enabled', true),
+      autoScan: cfg.get<boolean>('ruff.autoScan', false),
+      scanOnStartup: cfg.get<boolean>('ruff.scanOnStartup', true),
+      timeout: cfg.get<number>('ruff.timeout', 120000),
+      maxConcurrentScans: cfg.get<number>('ruff.maxConcurrentScans', 2),
+    };
+  }
+
+  private readOxlintConfig(cfg: { get<T>(key: string, defaultValue?: T): T }): OxlintConfig {
+    return {
+      enabled: cfg.get<boolean>('oxlint.enabled', true),
+      autoScan: cfg.get<boolean>('oxlint.autoScan', false),
+      scanOnStartup: cfg.get<boolean>('oxlint.scanOnStartup', true),
+      timeout: cfg.get<number>('oxlint.timeout', 120000),
+      maxConcurrentScans: cfg.get<number>('oxlint.maxConcurrentScans', 2),
     };
   }
 }
