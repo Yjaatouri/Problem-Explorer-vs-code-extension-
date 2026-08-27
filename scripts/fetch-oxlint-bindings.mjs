@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Fetch all supported @oxlint/binding-* platform binaries for the oxlint
  * version pinned in package.json, extracting them into node_modules/@oxlint.
  *
@@ -16,14 +16,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const pkg = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+let raw = readFileSync(path.join(repoRoot, 'packages', 'extension', 'package.json'), 'utf8');
+// Strip BOM if present
+if (raw.charCodeAt(0) === 0xFEFF) {
+  raw = raw.slice(1);
+}
+const pkg = JSON.parse(raw);
 const oxlintVersion = (pkg.dependencies?.oxlint ?? pkg.devDependencies?.oxlint ?? '').replace(/^[\^~]/, '');
 if (!oxlintVersion) {
   console.error('oxlint not found in package.json dependencies');
   process.exit(1);
 }
 
-/** VS Code desktop platforms we support (win/mac/linux × x64/arm64, glibc+musl). */
+/** VS Code desktop platforms we support (win/mac/linux �- x64/arm64, glibc+musl). */
 const BINDINGS = [
   'binding-win32-x64-msvc',
   'binding-win32-arm64-msvc',

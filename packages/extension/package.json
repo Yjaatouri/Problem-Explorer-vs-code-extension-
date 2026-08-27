@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "problem-explorer",
     "displayName":  "Problem Explorer",
     "description":  "Explorer badges with real-time diagnostics from your favorite tools (tsc, eslint) plus the editor\u0027s own diagnostics.",
@@ -284,3 +284,5 @@
                                  "@oxlint/binding-darwin-x64":  "^1.79.0"
                              }
 }
+
+
