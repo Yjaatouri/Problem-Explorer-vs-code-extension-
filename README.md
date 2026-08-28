@@ -1,4 +1,4 @@
-# Problem Explorer
+﻿# Problem Explorer
 
 **Stop hunting for broken files.**
 
@@ -8,13 +8,13 @@ Problem Explorer automatically highlights files and folders containing **errors*
 
 ## Features
 
-- **File decorations** — files with errors/warnings show a colored badge (E, W, I) in the Explorer
-- **Folder propagation** — folders inherit the worst severity of their children, so you can see at a glance where issues are
-- **Real-time updates** — decorations update as you type, with zero perceptible lag
-- **Language-agnostic** — works with TypeScript, JavaScript, Python, Rust, Go, C++, Java, C#, and any extension that publishes diagnostics
-- **Multi-root workspaces** — supports multiple workspace folders simultaneously
-- **Configurable** — customize colors, badges, ignore patterns, and which severities to show
-- **Lightweight** — LRU-cached, debounced, and optimized for workspaces with 20,000+ files
+- **File decorations** â€” files with errors/warnings show a colored badge (E, W, I) in the Explorer
+- **Folder propagation** â€” folders inherit the worst severity of their children, so you can see at a glance where issues are
+- **Real-time updates** â€” decorations update as you type, with zero perceptible lag
+- **Language-agnostic** â€” works with TypeScript, JavaScript, Python, Rust, Go, C++, Java, C#, and any extension that publishes diagnostics
+- **Multi-root workspaces** â€” supports multiple workspace folders simultaneously
+- **Configurable** â€” customize colors, badges, ignore patterns, and which severities to show
+- **Lightweight** â€” LRU-cached, debounced, and optimized for workspaces with 20,000+ files
 
 ## How It Works
 
@@ -22,22 +22,22 @@ Instead of this:
 
 ```
 packages/
-├── core/
-├── cli/
-└── sdk/
+â”œâ”€â”€ core/
+â”œâ”€â”€ cli/
+â””â”€â”€ sdk/
 ```
 
 You'll see something like:
 
 ```
 packages/
-├── core E
-│   ├── parser.ts E
-│   ├── lexer.ts W
-│   └── utils.ts
-├── cli
-└── sdk E
-    └── index.ts E
+â”œâ”€â”€ core E
+â”‚   â”œâ”€â”€ parser.ts E
+â”‚   â”œâ”€â”€ lexer.ts W
+â”‚   â””â”€â”€ utils.ts
+â”œâ”€â”€ cli
+â””â”€â”€ sdk E
+    â””â”€â”€ index.ts E
 ```
 
 Instantly know where to focus.
@@ -54,7 +54,7 @@ Instantly know where to focus.
 ### From VSIX
 
 1. Download the `.vsix` file from the [Releases page](https://github.com/Yjaatouri/Problem-Explorer-vs-code-extension-/releases)
-2. In VS Code, go to Extensions → `...` → Install from VSIX...
+2. In VS Code, go to Extensions â†’ `...` â†’ Install from VSIX...
 
 ### Development
 
@@ -72,7 +72,7 @@ Launch the extension using **Run Extension** (`F5`) inside VS Code.
 | Command | Title | Keybinding |
 |---|---|---|
 | `problemExplorer.refresh` | Refresh Problem Decorations | Ctrl+Shift+Alt+P (Cmd+Shift+Alt+P on Mac) |
-| `problemExplorer.toggle` | Toggle Problem Decorations | — |
+| `problemExplorer.toggle` | Toggle Problem Decorations | â€” |
 
 ## Settings
 
@@ -98,7 +98,7 @@ Auto-scan runs the configured language tool (TypeScript `tsc --noEmit`, ESLint, 
 **Behavior:**
 - Triggered by `onDidSaveTextDocument`, `onDidCreateFiles`, `onDidDeleteFiles`, `onDidRenameFiles`
 - Debounced by `autoScanDelay` (default 2s) to batch rapid saves
-- Only the provider owning the file's extension runs (e.g., `.ts` → TypeScript, `.js` → ESLint)
+- Only the provider owning the file's extension runs (e.g., `.ts` â†’ TypeScript, `.js` â†’ ESLint)
 - Status bar shows `$(sync~spin) Scanning...` while a scan is in progress
 - Diagnostics update automatically in the Explorer and Status Bar
 
@@ -118,10 +118,23 @@ You can also customize colors via `workbench.colorCustomizations` in `settings.j
 
 - VS Code 1.90.0 or higher
 
+## Supported Platforms for Oxlint
+
+The Oxlint diagnostic provider bundles native bindings for the following desktop platforms:
+
+- Windows: x64, arm64
+
+- macOS: x64 (Intel), arm64 (Apple Silicon)
+
+- Linux: x64 (glibc), x64 (musl), arm64 (gnu), arm64 (musl)
+
+These bindings are included in the VSIX, so users do not need to install Oxlint separately.
+
+
 ## Known Limitations
 
 - Badges are text-only (E, W, I, count, or dot). VS Code's `FileDecorationProvider` API does not support custom icons or background colors.
-- Folder color propagation requires an explicit `onDidChangeFileDecorations` event per ancestor — handled automatically by the extension.
+- Folder color propagation requires an explicit `onDidChangeFileDecorations` event per ancestor â€” handled automatically by the extension.
 
 ## Architecture
 

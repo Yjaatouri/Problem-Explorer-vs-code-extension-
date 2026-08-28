@@ -14,8 +14,13 @@
   "engines": {
     "vscode": "^1.90.0"
   },
-  "activationEvents": ["onStartupFinished"],
-  "categories": ["Linters", "Other"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "categories": [
+    "Linters",
+    "Other"
+  ],
   "contributes": {
     "commands": [
       {
@@ -49,9 +54,33 @@
       ]
     },
     "colors": [
-      { "id": "problemExplorer.errorForeground", "description": "Color of error badges.", "defaults": { "light": "#f44747", "dark": "#f44747", "highContrast": "#f44747" } },
-      { "id": "problemExplorer.warningForeground", "description": "Color of warning badges.", "defaults": { "light": "#cca700", "dark": "#dcdcaa", "highContrast": "#dcdcaa" } },
-      { "id": "problemExplorer.infoForeground", "description": "Color of info badges.", "defaults": { "light": "#3794ff", "dark": "#3794ff", "highContrast": "#3794ff" } }
+      {
+        "id": "problemExplorer.errorForeground",
+        "description": "Color of error badges.",
+        "defaults": {
+          "light": "#f44747",
+          "dark": "#f44747",
+          "highContrast": "#f44747"
+        }
+      },
+      {
+        "id": "problemExplorer.warningForeground",
+        "description": "Color of warning badges.",
+        "defaults": {
+          "light": "#cca700",
+          "dark": "#dcdcaa",
+          "highContrast": "#dcdcaa"
+        }
+      },
+      {
+        "id": "problemExplorer.infoForeground",
+        "description": "Color of info badges.",
+        "defaults": {
+          "light": "#3794ff",
+          "dark": "#3794ff",
+          "highContrast": "#3794ff"
+        }
+      }
     ],
     "configuration": {
       "title": "Problem Explorer",
@@ -68,13 +97,20 @@
         },
         "problemExplorer.badgeStyle": {
           "type": "string",
-          "enum": ["letter", "count", "dot", "none"],
+          "enum": [
+            "letter",
+            "count",
+            "dot",
+            "none"
+          ],
           "default": "letter",
           "description": "Badge style: E/W/I letters, per-severity counts, a dot, or none."
         },
         "problemExplorer.ignorePatterns": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [
             "**/node_modules/**",
             "**/.git/**",
@@ -146,7 +182,9 @@
         },
         "problemExplorer.typescript.extraArgs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Extra command-line arguments appended to the tsc scan command."
         },
@@ -172,7 +210,9 @@
         },
         "problemExplorer.eslint.extraArgs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Extra command-line arguments appended to the eslint scan command."
         },
@@ -198,7 +238,9 @@
         },
         "problemExplorer.ruff.extraArgs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Extra command-line arguments appended to the ruff scan command."
         }
@@ -213,7 +255,8 @@
     "@pe/provider-ruff": "workspace:*",
     "@pe/provider-tsc": "workspace:*",
     "@pe/provider-vscode-realtime": "workspace:*",
-    "minimatch": "^9.0.0"
+    "minimatch": "^9.0.0",
+    "oxlint": "^1.79.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
@@ -237,5 +280,15 @@
     "test:electron:realtime": "pnpm run typecheck && node scripts/build.mjs && tsc -p tsconfig.test-realtime.json && node ../../scripts/ensure-test-cjs.mjs dist/test-realtime && node dist/test-realtime/runTest.js",
     "package": "pnpm exec vsce package --no-dependencies",
     "test:electron:packaged": "node scripts/build.mjs && tsc -p tsconfig.test.json && node ../../scripts/ensure-test-cjs.mjs && pnpm run package && node dist/test/runTestPackaged.js"
+  },
+  "optionalDependencies": {
+    "@oxlint/binding-darwin-arm64": "^1.79.0",
+    "@oxlint/binding-linux-x64-musl": "^1.79.0",
+    "@oxlint/binding-linux-x64-gnu": "^1.79.0",
+    "@oxlint/binding-win32-arm64-msvc": "^1.79.0",
+    "@oxlint/binding-linux-arm64-gnu": "^1.79.0",
+    "@oxlint/binding-win32-x64-msvc": "^1.79.0",
+    "@oxlint/binding-linux-arm64-musl": "^1.79.0",
+    "@oxlint/binding-darwin-x64": "^1.79.0"
   }
 }
